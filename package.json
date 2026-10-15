@@ -1,0 +1,45 @@
+{
+  "name": "swapup-mobile",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "expo": "~57.0.26",
+    "expo-asset": "~57.0.18",
+    "expo-audio": "~57.0.5",
+    "expo-battery": "~57.0.3",
+    "expo-brightness": "~57.0.2",
+    "expo-camera": "~57.0.6",
+    "expo-cellular": "~57.0.2",
+    "expo-clipboard": "~57.0.2",
+    "expo-constants": "~57.0.20",
+    "expo-device": "~57.0.2",
+    "expo-file-system": "~57.0.7",
+    "expo-haptics": "~57.0.3",
+    "expo-keep-awake": "~57.0.2",
+    "expo-local-authentication": "~57.0.3",
+    "expo-location": "~57.0.20",
+    "expo-network": "~57.0.2",
+    "expo-sensors": "~57.0.3",
+    "expo-sharing": "~57.0.22",
+    "expo-status-bar": "~57.0.1",
+    "qrcode": "^1.5.4",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "start:store": "APP_VARIANT=store expo start",
+    "start:check": "APP_VARIANT=check expo start",
+    "typecheck": "tsc --noEmit"
+  },
+  "private": true
+}

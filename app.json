@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0b0a10",
+    "ios": {
+      "infoPlist": {
+        "NSCameraUsageDescription": "Camera, flashlight and QR-station tests.",
+        "NSMicrophoneUsageDescription": "Microphone test.",
+        "NSLocationWhenInUseUsageDescription": "GPS fix test.",
+        "NSFaceIDUsageDescription": "Biometric sensor test.",
+        "NSMotionUsageDescription": "Accelerometer and gyroscope tests."
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
