@@ -13,7 +13,7 @@ import { TestProps, TestShell } from "../TestShell";
 import { Result } from "../catalog";
 import { Big, BigEmoji, Say } from "../parts";
 import { CantTest } from "../web/WebParts";
-import { bluetoothApi, errName, ndefReaderCtor } from "../web/browser";
+import { bluetoothApi, errName, ndefReaderCtor, withTimeout } from "../web/browser";
 
 export function ConfirmTest(p: TestProps) {
   if (p.test.id === "bluetooth") return <BluetoothWeb {...p} />;
@@ -32,16 +32,13 @@ function BluetoothWeb(p: TestProps) {
   const check = () => {
     if (!bt?.getAvailability) return;
     setAvail(null);
-    bt.getAvailability().then(
+    // A browser that errors or never answers can't test it — that is not a radio fault.
+    withTimeout(bt.getAvailability(), 5000).then(
       (a) => {
         setAvail(a);
         setChecks((n) => n + 1);
       },
-      (e) => {
-        setErr(errName(e));
-        setAvail(false);
-        setChecks((n) => n + 1);
-      }
+      (e) => setErr(errName(e))
     );
   };
   useEffect(() => {
@@ -50,6 +47,7 @@ function BluetoothWeb(p: TestProps) {
   }, []);
 
   if (!bt) return <CantTest p={p} reason="This browser has no access to Bluetooth." />;
+  if (err) return <CantTest p={p} reason="This browser couldn't reach Bluetooth." detail={{ method: "web-bluetooth getAvailability", error: err }} />;
 
   // Bluetooth simply being switched off is not a fault: one "not available"
   // asks the customer to turn it on; still unavailable after that → fail (they can override).
