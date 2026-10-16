@@ -4,6 +4,7 @@ import { L } from "../../shared/theme";
 import { StaffClient, absolute, errText } from "../staffClient";
 import type { CreditState, CreditSummary, StaffUser, TestSessionView } from "../types";
 import { unwrapSession } from "../types";
+import { photosNeeded } from "../grading";
 import { Banner, Body, Btn, Card, Chip, Columns, H1, H2, Label, STATUS, Tone, ago, inr, toneColor, until, useLayout } from "../ui";
 
 const CREDIT_STATE: Record<CreditState, { label: string; tone: Tone }> = {
@@ -244,6 +245,8 @@ function CreditBody({
 
 function SessionRow({ s: x, onPress }: { s: TestSessionView; onPress: () => void }) {
   const st = STATUS[x.status] ?? { label: x.status, tone: "muted" as Tone };
+  // Joined but no camera grade yet (and camera grading is on): the advisor still has step 3 to do.
+  const needPhotos = photosNeeded(x, x.status === "joined" || x.status === "testing" || x.status === "complete");
   const model = x.summary?.model.label || [x.device?.brand, x.device?.modelName].filter(Boolean).join(" ") || null;
   const when =
     x.status === "waiting" || x.status === "opened"
@@ -276,7 +279,10 @@ function SessionRow({ s: x, onPress }: { s: TestSessionView; onPress: () => void
           {when}
         </Text>
       </View>
-      <Chip text={st.label} tone={st.tone} />
+      <View style={{ alignItems: "flex-end", gap: 6 }}>
+        <Chip text={st.label} tone={st.tone} />
+        {needPhotos ? <Chip text="Photos needed" tone="warn" /> : null}
+      </View>
       <Text style={{ fontSize: 24, color: L.muted }}>›</Text>
     </Pressable>
   );

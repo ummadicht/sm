@@ -77,6 +77,8 @@ export type TestSessionView = {
   declared: { screenCracked: boolean | null; backCracked: boolean | null; liquid: boolean | null; imei: string | null } | null;
   progress: { done: number; total: number };
   summary: DiagnosticSummary | null;
+  /** GradeIQ camera step (MOBILE-API.md, "grading"). Read it only through ./grading.ts readGrading(). */
+  grading?: unknown;
 };
 
 export type WifiSecurity = "WPA" | "WEP" | "nopass";

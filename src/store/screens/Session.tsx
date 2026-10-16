@@ -11,6 +11,8 @@ import type { SessionLinks, StaffUser, TestSessionView, WifiResponse } from "../
 import { TERMINAL, unwrapSession } from "../types";
 import { Banner, Body, Btn, Card, Chip, Columns, STATUS, TopBar, Tone, ago, useLayout } from "../ui";
 import { DeclaredCard, DeviceCard, Stepper, SummaryCard, TestQrCard, TestsCard, WifiCard, WifiInfo, nowLine } from "./SessionParts";
+import { CameraAiCard, CameraStepCard } from "./CameraParts";
+import { readGrading } from "../grading";
 
 const POLL_MS = 2_000;
 const KEEP_AWAKE_TAG = "swapup-store-session";
@@ -161,6 +163,18 @@ export function SessionScreen({
     return next;
   }
 
+  /** POST …/camera-override answers with the session (or just its grading); the 2 s poll catches up either way. */
+  function takeOverride(r: unknown) {
+    const nv = unwrapSession(r);
+    if (nv) {
+      setV(nv);
+      terminalRef.current = TERMINAL.has(nv.status);
+      return;
+    }
+    const gr = r && typeof r === "object" ? (r as { grading?: unknown }).grading : undefined;
+    if (gr !== undefined) setV((cur) => (cur ? { ...cur, grading: gr } : cur));
+  }
+
   // ── actions
   async function apply() {
     if (!v) return;
@@ -309,6 +323,9 @@ export function SessionScreen({
     </Columns>
   );
 
+  const grading = readGrading(v);
+  const cameraStep = !terminal ? <CameraStepCard v={v} g={grading} api={api} wide={wide} onSession={takeOverride} /> : null;
+
   const freshness =
     terminal ? null : pollFails >= 2 && pollErr ? null : lastOk ? `Live · updated ${ago(new Date(lastOk).toISOString()) || "just now"}` : "Connecting…";
 
@@ -353,8 +370,12 @@ export function SessionScreen({
           />
           {actionErr ? <Banner tone="bad" title={actionErr.title}>{actionErr.text}</Banner> : null}
 
-          {/* The two QR codes */}
+          {/* ③ once the customer's phone is in: the advisor's next job */}
+          {live ? cameraStep : null}
+
+          {/* The two QR codes (③ sits in a row below them until the phone joins) */}
           {qrVisible ? qrCards : null}
+          {!live ? cameraStep : null}
           {live ? (
             <Btn
               title={showQr ? "Hide the QR codes" : "Show the QR codes again"}
@@ -370,6 +391,7 @@ export function SessionScreen({
               <Columns wide>
                 <View style={{ gap: 16 }}>
                   <SummaryCard v={v} />
+                  <CameraAiCard g={grading} />
                   <DeviceCard v={v} />
                   <DeclaredCard v={v} />
                 </View>
@@ -378,6 +400,7 @@ export function SessionScreen({
             ) : (
               <View style={{ gap: 16 }}>
                 <SummaryCard v={v} />
+                <CameraAiCard g={grading} />
                 <DeviceCard v={v} />
                 <TestsCard v={v} />
                 <DeclaredCard v={v} />
