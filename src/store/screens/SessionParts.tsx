@@ -199,7 +199,7 @@ export function TestQrCard({ joinUrl, code, expiresAt, status, qrSize }: { joinU
   const steps = [
     "Open the camera and point it at this code.",
     "Tap the link that appears.",
-    "Tap “Install SwapUp Check”.",
+    "Tap “Install SwapUp Check” — or “Test in this browser” (no install; the way to test an iPhone).",
     "If Android asks, allow installs from this browser: Settings → Install unknown apps → your browser → Allow.",
     "Open the app. If it asks for a code, type the one below.",
   ];
@@ -352,6 +352,9 @@ export function DeviceCard({ v }: { v: TestSessionView }) {
   const title = v.summary?.model.label || reported || "Unknown phone";
   const reportedGb = d.totalDiskBytes ? fmtBytes(d.totalDiskBytes) : null;
   const variant = v.summary?.model.variant;
+  // A run in the browser version of SwapUp Check says "web-<version>" (iPhones are always tested that way).
+  const inBrowser = !!d.appVersion && d.appVersion.startsWith("web-");
+  const os = /^apple$/i.test(d.brand || d.manufacturer || "") ? "iOS" : "Android";
   const storage = variant ? `${variant}${reportedGb ? ` (phone reports ${reportedGb})` : ""}` : reportedGb ? `${reportedGb} reported by the phone` : "Not reported";
   return (
     <Card>
@@ -361,10 +364,10 @@ export function DeviceCard({ v }: { v: TestSessionView }) {
       {d.isPhysicalDevice === false ? <Banner tone="bad" title="Not a real phone">The app is running on an emulator. Don't use these results for a trade-in.</Banner> : null}
       <View>
         <KV label="Storage" value={storage} />
-        <KV label="Android" value={d.osVersion ? `Android ${d.osVersion}` : "Not reported"} />
+        <KV label={os} value={d.osVersion ? `${os} ${d.osVersion}` : "Not reported"} />
         <KV label="Battery charge" value={d.batteryLevelPct != null ? `${d.batteryLevelPct}%` : "Not reported"} />
         {d.totalMemoryBytes ? <KV label="Memory (RAM)" value={fmtBytes(d.totalMemoryBytes)} /> : null}
-        {d.appVersion ? <KV label="SwapUp Check" value={`v${d.appVersion}`} /> : null}
+        {d.appVersion ? <KV label="SwapUp Check" value={inBrowser ? `In the browser, no app (v${d.appVersion.slice(4)})` : `v${d.appVersion}`} /> : null}
       </View>
     </Card>
   );

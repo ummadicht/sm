@@ -3,7 +3,8 @@
 //  - model: User-Agent Client Hints (Chrome / Samsung Internet on Android give
 //    the real model code, e.g. "SM-S901E", which the server matches), else the
 //    UA string (core.parseUserAgent — reduced-UA placeholders come back null)
-//  - OS version: Client Hints platformVersion on Android, else the UA
+//  - OS version: Client Hints platformVersion on Android, else the UA (phones
+//    only — a desktop browser reports none)
 //  - storage size, RAM, emulator-or-not: a browser can't know → null
 //  - battery %: navigator.getBattery() where it exists (Chrome on Android)
 //  - appVersion "web-<version>" so the server and the store can tell a browser
@@ -51,9 +52,9 @@ export async function contractDevice(): Promise<ContractDevice> {
     if (h) {
       model = realModel(h.model) ?? model;
       const platform = (h.platform || uad.platform || "").toLowerCase();
-      // Only Android's platformVersion is the OS version (Windows reports something else).
+      // Only Android's platformVersion is a phone OS version worth sending (a
+      // laptop's "macOS 26.4" would read as "Android 26.4" at the counter).
       if (platform === "android") osVersion = trimVersion(h.platformVersion) ?? osVersion;
-      else if (platform === "macos") osVersion = h.platformVersion || osVersion;
     }
     if (uad.mobile) mobile = true;
   }
