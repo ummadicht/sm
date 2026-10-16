@@ -72,7 +72,8 @@ OUT="$ROOT/dist/swapup-$VARIANT.apk"
 mkdir -p "$ROOT/dist"
 cp android/app/build/outputs/apk/release/app-release.apk "$OUT"
 "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$OUT" | grep -m1 "Signer #1 certificate DN" || true
-VERSION=$(node -e "console.log(require('./app.json').expo.version)")
+# The version the APK was actually built with (app.config.js wins over app.json).
+VERSION=$(APP_VARIANT=$VARIANT node -e "const c=require('./app.config.js'); console.log((typeof c==='function'?c({config:{}}):c).version)")
 SIZE=$(stat -f%z "$OUT")
 SHA=$(shasum -a 256 "$OUT" | cut -d' ' -f1)
 echo "{\"app\":\"$VARIANT\",\"version\":\"$VERSION\",\"bytes\":$SIZE,\"sha256\":\"$SHA\",\"builtAt\":\"$(date -u +%FT%TZ)\"}" > "$ROOT/dist/swapup-$VARIANT.json"
