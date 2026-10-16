@@ -10,7 +10,7 @@ import { TestProps, TestShell } from "../TestShell";
 import { T } from "../../shared/theme";
 import { Big, Say } from "../parts";
 import { CantBody } from "../web/WebParts";
-import { isIOS, MOTION_DENIED, motionNeedsTap, requestMotionAccess } from "../web/browser";
+import { asHtml, isIOS, MOTION_DENIED, motionNeedsTap, requestMotionAccess } from "../web/browser";
 
 const BALL = 36, TARGET = 90;
 const WAIT_MS = 3000;
@@ -35,8 +35,21 @@ export function MotionTest(p: TestProps) {
   const inSince = useRef<number | null>(null);
   const done = useRef(false);
   const maxTilt = useRef(0);
+  const arenaRef = useRef<View>(null);
   areaRef.current = area;
   targetRef.current = target;
+
+  // onLayout (a ResizeObserver on the web) can arrive late or not at all in a
+  // backgrounded tab; measure the arena directly as a fallback.
+  useEffect(() => {
+    if (phase !== "listening" && phase !== "running") return;
+    const t = setTimeout(() => {
+      if (areaRef.current.w) return;
+      const r = asHtml(arenaRef.current)?.getBoundingClientRect();
+      if (r && r.width && r.height) setArea({ w: r.width, h: r.height });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [phase]);
 
   useEffect(() => {
     if (!area.w) return;
@@ -144,7 +157,7 @@ export function MotionTest(p: TestProps) {
 
   return (
     <TestShell {...p} instructions="Tilt the phone to roll the ball into the ring and hold it there." detail={detail}>
-      <View style={s.arena} onLayout={(e) => setArea({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
+      <View ref={arenaRef} style={s.arena} onLayout={(e) => setArea({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
         {area.w > 0 && (
           <>
             <View style={[s.target, { left: target.x * area.w - TARGET / 2, top: target.y * area.h - TARGET / 2 }]} />
