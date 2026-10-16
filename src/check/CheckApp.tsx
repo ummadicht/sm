@@ -2,15 +2,21 @@
 // swapupcheck://join?code=…&server=…), it joins the store's session, asks the
 // damage questions, runs the hardware tests, and streams every result to the
 // store through the persistent outbox in ./engine.
+//
+// The same code runs in a browser at /app/check/ (the join page's "Test in this
+// browser" link, and the only way to test an iPhone): there the code comes from
+// ?code= in the page URL, progress lives in localStorage (./files.web.ts) and
+// the device facts come from the browser (./deviceInfo.web.ts).
+import "../shared/platform"; // browser shims (Alert, BackHandler) — a no-op on native
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ActivityIndicator, AppState, BackHandler, Linking, View } from "react-native";
+import { ActivityIndicator, AppState, BackHandler, Linking, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { T } from "../shared/theme";
-import { DEFAULT_SERVER, APP_VERSION } from "../shared/config";
+import { DEFAULT_SERVER, CLIENT_VERSION, IS_WEB } from "../shared/config";
 import { CheckEngine, joinErrorMessage } from "./engine";
-import { fileStore } from "./files";
+import { fileStore, storageIsPersistent } from "./files";
 import { contractDevice } from "./deviceInfo";
 import { parseJoinTarget, resumeStep } from "./core";
 import { DoneScreen, EndedScreen, JoinScreen, QuestionsScreen, RunnerScreen, WelcomeScreen, supportedPlan } from "./screens";
@@ -20,16 +26,58 @@ export function CheckApp() {
     <SafeAreaProvider>
       <StatusBar style="light" />
       <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }} edges={["top", "left", "right", "bottom"]}>
+        {IS_WEB && !storageIsPersistent() ? <NoStorageBar /> : null}
         <Root />
       </SafeAreaView>
     </SafeAreaProvider>
   );
 }
 
+/** Browser with storage blocked (private mode, blocked site data): a refresh would lose the place. */
+function NoStorageBar() {
+  return (
+    <View style={{ paddingVertical: 10, paddingHorizontal: 16, backgroundColor: T.surface2, borderBottomWidth: 2, borderBottomColor: T.warn }}>
+      <Text style={{ color: T.warn, fontSize: 14, lineHeight: 20, fontWeight: "600" }}>
+        This browser isn't saving your progress (private browsing or blocked site data). Keep this page open until you finish — results
+        already sent to the store are safe.
+      </Text>
+    </View>
+  );
+}
+
 const KEEP_AWAKE = "swapup-check";
 
+/**
+ * Browser: the API is this page's own origin (same-origin hosting — no CORS).
+ * A server named in a link or QR that is on another origin could not be called
+ * from here anyway, so the page's own server is used instead.
+ */
+function serverFor(server: string | null): string {
+  const s = (server || DEFAULT_SERVER).replace(/\/$/, "");
+  if (!IS_WEB) return s;
+  try {
+    return new URL(s).origin === window.location.origin ? s : DEFAULT_SERVER;
+  } catch {
+    return DEFAULT_SERVER;
+  }
+}
+
+/** Browser: drop ?code= / ?server= once joined, so a refresh resumes from storage instead of re-joining. */
+function cleanJoinUrl() {
+  if (!IS_WEB || typeof window === "undefined") return;
+  try {
+    const u = new URL(window.location.href);
+    if (!u.searchParams.has("code") && !u.searchParams.has("server")) return;
+    u.searchParams.delete("code");
+    u.searchParams.delete("server");
+    window.history.replaceState(window.history.state, "", u.pathname + u.search + u.hash);
+  } catch {
+    /* cosmetic */
+  }
+}
+
 function Root() {
-  const engine = useMemo(() => new CheckEngine(fileStore, contractDevice, { appVersion: APP_VERSION }), []);
+  const engine = useMemo(() => new CheckEngine(fileStore, contractDevice, { appVersion: CLIENT_VERSION }), []);
   const snap = useSyncExternalStore(engine.subscribe, engine.getSnapshot);
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
@@ -62,11 +110,12 @@ function Root() {
       setJoinError(null);
       setJoining(true);
       try {
-        const r = await engine.join(code, (server || DEFAULT_SERVER).replace(/\/$/, ""));
+        const r = await engine.join(code, serverFor(server));
         if (!r.ok) setJoinError(joinErrorMessage(r.status, r.message));
         else {
           setRerun(null);
           setPaused(false);
+          cleanJoinUrl();
         }
       } finally {
         setJoining(false);
@@ -85,8 +134,11 @@ function Root() {
       }
       pendingLink.current = null;
       const cur = engine.getSnapshot().state;
-      // The same code again (app reopened from the browser) — just carry on.
-      if (cur && !cur.ended && cur.code === t.code) return;
+      // The same code again (app reopened from the browser / page refreshed) — just carry on.
+      if (cur && !cur.ended && cur.code === t.code) {
+        cleanJoinUrl();
+        return;
+      }
       setLinkCode(t.code);
       if (cur && !cur.ended) await engine.forget();
       await join(t.code, t.server);
@@ -95,6 +147,12 @@ function Root() {
   );
 
   useEffect(() => {
+    if (IS_WEB) {
+      // The join page links here as /app/check/?code=K7M2QX. There are no deep
+      // links in a browser; the page URL is the link.
+      if (typeof window !== "undefined") void handleLink(window.location.href);
+      return;
+    }
     Linking.getInitialURL()
       .then((u) => {
         if (u) void handleLink(u);

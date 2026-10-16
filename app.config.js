@@ -4,6 +4,10 @@ const base = require("./app.json").expo;
 
 const VARIANT = process.env.APP_VARIANT === "store" ? "store" : "check";
 const DEFAULT_SERVER = process.env.SWAPUP_SERVER || "https://swapup.104-197-168-25.sslip.io";
+// Browser builds only (scripts/export-web.sh): the path the app is served under
+// on the SwapUp server, e.g. "/app/store". Prefixes every bundle and asset URL.
+// Never set for the APKs.
+const WEB_BASE = process.env.SWAPUP_WEB_BASE || "";
 
 const CHECK_PERMISSIONS = [
   "android.permission.CAMERA",
@@ -21,6 +25,7 @@ const variants = {
   store: {
     name: "SwapUp Store",
     slug: "swapup-store",
+    webDescription: "SwapUp Store — start a customer trade-in, show the test QR and watch the customer's phone test results arrive.",
     scheme: "swapupstore",
     package: "com.swapup.store",
     userInterfaceStyle: "light",
@@ -48,6 +53,7 @@ const variants = {
   check: {
     name: "SwapUp Check",
     slug: "swapup-check",
+    webDescription: "SwapUp Check — test your phone in the browser for your trade-in. Results go straight to the store.",
     scheme: "swapupcheck",
     package: "com.swapup.check",
     userInterfaceStyle: "dark",
@@ -88,6 +94,21 @@ module.exports = () => {
       predictiveBackGestureEnabled: false,
     },
     plugins: v.plugins,
+    // Browser build (Expo web, react-native-web): one index.html per app, hosted
+    // by the SwapUp server at /app/store/ and /app/check/ (same origin as the API).
+    web: {
+      ...base.web,
+      bundler: "metro",
+      output: "single",
+      name: v.name,
+      shortName: v.name,
+      description: v.webDescription,
+      lang: "en",
+      themeColor: v.backgroundColor,
+      backgroundColor: v.backgroundColor,
+      favicon: `./assets/${VARIANT}-icon.png`,
+    },
+    ...(WEB_BASE ? { experiments: { ...(base.experiments || {}), baseUrl: WEB_BASE } } : {}),
     extra: { variant: VARIANT, defaultServer: DEFAULT_SERVER },
   };
 };

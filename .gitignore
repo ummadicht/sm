@@ -6,3 +6,4 @@ dist
 *.apk
 *.keystore
 .env*
+dist-web
