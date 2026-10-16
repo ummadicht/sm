@@ -243,3 +243,26 @@ test("tone: base64 round-trips", () => {
 test("connectivity: unreadable network state is a skip", () => {
   assert.equal(A.connectivityVerdict({ connected: null, gps: "fix", detail: {} }).detail.reason, "the network state could not be read");
 });
+
+test("camera pipeline: a real JPEG → base64 → bytes → jpeg-js (options form, typed arrays) → luminance", async () => {
+  const jpeg = (await import("jpeg-js")).default as unknown as {
+    encode: (img: { data: Uint8Array; width: number; height: number }, q: number) => { data: Uint8Array };
+    decode: (d: Uint8Array, o: { useTArray: true; formatAsRGBA: true }) => { width: number; height: number; data: Uint8Array };
+  };
+  const w = 32, h = 24;
+  // Left half dark (40), right half bright (200): mean ≈ 120, std ≈ 80.
+  const rgba = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) rgba.set(x < w / 2 ? [40, 40, 40, 255] : [200, 200, 200, 255], (y * w + x) * 4);
+  const b64 = Tone.bytesToBase64(new Uint8Array(jpeg.encode({ data: rgba, width: w, height: h }, 90).data));
+  const img = jpeg.decode(A.base64ToBytes(b64), { useTArray: true, formatAsRGBA: true });
+  assert.ok(img.data instanceof Uint8Array);
+  assert.equal(img.width, w);
+  const st = A.luminanceStats(img.data, img.width, img.height);
+  assert.ok(Math.abs(st.mean - 120) < 4, `mean ${st.mean}`);
+  assert.ok(st.std > 70, `std ${st.std}`);
+  assert.equal(A.frameKind(st), "scene");
+  // A flat grey frame (a finger over the lens in light) is "uniform".
+  const flat = new Uint8Array(w * h * 4).fill(128);
+  const f = jpeg.decode(A.base64ToBytes(Tone.bytesToBase64(new Uint8Array(jpeg.encode({ data: flat, width: w, height: h }, 90).data))), { useTArray: true, formatAsRGBA: true });
+  assert.equal(A.frameKind(A.luminanceStats(f.data, f.width, f.height)), "uniform");
+});
