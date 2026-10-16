@@ -23,15 +23,15 @@ export function Screen({ children, scroll = true }: { children: React.ReactNode;
   );
 }
 
-function Title({ children }: { children: React.ReactNode }) {
+export function Title({ children }: { children: React.ReactNode }) {
   return <Text style={st.title}>{children}</Text>;
 }
 
-function Kicker({ children }: { children: React.ReactNode }) {
+export function Kicker({ children }: { children: React.ReactNode }) {
   return <Text style={st.kicker}>{children}</Text>;
 }
 
-function Note({ tone = "info", children }: { tone?: "info" | "bad" | "ok" | "warn"; children: React.ReactNode }) {
+export function Note({ tone = "info", children }: { tone?: "info" | "bad" | "ok" | "warn"; children: React.ReactNode }) {
   const border = tone === "bad" ? T.fail : tone === "ok" ? T.pass : tone === "warn" ? T.warn : T.border;
   return (
     <View style={[st.note, { borderColor: border }]}>

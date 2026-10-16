@@ -229,8 +229,8 @@ export function CameraStepCard({
 
   return (
     <Card style={{ gap: 14 }}>
-      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
-        {head}
+      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <View style={{ flexShrink: 1, minWidth: 0 }}>{head}</View>
         {needRetake ? (
           <Chip text="Retake needed" tone="bad" />
         ) : graded ? (

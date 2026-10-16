@@ -1,10 +1,14 @@
 // SwapUp Check — the customer's app. Opened by the store's QR (deep link
-// swapupcheck://join?code=…&server=…), it joins the store's session, asks the
-// damage questions, runs the hardware tests, and streams every result to the
-// store through the persistent outbox in ./engine.
+// swapupcheck://join?code=…&server=…), it joins the store's session and
+// streams every result to the store through the persistent outbox in ./engine.
+//
+// Native (the APK): no questions at all — the store photographs the phone while
+// it shows the patterns GradeIQ's camera asks for, then every test runs by
+// itself (./NativeCheck.tsx, docs/AUTO-TESTS.md).
 //
 // The same code runs in a browser at /app/check/ (the join page's "Test in this
-// browser" link, and the only way to test an iPhone): there the code comes from
+// browser" link, and the only way to test an iPhone) with the interactive flow
+// (welcome, damage questions, guided tests — ./screens.tsx): there the code comes from
 // ?code= in the page URL, progress lives in localStorage (./files.web.ts) and
 // the device facts come from the browser (./deviceInfo.web.ts).
 import "../shared/platform"; // browser shims (Alert, BackHandler) — a no-op on native
@@ -20,14 +24,20 @@ import { fileStore, storageIsPersistent } from "./files";
 import { contractDevice } from "./deviceInfo";
 import { parseJoinTarget, resumeStep } from "./core";
 import { DoneScreen, EndedScreen, JoinScreen, QuestionsScreen, RunnerScreen, WelcomeScreen, supportedPlan } from "./screens";
+import { NativeCheck } from "./NativeCheck";
+
+const EDGES = ["top", "left", "right", "bottom"] as const;
 
 export function CheckApp() {
+  // Native pairing only: a screen pattern for the store's camera fills the whole
+  // display (no safe-area padding, no status bar). Never set in the browser.
+  const [bleed, setBleed] = useState(false);
   return (
     <SafeAreaProvider>
-      <StatusBar style="light" />
-      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }} edges={["top", "left", "right", "bottom"]}>
+      <StatusBar style="light" hidden={bleed} />
+      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }} edges={bleed ? [] : EDGES}>
         {IS_WEB && !storageIsPersistent() ? <NoStorageBar /> : null}
-        <Root />
+        <Root onBleed={setBleed} />
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -76,7 +86,7 @@ function cleanJoinUrl() {
   }
 }
 
-function Root() {
+function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
   const engine = useMemo(() => new CheckEngine(fileStore, contractDevice, { appVersion: CLIENT_VERSION }), []);
   const snap = useSyncExternalStore(engine.subscribe, engine.getSnapshot);
   const [joining, setJoining] = useState(false);
@@ -198,12 +208,15 @@ function Root() {
   const { runnable, unsupported } = useMemo(() => supportedPlan(plan), [plan]);
 
   // Tests the app cannot run here are reported as such — never silently missing.
+  // (Browser flow; the native flow does its own bookkeeping in NativeCheck.)
   useEffect(() => {
-    if (!state || state.ended || !state.consentAt) return;
+    if (!IS_WEB || !state || state.ended || !state.consentAt) return;
     for (const p of unsupported) if (!state.results[p.id]) void engine.record(p.id, "unsupported", { reason: "not available in this app" });
   }, [engine, state, unsupported]);
 
-  const step = state && !state.ended ? (rerun ? "runner" : resumeStep(state, runnable.map((p) => p.id))) : null;
+  // The browser flow's step. Native has its own (NativeCheck): null here keeps the
+  // effects below (keep-awake, finish, status polling, back button) browser-only.
+  const step = IS_WEB && state && !state.ended ? (rerun ? "runner" : resumeStep(state, runnable.map((p) => p.id))) : null;
 
   // Keep the screen on while testing.
   useEffect(() => {
@@ -274,6 +287,22 @@ function Root() {
       );
     }
     return <JoinScreen busy={joining} error={joinError} initialCode={linkCode} onJoin={(c, s) => void join(c, s)} />;
+  }
+
+  if (!IS_WEB) {
+    return (
+      <NativeCheck
+        key={state.session.id}
+        engine={engine}
+        snap={snap}
+        onBleed={onBleed}
+        onWrongCode={() => {
+          onBleed(false);
+          void engine.forget();
+        }}
+        onNewCheck={() => void engine.forget()}
+      />
+    );
   }
 
   switch (step) {
