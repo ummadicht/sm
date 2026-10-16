@@ -17,6 +17,7 @@ import {
   Detail,
   JoinResponse,
   Outcome,
+  PairingRec,
   RemoteStatus,
   completePending,
   declarePending,
@@ -226,6 +227,7 @@ export class CheckEngine {
         completeAt: null,
         completeSentAt: null,
         ended: null,
+        pairing: null,
       });
       this.patch({ remote: null });
     }
@@ -299,6 +301,45 @@ export class CheckEngine {
   async finish(): Promise<void> {
     await this.update((s) => ({ ...s, completeAt: nextAt(s.completeAt) }));
     void this.flush();
+  }
+
+  /** Native: the pairing screen is over (kept on disk so a restart doesn't pair again). */
+  setPairing(p: PairingRec): Promise<void> {
+    return this.update((s) => ({ ...s, pairing: p }));
+  }
+
+  // ------------------------------------------------------------ pairing (photo check)
+  //
+  // GET/POST /api/device/screen (ticket) — SwapUp's proxy of GradeIQ's /screen.
+  // Called every ~700 ms, so it deliberately does NOT go through withTicket():
+  // a 404 there means "re-join", and a server without this route (or a check
+  // without camera grading) would re-join twice a second. Only 401/403 refresh
+  // the ticket here, at most every 20 s.
+  private lastScreenRefresh = 0;
+
+  private async screenCall<T>(fn: (c: Client) => Promise<T>): Promise<{ ok: true; body: T } | { ok: false; status: number; message: string }> {
+    const st = this.snap.state;
+    if (!st || st.ended || !st.ticket) return { ok: false, status: 0, message: "not connected" };
+    try {
+      return { ok: true, body: await fn(createClient(st.server, { kind: "ticket", token: st.ticket }, 8000)) };
+    } catch (e) {
+      const err = e instanceof ApiError ? e : new ApiError(0, "Can't reach SwapUp.");
+      if ((err.status === 401 || err.status === 403) && Date.now() - this.lastScreenRefresh > 20_000) {
+        this.lastScreenRefresh = Date.now();
+        await this.refreshTicket().catch(() => {});
+      }
+      return { ok: false, status: err.status, message: err.message };
+    }
+  }
+
+  /** What the store's camera wants this screen to show. */
+  screenPoll() {
+    return this.screenCall((c) => c.get<unknown>("/api/device/screen"));
+  }
+
+  /** Tell the camera which pattern this screen is ACTUALLY showing now. */
+  screenShown(shown: string) {
+    return this.screenCall((c) => c.post<unknown>("/api/device/screen", { shown }));
   }
 
   // ------------------------------------------------------------ outbox

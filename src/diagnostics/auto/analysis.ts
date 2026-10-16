@@ -298,6 +298,7 @@ export function connectivityVerdict(input: { connected: boolean | null; gps: Gps
   const d: Detail = { method, ...input.detail, connected: input.connected, gps: input.gps };
   if (input.gps === "error") return { outcome: "fail", detail: { ...d, reason: "the GPS reported an error twice" } };
   if (input.connected) return { outcome: "pass", detail: d };
+  if (input.connected == null) return { outcome: "skip", detail: { ...d, reason: "the network state could not be read" } };
   if (input.gps === "denied") return { outcome: "skip", detail: { ...d, reason: "location refused and offline" } };
   return { outcome: "skip", detail: { ...d, reason: "the phone was offline when checked" } };
 }

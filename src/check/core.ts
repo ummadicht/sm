@@ -73,7 +73,20 @@ export type CheckState = {
   completeSentAt: string | null;
   /** Set when the server says the session is gone (expired / cancelled / used elsewhere). */
   ended: string | null;
+  /**
+   * Native app only: how the pairing screen (the store photographing this phone
+   * through GradeIQ's camera page) ended. Absent = not finished yet / browser build.
+   */
+  pairing?: PairingRec | null;
 };
+
+/**
+ * handoff     — the camera page said it was finished (handoffDone)
+ * grace       — photos were accepted but the camera never said finished; left after 30 s (as GradeIQ's /v2 does)
+ * skipped     — the customer tapped "Continue without photos" (the store never connected / stalled)
+ * unavailable — the server refused the pairing calls (no camera grading for this check)
+ */
+export type PairingRec = { outcome: "handoff" | "grace" | "skipped" | "unavailable"; at: string; reason: string | null };
 
 // ---------------------------------------------------------------- codes + links
 

@@ -287,7 +287,9 @@ function Progress({ g }: { g: CameraGrading }) {
   const uploaded = c.cosmeticDone || !!c.verdict || !!r?.grade;
   const failed = !r?.grade && (r?.tierUsed === "stub" || r?.status === "failed");
   const steps: { label: string; state: "done" | "now" | "todo" | "bad"; detail?: string }[] = [
-    { label: "Camera connected", state: c.connected ? "done" : "now", detail: c.connectedAt ? ago(c.connectedAt) || undefined : c.connected ? undefined : "Waiting for the camera page" },
+    c.connected
+      ? { label: "Camera connected", state: "done", detail: c.connectedAt ? ago(c.connectedAt) || undefined : undefined }
+      : { label: "Camera not connected yet", state: "now", detail: "Tap “Take photos” — this ticks when the camera page opens." },
     { label: "Photos uploaded", state: uploaded ? "done" : c.connected ? "now" : "todo" },
     c.verdict === "retake"
       ? { label: "Photos rejected — retake", state: "bad", detail: c.reasons.length ? c.reasons.join(" · ") : "The camera page says what to retake." }

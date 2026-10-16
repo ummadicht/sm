@@ -239,3 +239,7 @@ test("tone: base64 round-trips", () => {
     assert.deepEqual(Array.from(A.base64ToBytes(b64)), Array.from(bytes));
   }
 });
+
+test("connectivity: unreadable network state is a skip", () => {
+  assert.equal(A.connectivityVerdict({ connected: null, gps: "fix", detail: {} }).detail.reason, "the network state could not be read");
+});
