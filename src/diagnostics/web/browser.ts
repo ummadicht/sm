@@ -159,9 +159,32 @@ export type BatteryManagerLike = EventTarget & {
   dischargingTime: number;
 };
 
-export function batteryApi(): (() => Promise<BatteryManagerLike>) | null {
+/**
+ * navigator.getBattery, bounded: some embedded browsers expose it but never
+ * answer, so no answer within `ms` rejects ("can't test" — not a hang).
+ */
+export function batteryApi(ms = 3000): (() => Promise<BatteryManagerLike>) | null {
   const n = typeof navigator !== "undefined" ? (navigator as unknown as { getBattery?: () => Promise<BatteryManagerLike> }) : null;
-  return n && typeof n.getBattery === "function" ? n.getBattery.bind(navigator) : null;
+  if (!n || typeof n.getBattery !== "function") return null;
+  const get = n.getBattery.bind(navigator);
+  return () => withTimeout(get(), ms);
+}
+
+/** Reject with a TimeoutError if `p` hasn't settled within `ms`. */
+export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(Object.assign(new Error("timed out"), { name: "TimeoutError" })), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      }
+    );
+  });
 }
 
 export type NetworkInformationLike = EventTarget & {
