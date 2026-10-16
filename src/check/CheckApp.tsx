@@ -1,10 +1,226 @@
-import React from "react";
-import { Text, View } from "react-native";
-// Placeholder — replaced by the check-app builder.
+// SwapUp Check — the customer's app. Opened by the store's QR (deep link
+// swapupcheck://join?code=…&server=…), it joins the store's session, asks the
+// damage questions, runs the hardware tests, and streams every result to the
+// store through the persistent outbox in ./engine.
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { ActivityIndicator, AppState, BackHandler, Linking, View } from "react-native";
+import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
+import { T } from "../shared/theme";
+import { DEFAULT_SERVER, APP_VERSION } from "../shared/config";
+import { CheckEngine, joinErrorMessage } from "./engine";
+import { fileStore } from "./files";
+import { contractDevice } from "./deviceInfo";
+import { parseJoinTarget, resumeStep } from "./core";
+import { DoneScreen, EndedScreen, JoinScreen, QuestionsScreen, RunnerScreen, WelcomeScreen, supportedPlan } from "./screens";
+
 export function CheckApp() {
   return (
-    <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-      <Text>SwapUp Check</Text>
-    </View>
+    <SafeAreaProvider>
+      <StatusBar style="light" />
+      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }} edges={["top", "left", "right", "bottom"]}>
+        <Root />
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
+}
+
+const KEEP_AWAKE = "swapup-check";
+
+function Root() {
+  const engine = useMemo(() => new CheckEngine(fileStore, contractDevice, { appVersion: APP_VERSION }), []);
+  const snap = useSyncExternalStore(engine.subscribe, engine.getSnapshot);
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [linkCode, setLinkCode] = useState<string | undefined>(undefined);
+  // null = normal run; a list = re-running just those tests from the Done screen.
+  const [rerun, setRerun] = useState<string[] | null>(null);
+  const [paused, setPaused] = useState(false);
+  const pendingLink = useRef<string | null>(null);
+
+  // ── boot: load what's on disk, start the retry loop, re-join quietly
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      await engine.init();
+      if (!alive) return;
+      engine.start();
+      void engine.refreshTicket().then(() => engine.flush());
+      if (pendingLink.current) void handleLink(pendingLink.current);
+    })();
+    return () => {
+      alive = false;
+      engine.stop();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine]);
+
+  // ── join (from a deep link, a scanned QR, or a typed code)
+  const join = useCallback(
+    async (code: string, server: string | null) => {
+      setJoinError(null);
+      setJoining(true);
+      try {
+        const r = await engine.join(code, (server || DEFAULT_SERVER).replace(/\/$/, ""));
+        if (!r.ok) setJoinError(joinErrorMessage(r.status, r.message));
+        else {
+          setRerun(null);
+          setPaused(false);
+        }
+      } finally {
+        setJoining(false);
+      }
+    },
+    [engine]
+  );
+
+  const handleLink = useCallback(
+    async (url: string) => {
+      const t = parseJoinTarget(url);
+      if (!t || t.kind !== "join") return;
+      if (!engine.getSnapshot().ready) {
+        pendingLink.current = url;
+        return;
+      }
+      pendingLink.current = null;
+      const cur = engine.getSnapshot().state;
+      // The same code again (app reopened from the browser) — just carry on.
+      if (cur && !cur.ended && cur.code === t.code) return;
+      setLinkCode(t.code);
+      if (cur && !cur.ended) await engine.forget();
+      await join(t.code, t.server);
+    },
+    [engine, join]
+  );
+
+  useEffect(() => {
+    Linking.getInitialURL()
+      .then((u) => {
+        if (u) void handleLink(u);
+      })
+      .catch(() => {});
+    const sub = Linking.addEventListener("url", (e) => handleLink(e.url));
+    return () => sub.remove();
+  }, [handleLink]);
+
+  // ── resume: send anything queued and re-check the ticket when the app comes back
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => {
+      if (s === "active") void engine.refreshTicket().then(() => engine.flush());
+    });
+    return () => sub.remove();
+  }, [engine]);
+
+  const state = snap.state;
+  const plan = state?.session.plan ?? [];
+  const { runnable, unsupported } = useMemo(() => supportedPlan(plan), [plan]);
+
+  // Tests the app cannot run here are reported as such — never silently missing.
+  useEffect(() => {
+    if (!state || state.ended || !state.consentAt) return;
+    for (const p of unsupported) if (!state.results[p.id]) void engine.record(p.id, "unsupported", { reason: "not available in this app" });
+  }, [engine, state, unsupported]);
+
+  const step = state && !state.ended ? (rerun ? "runner" : resumeStep(state, runnable.map((p) => p.id))) : null;
+
+  // Keep the screen on while testing.
+  useEffect(() => {
+    if (step === "runner" && !paused) {
+      activateKeepAwakeAsync(KEEP_AWAKE).catch(() => {});
+      return () => {
+        deactivateKeepAwake(KEEP_AWAKE).catch(() => {});
+      };
+    }
+  }, [step, paused]);
+
+  // Reaching the Done screen means every runnable test has a result — tell the
+  // store "complete" once (a re-run bumps it again inside engine.record).
+  useEffect(() => {
+    if (step === "done" && state && !state.completeAt) void engine.finish();
+  }, [engine, step, state]);
+
+  // On the Done screen, ask the store every few seconds whether it has applied the results.
+  useEffect(() => {
+    if (step !== "done") return;
+    let t: ReturnType<typeof setTimeout>;
+    let alive = true;
+    const tick = async () => {
+      const r = await engine.pollStatus();
+      if (!alive || r?.status === "applied") return;
+      t = setTimeout(tick, 4000);
+    };
+    void tick();
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [engine, step]);
+
+  // Android back: never drop out of a running test by accident (the runner has its own Pause).
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => step === "runner" && !paused);
+    return () => sub.remove();
+  }, [step, paused]);
+
+  const finish = useCallback(() => {
+    if (rerun) setRerun(null);
+    void engine.finish();
+  }, [engine, rerun]);
+
+  if (!snap.ready) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: T.bg }}>
+        <ActivityIndicator color={T.accent} size="large" />
+      </View>
+    );
+  }
+
+  if (state?.ended) return <EndedScreen message={state.ended} onNew={() => void engine.forget()} />;
+
+  if (!state || paused) {
+    if (state && paused) {
+      // Paused mid-run: one tap to carry on.
+      return (
+        <WelcomeScreen
+          state={state}
+          onConsent={() => setPaused(false)}
+          onLeave={() => {
+            setPaused(false);
+            void engine.forget();
+          }}
+        />
+      );
+    }
+    return <JoinScreen busy={joining} error={joinError} initialCode={linkCode} onJoin={(c, s) => void join(c, s)} />;
+  }
+
+  switch (step) {
+    case "welcome":
+      return <WelcomeScreen state={state} onConsent={() => void engine.consent()} onLeave={() => void engine.forget()} />;
+    case "questions":
+      return <QuestionsScreen initial={state.declared} onDone={(d) => void engine.declare(d)} />;
+    case "runner":
+      return (
+        <RunnerScreen
+          snap={snap}
+          only={rerun}
+          onResult={(id, outcome, detail) => void engine.record(id, outcome, detail)}
+          onAllDone={finish}
+          onQuit={() => setPaused(true)}
+        />
+      );
+    case "done":
+    default:
+      return (
+        <DoneScreen
+          snap={snap}
+          onRerun={(ids) => setRerun(ids)}
+          onNewCheck={() => {
+            setRerun(null);
+            void engine.forget();
+          }}
+        />
+      );
+  }
 }

@@ -5,7 +5,7 @@ import { TestProps, TestShell } from "../TestShell";
 import { Btn } from "../../shared/ui";
 import { T } from "../../shared/theme";
 
-const TONES = [require("../../assets/tones/beep1.wav"), require("../../assets/tones/beep2.wav"), require("../../assets/tones/beep3.wav")];
+const TONES = [require("../../../assets/tones/beep1.wav"), require("../../../assets/tones/beep2.wav"), require("../../../assets/tones/beep3.wav")];
 
 // The phone plays 1–3 beeps through the loudspeaker; the tester reports how
 // many they heard. Right answer = pass. Two wrong answers = fail. Nobody can

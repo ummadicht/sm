@@ -9,7 +9,7 @@ import { T } from "../../shared/theme";
 // iOS: with allowsRecording the PlayAndRecord category defaults to the receiver.
 // Android: shouldRouteThroughEarpiece does it explicitly.
 export function EarpieceTest(p: TestProps) {
-  const player = useAudioPlayer(require("../../assets/tones/sweep.wav"));
+  const player = useAudioPlayer(require("../../../assets/tones/sweep.wav"));
   const [ready, setReady] = useState(false);
   useEffect(() => {
     setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true, ...(Platform.OS === "android" ? { shouldRouteThroughEarpiece: true } : {}) })
