@@ -5,10 +5,11 @@
 import React, { useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { L } from "../../shared/theme";
-import { CameraFinding, CameraGrading, CameraResult, GRADE_MEANING, disagreementLine, findingLine, pct } from "../grading";
+import { CameraFault, CameraFinding, CameraGrading, CameraResult, GRADE_MEANING, disagreementLine, findingLine, pct } from "../grading";
 import { openCameraPage } from "../openCamera";
 import { StaffClient, errText } from "../staffClient";
 import type { TestSessionView } from "../types";
+import { faultLabel } from "./SessionParts";
 import { Banner, Body, Btn, Card, Chip, Field, H2, KV, Label, Tone, ago, toneColor } from "../ui";
 
 const IS_WEB = Platform.OS === "web";
@@ -248,7 +249,8 @@ function OpenedNote({ opened }: { opened: { at: number; inChrome: boolean } | nu
 function Progress({ g }: { g: CameraGrading }) {
   const c = g.capture;
   const r = g.result;
-  const uploaded = c.cosmeticDone || !!c.verdict || !!r;
+  const uploaded = c.cosmeticDone || !!c.verdict || !!r?.grade;
+  const failed = !r?.grade && (r?.tierUsed === "stub" || r?.status === "failed");
   const steps: { label: string; state: "done" | "now" | "todo" | "bad"; detail?: string }[] = [
     { label: "Camera connected", state: c.connectedAt ? "done" : "now", detail: c.connectedAt ? ago(c.connectedAt) || undefined : "Waiting for the camera page" },
     { label: "Photos uploaded", state: uploaded ? "done" : c.connectedAt ? "now" : "todo" },
@@ -256,9 +258,9 @@ function Progress({ g }: { g: CameraGrading }) {
       ? { label: "Photos rejected — retake", state: "bad", detail: c.reasons.length ? c.reasons.join(" · ") : "The camera page says what to retake." }
       : { label: "Photos accepted", state: c.verdict === "ok" ? "done" : uploaded ? "now" : "todo" },
     {
-      label: r?.grade ? (r.final ? `Graded ${r.grade}` : `Provisional ${r.grade}${r.refining ? " — final check running" : ""}`) : r && r.tierUsed === "stub" ? "Grading failed" : "Grading…",
-      state: r?.grade ? (r.final ? "done" : "now") : r && r.tierUsed === "stub" ? "bad" : c.verdict === "ok" || c.cosmeticDone ? "now" : "todo",
-      detail: r && r.tierUsed === "stub" ? "Check the condition by eye." : !r?.grade && (c.verdict === "ok" || c.cosmeticDone) ? "Usually 10–30 seconds." : undefined,
+      label: r?.grade ? (r.final ? `Graded ${r.grade}` : `Provisional ${r.grade}${r.refining ? " — final check running" : ""}`) : failed ? "Grading failed" : "Grading…",
+      state: r?.grade ? (r.final ? "done" : "now") : failed ? "bad" : c.verdict === "ok" || c.cosmeticDone ? "now" : "todo",
+      detail: failed ? (r?.reasons.join(" ") || "Check the condition by eye.") : !r?.grade && (c.verdict === "ok" || c.cosmeticDone) ? "Usually 10–30 seconds." : undefined,
     },
   ];
   return (
@@ -289,9 +291,11 @@ function noGradeWhy(g: CameraGrading): { tone: Tone; title: string; text: string
   if (g.phase === "failed") return { tone: "bad", title: "Camera grading failed", text: `${g.message ? `${g.message} ` : ""}Check the condition by eye.` };
   if (r?.obstruction?.present) return { tone: "bad", title: "Remove the case and retake", text: `The camera saw ${r.obstruction.type && r.obstruction.type !== "none" ? `a ${r.obstruction.type}` : "a case or cover"} on the phone.${r.obstruction.note ? ` ${r.obstruction.note}` : ""}` };
   if (g.capture.verdict === "retake") return { tone: "warn", title: "Photos rejected — retake", text: g.capture.reasons.length ? g.capture.reasons.join(" · ") : "The camera page says what to retake." };
-  if (r && r.tierUsed === "stub") return { tone: "bad", title: "Camera grading failed", text: "GradeIQ couldn't grade these photos. Check the condition by eye." };
+  if (r && (r.tierUsed === "stub" || r.status === "failed")) return { tone: "bad", title: "Camera grading failed", text: r.reasons.join(" ") || "GradeIQ couldn't grade these photos. Check the condition by eye." };
   if (r && r.coverage !== null && r.coverage < 0.5) return { tone: "warn", title: "Not enough of the phone was visible", text: `The camera saw ${pct(r.coverage)} of the phone. Retake the photos.` };
-  if (g.capture.cosmeticDone || g.capture.verdict === "ok") return { tone: "fix", title: "Grading…", text: "The photos are in. The grade usually lands in 10–30 seconds." };
+  if (r?.status === "grading" || g.capture.cosmeticDone || g.capture.verdict === "ok")
+    return { tone: "fix", title: "Grading…", text: r?.status === "grading" && r.reasons.length ? r.reasons.join(" ") : "The photos are in. The grade usually lands in 10–30 seconds." };
+  if (r?.reasons.length && r.status !== "none") return { tone: "warn", title: "No camera grade yet", text: r.reasons.join(" ") };
   return null;
 }
 
@@ -366,7 +370,7 @@ export function CameraAiCard({ g }: { g: CameraGrading }) {
                 : "Not final. Confirm by eye.")}
         </Body>
       ) : null}
-      {r.conclusive === false ? <Body muted>{r.gradeRange ? `Camera grade ${r.gradeRange.best}–${r.gradeRange.worst}. Confirm by eye.` : "The camera couldn't settle on one grade. Confirm by eye."}</Body> : null}
+      {r.conclusive === false && !r.flags.length ? <Body muted>{r.gradeRange ? `Camera grade ${r.gradeRange.best}–${r.gradeRange.worst}. Confirm by eye.` : "The camera couldn't settle on one grade. Confirm by eye."}</Body> : null}
 
       {/* Per component */}
       {r.components.length ? (
@@ -397,9 +401,26 @@ export function CameraAiCard({ g }: { g: CameraGrading }) {
         </View>
       ) : null}
 
+      {r.faults.length ? (
+        <View style={{ gap: 4 }}>
+          <Label>Camera-confirmed · added to the case at Apply</Label>
+          {r.faults.map((f, i) => (
+            <FaultRow key={i} f={f} tone="bad" />
+          ))}
+        </View>
+      ) : null}
+      {r.suggested.length ? (
+        <View style={{ gap: 4 }}>
+          <Label>Suggested · not added — check by eye</Label>
+          {r.suggested.map((f, i) => (
+            <FaultRow key={i} f={f} tone="warn" />
+          ))}
+        </View>
+      ) : null}
+
       {/* LCD, parts, identity */}
       <View>
-        <LcdRow g={g} r={r} />
+        <LcdRow g={g} r={r} quiet={r.flags.length > 0} />
         {r.oem?.verdict === "suspect_aftermarket" ? (
           <KV label="Original parts" value={`Possibly not original${r.oem.confidence !== null ? ` (${pct(r.oem.confidence)})` : ""}`} tone="warn" />
         ) : null}
@@ -410,9 +431,22 @@ export function CameraAiCard({ g }: { g: CameraGrading }) {
         {r.coverage !== null ? <KV label="Phone visible in photos" value={pct(r.coverage)!} tone={r.coverage < 0.5 ? "warn" : undefined} /> : null}
         {r.photos !== null ? <KV label="Photos" value={String(r.photos)} /> : null}
       </View>
-      {r.oem?.verdict === "suspect_aftermarket" && r.oem.evidence.length ? <Body muted>Why: {r.oem.evidence.join(" · ")}</Body> : null}
-      {r.device?.match === "mismatch" && r.device.reason ? <Body muted>{r.device.reason}</Body> : null}
-      {r.identity?.flags.length ? <Body muted>{r.identity.flags.join(" · ")}</Body> : null}
+      {r.flags.length ? (
+        <View style={{ gap: 4 }}>
+          <Label>For you to look at</Label>
+          {r.flags.map((t, i) => (
+            <Text key={i} style={{ fontSize: 15, lineHeight: 21, color: L.text }}>
+              ⚠ {t}
+            </Text>
+          ))}
+        </View>
+      ) : (
+        <>
+          {r.oem?.verdict === "suspect_aftermarket" && r.oem.evidence.length ? <Body muted>Why: {r.oem.evidence.join(" · ")}</Body> : null}
+          {r.device?.match === "mismatch" && r.device.reason ? <Body muted>{r.device.reason}</Body> : null}
+          {r.identity?.flags.length ? <Body muted>{r.identity.flags.join(" · ")}</Body> : null}
+        </>
+      )}
 
       <Disagreements g={g} />
 
@@ -433,13 +467,26 @@ function FindingRow({ f }: { f: CameraFinding }) {
   );
 }
 
-function LcdRow({ g, r }: { g: CameraGrading; r: CameraResult }) {
+function FaultRow({ f, tone }: { f: CameraFault; tone: Tone }) {
+  const ref = [f.confidence !== null ? pct(f.confidence) : null, f.photo !== null ? `photo ${f.photo}` : null].filter(Boolean).join(", ");
+  return (
+    <View style={{ gap: 2, paddingVertical: 2 }}>
+      <Text style={{ fontSize: 16, fontWeight: "800", color: toneColor(tone) }}>
+        {tone === "bad" ? "✕" : "?"} {faultLabel(f.id)}
+        {ref && !f.because ? ` (${ref})` : ""}
+      </Text>
+      {f.because ? <Text style={{ fontSize: 15, color: L.muted, lineHeight: 21 }}>{f.because}</Text> : null}
+    </View>
+  );
+}
+
+function LcdRow({ g, r, quiet }: { g: CameraGrading; r: CameraResult; quiet: boolean }) {
   const d = r.display;
   if (g.lcdNotChecked) {
     return (
       <View>
         <KV label="Display (LCD)" value="Not camera-checked" tone="warn" />
-        <Text style={{ fontSize: 14, color: L.muted, lineHeight: 20, paddingTop: 4 }}>{g.lcdNotChecked}</Text>
+        {!quiet ? <Text style={{ fontSize: 14, color: L.muted, lineHeight: 20, paddingTop: 4 }}>{g.lcdNotChecked}</Text> : null}
       </View>
     );
   }

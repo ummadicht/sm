@@ -37,7 +37,16 @@ export type CameraFinding = {
   location: string | null;
   /** Only one of two passes saw it. */
   uncorroborated: boolean;
+  /** Which part (front/back/frame/cameras/display), when the server lists findings flat. */
+  component: string | null;
+  /** SwapUp's words for it ("Cracked glass"), when the server mapped it. */
+  meaning: string | null;
+  /** Meets the confirmed bar (≥ 70 %, corroborated, located), when the server said. */
+  confirmed: boolean | null;
 };
+
+/** A fault the camera found, in the server's words ("Camera saw … (86 %, photo 1)"). */
+export type CameraFault = { id: string; because: string | null; confidence: number | null; photo: number | null };
 
 export type CameraComponent = {
   id: string;
@@ -64,6 +73,16 @@ export type CameraResult = {
   /** "" = not graded. Premium / A / B / C / D otherwise. */
   grade: string;
   final: boolean;
+  /** The server's finality: none | grading | provisional | final | failed. */
+  status: string | null;
+  /** Why it isn't final — the server's sentences. */
+  reasons: string[];
+  /** Confirmed by the camera; added to the case at Apply (only when final). */
+  faults: CameraFault[];
+  /** Shown, never added — a person decides (no part / needs a look). */
+  suggested: CameraFault[];
+  /** Things for a person to look at, in the server's words. */
+  flags: string[];
   /** Why it is provisional, when the server said. */
   provisionalWhy: string | null;
   tierUsed: string | null;
@@ -186,7 +205,23 @@ function finding(x: unknown): CameraFinding | null {
     photo,
     location: str(f.location),
     uncorroborated: f.uncorroborated === true,
+    component: str(f.component),
+    meaning: str(f.meaning),
+    confirmed: bool(f.confirmed),
   };
+}
+
+function cameraFaults(x: unknown): CameraFault[] {
+  if (!Array.isArray(x)) return [];
+  return x
+    .map((y): CameraFault | null => {
+      const f = obj(y);
+      const id = str(pick(f, "id", "fault"));
+      if (!f || !id) return null;
+      const idx = num(f.photoIndex);
+      return { id, because: str(pick(f, "because", "why")), confidence: frac(f.confidence), photo: num(f.photo) ?? (idx !== null ? idx + 1 : null) };
+    })
+    .filter((y): y is CameraFault => !!y);
 }
 const findings = (x: unknown): CameraFinding[] => (Array.isArray(x) ? x.map(finding).filter((y): y is CameraFinding => !!y) : []);
 
@@ -200,7 +235,7 @@ function component(x: unknown, idHint?: string): CameraComponent | null {
     name: COMPONENT_NAME[id] ?? str(c.name) ?? id,
     grade: gradeOf(pick(c, "grade", "condition")),
     confidence: frac(c.confidence),
-    findings: findings(c.findings),
+    findings: findings(c.findings), // a count (staff view lists them flat) reads as none here; see readGrading
     notes: str(c.notes),
   };
 }
@@ -329,7 +364,7 @@ export function readGrading(raw: unknown): CameraGrading {
       : null;
 
   // The assessment snapshot (§3.3). Accept it under several names, or flat on grading itself.
-  const snap = obj(pick(g, "snapshot", "result", "assessment", "cosmetic")) ?? (pick(g, "cosmetic_grade", "cosmeticGrade", "grade") !== undefined ? g : null);
+  const snap = obj(pick(g, "assessment", "snapshot", "result", "cosmetic")) ?? (pick(g, "cosmetic_grade", "cosmeticGrade", "grade") !== undefined ? g : null);
   let result: CameraResult | null = null;
   if (snap) {
     const cos = obj(snap.cosmetic) ?? snap; // GradeIQ nests the cascade under `cosmetic`
@@ -345,23 +380,36 @@ export function readGrading(raw: unknown): CameraGrading {
     const worst = gradeOf(rangeRaw?.worst);
     const comps = components(pick(snap, "components", "specialists") ?? pick(cos, "specialists"));
     const flat = findings(pick(snap, "findings") ?? pick(cos, "findings"));
+    // A flat list that names its component belongs under that component.
+    for (const f of flat) {
+      const c = f.component ? comps.find((x) => x.id === f.component) : undefined;
+      if (c && !c.findings.some((y) => y.type === f.type && y.label === f.label && y.photo === f.photo)) c.findings.push(f);
+    }
     const inComps = new Set(comps.flatMap((c) => c.findings.map((f) => `${f.type}|${f.label}|${f.photo}`)));
     const oemRaw = obj(pick(snap, "oem") ?? pick(cos, "oem"));
     const devRaw = obj(pick(snap, "device") ?? pick(cos, "device"));
     const idRaw = obj(pick(snap, "identity"));
-    const dc = displayCheck(pick(snap, "displayCheck", "lcd", "display") ?? pick(obj(snap.screen), "displayCheck") ?? pick(g, "displayCheck"));
+    const devRaw2 = devRaw ?? obj(idRaw?.device);
+    const dc = displayCheck(pick(snap, "displayCheck") ?? pick(obj(snap.screen), "displayCheck") ?? pick(g, "displayCheck"));
+    const finStatus = str(pick(snap, "status"));
 
     // §3.3: final only when ALL hold. The server's flag may veto, never promote.
-    const serverFinal = bool(pick(snap, "final", "isFinal") ?? pick(g, "final"));
+    const serverFinal = bool(pick(snap, "final", "isFinal") ?? pick(g, "final")) ?? (finStatus ? finStatus === "final" : null);
     const serverProvisional = bool(pick(snap, "provisional") ?? pick(g, "provisional"));
     const localFinal =
       !!grade && tierUsed !== "stub" && !refining && capture.verdict !== "retake" && !(obstruction?.present ?? false) && (capture.verdict === "ok" || serverFinal === true);
     const final = localFinal && serverFinal !== false && serverProvisional !== true;
 
+    const reasons = strs(pick(snap, "reasons"));
     result = {
-      grade: tierUsed === "stub" ? "" : grade,
+      grade: tierUsed === "stub" || finStatus === "failed" ? "" : grade,
       final,
-      provisionalWhy: str(pick(snap, "provisionalWhy", "provisionalReason", "why") ?? pick(g, "provisionalWhy")),
+      status: finStatus,
+      reasons,
+      faults: cameraFaults(snap.faults),
+      suggested: cameraFaults(snap.suggested),
+      flags: strs(snap.flags),
+      provisionalWhy: reasons.length && !final ? reasons.join(" ") : str(pick(snap, "provisionalWhy", "provisionalReason", "why") ?? pick(g, "provisionalWhy")),
       tierUsed,
       refining,
       conclusive: bool(pick(snap, "conclusive") ?? pick(cos, "conclusive")),
@@ -374,8 +422,8 @@ export function readGrading(raw: unknown): CameraGrading {
       display: dc,
       obstruction,
       oem: oemRaw && str(oemRaw.verdict) ? { verdict: str(oemRaw.verdict)!, confidence: frac(oemRaw.confidence), evidence: strs(oemRaw.evidence) } : null,
-      device: devRaw ? { make: str(devRaw.make), model: str(devRaw.model), match: str(devRaw.match), reason: str(devRaw.reason) } : null,
-      identity: idRaw && str(idRaw.verdict) ? { verdict: str(idRaw.verdict)!, flags: strs(idRaw.flags) } : null,
+      device: devRaw2 ? { make: str(devRaw2.make), model: str(devRaw2.model), match: str(devRaw2.match), reason: str(devRaw2.reason) } : null,
+      identity: idRaw && str(idRaw.verdict) ? { verdict: str(idRaw.verdict)!, flags: strs(pick(idRaw, "reasons", "flags")) } : null,
       photos: Array.isArray(snap.photos) ? snap.photos.length : num(pick(snap, "photoCount", "photos")),
       fetchedAt: str(pick(snap, "fetchedAt") ?? pick(g, "fetchedAt")),
     };
@@ -387,15 +435,21 @@ export function readGrading(raw: unknown): CameraGrading {
   // LCD not camera-checked: an override, a server flag, or a sweep that didn't cover the screen.
   const d = result?.display ?? null;
   const lcdFlag = pick(g, "lcdNotChecked", "lcdUnchecked");
-  const lcdNotChecked =
-    str(lcdFlag) ??
-    (lcdFlag === true
-      ? "The screen sweep was not run with the customer's phone paired."
-      : override
-        ? `Photos were taken without confirming the customer's phone was ready${override.reason ? ` (reason: ${override.reason})` : ""}.`
-        : result && (capture.handoffDone || result.grade) && (!d || d.verdict === "unknown" || d.missing.length)
-          ? d?.reason ?? (d?.missing.length ? `Patterns not captured: ${d.missing.join(", ")}.` : "The camera's screen sweep gave no verdict.")
-          : null);
+  const lcd = obj(pick(snap, "lcd") ?? pick(g, "lcd"));
+  if (result && !result.display && lcd && (str(lcd.verdict) === "pass" || str(lcd.verdict) === "fail")) {
+    result.display = { verdict: str(lcd.verdict) as DisplayVerdict, confidence: null, reason: null, note: null, missing: [], findings: [] };
+  }
+  const lcdNotChecked = ((): string | null => {
+    const own = str(lcdFlag);
+    if (own) return own;
+    if (lcdFlag === true) return "The screen sweep was not run with the customer's phone paired.";
+    // The server's own LCD verdict wins when it sent one (it already folds in an override).
+    if (lcd && typeof lcd.cameraChecked === "boolean") return lcd.cameraChecked ? null : (str(lcd.reason) ?? "The camera's screen sweep did not check the display.");
+    if (override) return `Photos were taken without confirming the customer's phone was ready${override.reason ? ` (reason: ${override.reason})` : ""}.`;
+    if (result && (capture.handoffDone || result.grade) && (!d || d.verdict === "unknown" || d.missing.length))
+      return d?.reason ?? (d?.missing.length ? `Patterns not captured: ${d.missing.join(", ")}.` : "The camera's screen sweep gave no verdict.");
+    return null;
+  })();
 
   return {
     phase,
@@ -443,7 +497,8 @@ export function findingLine(f: CameraFinding): string {
   const sev = f.severity ? `${f.severity.charAt(0).toUpperCase()}${f.severity.slice(1)} ` : "";
   const head = sev ? `${sev}${what.charAt(0).toLowerCase()}${what.slice(1)}` : what;
   const bits = [f.location, f.confidence !== null ? `${pct(f.confidence)} sure` : null, f.photo !== null ? `photo ${f.photo}` : null].filter(Boolean);
-  return `${head}${bits.length ? ` — ${bits.join(" · ")}` : ""}${f.uncorroborated ? " (seen on one pass only)" : ""}`;
+  const means = f.meaning && !head.toLowerCase().includes(f.meaning.toLowerCase()) ? ` → ${f.meaning}${f.confirmed === false ? " (not confirmed)" : ""}` : "";
+  return `${head}${bits.length ? ` — ${bits.join(" · ")}` : ""}${f.uncorroborated ? " (seen on one pass only)" : ""}${means}`;
 }
 
 /** Disagreement in plain words: the server's own line when it sent one. */
