@@ -4,6 +4,7 @@
   "main": "index.ts",
   "dependencies": {
     "expo": "~57.0.26",
+    "expo-application": "~57.0.3",
     "expo-asset": "~57.0.18",
     "expo-audio": "~57.0.5",
     "expo-battery": "~57.0.3",
@@ -16,16 +17,20 @@
     "expo-file-system": "~57.0.7",
     "expo-haptics": "~57.0.3",
     "expo-keep-awake": "~57.0.2",
+    "expo-linking": "~57.0.13",
     "expo-local-authentication": "~57.0.3",
     "expo-location": "~57.0.20",
     "expo-network": "~57.0.2",
+    "expo-secure-store": "~57.0.4",
     "expo-sensors": "~57.0.3",
     "expo-sharing": "~57.0.22",
     "expo-status-bar": "~57.0.1",
     "qrcode": "^1.5.4",
     "react": "19.2.3",
     "react-native": "0.86.3",
-    "react-native-safe-area-context": "~5.7.0"
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-svg": "15.15.4",
+    "react-native-webview": "13.16.1"
   },
   "devDependencies": {
     "@types/qrcode": "^1.5.6",

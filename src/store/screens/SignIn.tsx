@@ -1,0 +1,138 @@
+import React, { useState } from "react";
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from "react-native";
+import { ApiError, createClient } from "../../shared/api";
+import { DEFAULT_SERVER } from "../../shared/config";
+import { L } from "../../shared/theme";
+import { normaliseServer } from "../storage";
+import { errText } from "../staffClient";
+import type { StaffUser, TokenResponse } from "../types";
+import { Banner, Body, Btn, Card, Field, H1, useLayout } from "../ui";
+
+/** Counter roles only — anything else is turned away with a sentence that says why. */
+export function staffProblem(u: StaffUser): string | null {
+  if (u.role !== "advisor" && u.role !== "store_manager") {
+    return "The store app is for store staff. Sign in with an advisor or store manager account.";
+  }
+  if (!u.store) return "This account isn't linked to a store yet. Ask your programme admin to add you to a store.";
+  return null;
+}
+
+export function SignIn({
+  initialServer,
+  notice,
+  onSignedIn,
+}: {
+  initialServer: string;
+  notice?: string;
+  onSignedIn: (server: string, res: TokenResponse) => void;
+}) {
+  const { wide, pad } = useLayout();
+  const [server, setServer] = useState(initialServer);
+  const [advanced, setAdvanced] = useState(initialServer !== DEFAULT_SERVER);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [serverError, setServerError] = useState<string | null>(null);
+
+  async function submit() {
+    setError(null);
+    setServerError(null);
+    const base = normaliseServer(server);
+    if (!base) {
+      setAdvanced(true);
+      setServerError("Enter the server address, like https://swapup.example.com or http://192.168.1.20:4500.");
+      return;
+    }
+    if (!username.trim() || !password) {
+      setError("Enter your SwapUp username and password.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await createClient(base, null).post<TokenResponse>("/api/auth/token", { username: username.trim(), password });
+      if (!res || typeof res.token !== "string" || !res.user) throw new ApiError(0, "The server answered, but not with a sign-in. Check the server address under Advanced.");
+      const problem = staffProblem(res.user);
+      if (problem) throw new ApiError(403, problem);
+      setPassword("");
+      onSignedIn(base, res);
+    } catch (e) {
+      let msg = errText(e);
+      if (e instanceof ApiError && e.status === 0) {
+        msg += ` (Trying ${base}.)`;
+        if (base.startsWith("http://")) msg += " Make sure this tablet is on the same Wi‑Fi as that computer.";
+      }
+      if (e instanceof ApiError && e.status === 404) msg = `${base} doesn't look like a SwapUp server (no sign-in there). Check the address under Advanced.`;
+      setError(msg);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: pad, alignItems: "center" }} keyboardShouldPersistTaps="handled">
+        <View style={{ width: "100%", maxWidth: wide ? 520 : 480, gap: 18 }}>
+          <View style={{ gap: 6 }}>
+            <Text style={{ color: L.up, fontSize: 16, fontWeight: "800", letterSpacing: 1, textTransform: "uppercase" }}>SwapUp Store</Text>
+            <H1>Sign in to your store</H1>
+            <Body muted>Use the same username and password as the SwapUp desk on the web.</Body>
+          </View>
+
+          {notice ? <Banner tone="warn" title={notice} /> : null}
+
+          <Card style={{ gap: 16 }}>
+            <Field
+              label="Username"
+              value={username}
+              onChangeText={setUsername}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="username"
+              textContentType="username"
+              returnKeyType="next"
+              editable={!busy}
+            />
+            <Field
+              label="Password"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="password"
+              textContentType="password"
+              returnKeyType="go"
+              onSubmitEditing={submit}
+              editable={!busy}
+            />
+            {error ? <Banner tone="bad" title="Couldn't sign in">{error}</Banner> : null}
+            <Btn title="Sign in" onPress={submit} busy={busy} big />
+          </Card>
+
+          <Pressable onPress={() => setAdvanced((v) => !v)} hitSlop={10} accessibilityRole="button">
+            <Text style={{ color: L.fix, fontSize: 16, fontWeight: "700" }}>{advanced ? "Hide advanced" : "Advanced"}</Text>
+          </Pressable>
+          {advanced ? (
+            <Card>
+              <Field
+                label="Server"
+                value={server}
+                onChangeText={setServer}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                error={serverError}
+                hint={`For testing only. The normal server is ${DEFAULT_SERVER}`}
+                editable={!busy}
+              />
+              {server.trim() !== DEFAULT_SERVER ? (
+                <Btn title="Use the normal server" kind="ghost" onPress={() => setServer(DEFAULT_SERVER)} style={{ alignSelf: "flex-start" }} />
+              ) : null}
+            </Card>
+          ) : null}
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
