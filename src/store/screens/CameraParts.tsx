@@ -540,7 +540,7 @@ function LcdRow({ g, r, quiet }: { g: CameraGrading; r: CameraResult; quiet: boo
     return (
       <View>
         <KV label="Display (LCD)" value="Not camera-checked" tone="warn" />
-        {!quiet ? <Text style={{ fontSize: 14, color: L.muted, lineHeight: 20, paddingTop: 4 }}>{g.lcdNotChecked}</Text> : null}
+        {!quiet ? <Text style={{ fontSize: 14, color: L.muted, lineHeight: 20, paddingTop: 4 }}>{g.lcdNotChecked.charAt(0).toUpperCase() + g.lcdNotChecked.slice(1)}</Text> : null}
       </View>
     );
   }
