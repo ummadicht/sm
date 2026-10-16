@@ -45,7 +45,7 @@ export function VibrationTest(p: TestProps) {
         <BigEmoji>📳</BigEmoji>
         <Big title={tries ? "Buzz again" : "Buzz"} onPress={buzz} />
         {tries > 0 && accepted === 0 ? (
-          <Say muted center style={{ fontSize: 15 }}>The browser didn't start the vibration. Turn off silent / Do Not Disturb, then tap Buzz again.</Say>
+          <Say muted center style={{ fontSize: 15 }}>The browser didn't start the vibration. Tap Buzz again.</Say>
         ) : null}
         {accepted > 0 ? (
           <>
