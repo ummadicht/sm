@@ -126,11 +126,9 @@ export function SessionScreen({
     if (terminal) return;
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
     return () => {
-      try {
-        deactivateKeepAwake(KEEP_AWAKE_TAG);
-      } catch {
+      deactivateKeepAwake(KEEP_AWAKE_TAG).catch(() => {
         /* not fatal */
-      }
+      });
     };
   }, [terminal]);
 

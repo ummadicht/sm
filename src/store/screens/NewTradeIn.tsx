@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
+import { KeyboardAvoidingView, ScrollView, View } from "react-native";
 import { StaffClient, errText } from "../staffClient";
 import type { SessionLinks } from "../types";
 import { Banner, Body, Btn, Card, Field, H1, TopBar, useLayout } from "../ui";
@@ -45,7 +45,7 @@ export function NewTradeIn({ api, onCancel, onCreated }: { api: StaffClient; onC
   return (
     <View style={{ flex: 1 }}>
       <TopBar title="New customer trade-in" left={{ label: "‹ Home", onPress: onCancel }} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <ScrollView contentContainerStyle={{ padding: pad, alignItems: "center" }} keyboardShouldPersistTaps="handled">
           <View style={{ width: "100%", maxWidth: 560, gap: 16 }}>
             <H1>Who's trading in?</H1>

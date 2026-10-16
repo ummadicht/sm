@@ -122,7 +122,7 @@ export function WifiCard({
   );
 }
 
-function WifiForm({
+export function WifiForm({
   api,
   storeId,
   current,

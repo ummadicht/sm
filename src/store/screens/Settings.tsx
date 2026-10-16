@@ -1,0 +1,186 @@
+// Who is signed in, to which store, on which server — and the way out.
+// A store manager can also set the store Wi‑Fi here, before a customer is waiting.
+import React, { useCallback, useEffect, useState } from "react";
+import { Alert, KeyboardAvoidingView, ScrollView, Text, View } from "react-native";
+import { APP_VERSION, DEFAULT_SERVER } from "../../shared/config";
+import { L } from "../../shared/theme";
+import { StaffClient, errText } from "../staffClient";
+import type { StaffUser, WifiResponse } from "../types";
+import { Banner, Body, Btn, Card, Chip, Columns, H2, KV, TopBar, useLayout } from "../ui";
+import { WifiForm, WifiInfo } from "./SessionParts";
+
+const SECURITY_LABEL: Record<string, string> = { WPA: "WPA / WPA2 / WPA3", WEP: "WEP", nopass: "None (open)" };
+
+function clock(iso: string | null): string | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return null;
+  const d = new Date(t);
+  const time = d.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay ? `today ${time}` : `${d.toLocaleDateString("en-IN", { day: "numeric", month: "short" })} ${time}`;
+}
+
+export function Settings({
+  api,
+  user,
+  expiresAt,
+  onBack,
+  onSignOut,
+}: {
+  api: StaffClient;
+  user: StaffUser;
+  expiresAt: string | null;
+  onBack: () => void;
+  onSignOut: () => void;
+}) {
+  const { wide, pad, content } = useLayout();
+  const store = user.store!;
+  const canEditWifi = user.role === "store_manager";
+
+  const [wifi, setWifi] = useState<WifiInfo | null | undefined>(undefined);
+  const [wifiErr, setWifiErr] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const loadWifi = useCallback(async () => {
+    setWifiErr(null);
+    try {
+      const r = await api.get<WifiResponse>(`/api/stores/${encodeURIComponent(store.id)}/wifi`);
+      setWifi(r?.wifi && r.qr ? { ...r.wifi, qr: r.qr } : null);
+    } catch (e) {
+      setWifiErr(errText(e));
+    }
+  }, [api, store.id]);
+  useEffect(() => {
+    loadWifi();
+  }, [loadWifi]);
+
+  function confirmSignOut() {
+    Alert.alert("Sign out of SwapUp Store?", "Open tests keep running on the server. You'll need your username and password to come back.", [
+      { text: "Stay signed in", style: "cancel" },
+      { text: "Sign out", style: "destructive", onPress: onSignOut },
+    ]);
+  }
+
+  const until = clock(expiresAt);
+
+  const account = (
+    <Card>
+      <H2>Signed in</H2>
+      <Text style={{ fontSize: 24, fontWeight: "800", color: L.ink }}>{user.name}</Text>
+      <View>
+        {user.username ? <KV label="Username" value={user.username} /> : null}
+        <KV label="Role" value={user.roleLabel || user.role} />
+        {user.org ? <KV label="Programme" value={user.org.name} /> : null}
+        {until ? <KV label="Sign-in lasts until" value={until} /> : null}
+      </View>
+      {user.org?.demo ? <Chip text="Demo programme — sample data" tone="warn" /> : null}
+      <Body muted>Sign-ins last 12 hours. After that the app asks for your password again.</Body>
+      <Btn title="Sign out" kind="danger" onPress={confirmSignOut} />
+    </Card>
+  );
+
+  const storeCard = (
+    <Card>
+      <H2>Store</H2>
+      <Text style={{ fontSize: 24, fontWeight: "800", color: L.ink }}>{store.name}</Text>
+      <View>
+        <KV label="Store code" value={store.code || "—"} />
+        <KV label="City" value={store.city || "—"} />
+      </View>
+      <Body muted>Every trade-in you start goes on this store's cases and credit line.</Body>
+    </Card>
+  );
+
+  const wifiCard = (
+    <Card>
+      <H2>Store Wi‑Fi for customers</H2>
+      <Body muted>The network in the “Join our Wi‑Fi” QR code. Customers on mobile data don't need it.</Body>
+      {saved ? <Banner tone="up" title="Saved. New QR codes use it straight away." /> : null}
+      {editing || (wifi === null && canEditWifi) ? (
+        <WifiForm
+          api={api}
+          storeId={store.id}
+          current={wifi ?? null}
+          onCancel={wifi ? () => setEditing(false) : undefined}
+          onSaved={(w) => {
+            setWifi(w);
+            setEditing(false);
+            setSaved(true);
+          }}
+        />
+      ) : wifi === undefined ? (
+        wifiErr ? (
+          <Banner tone="bad" title="Couldn't load the store Wi‑Fi" action={{ title: "Try again", onPress: loadWifi }}>
+            {wifiErr}
+          </Banner>
+        ) : (
+          <Body muted>Loading…</Body>
+        )
+      ) : wifi === null ? (
+        <Banner tone="muted" title="No store Wi‑Fi saved">
+          Ask your manager to add the store Wi‑Fi in the app.
+        </Banner>
+      ) : (
+        <View>
+          <KV label="Network name" value={wifi.ssid} />
+          {wifi.security ? <KV label="Security" value={SECURITY_LABEL[wifi.security] ?? wifi.security} /> : null}
+          {wifi.hidden ? <KV label="Hidden network" value="Yes" /> : null}
+          {canEditWifi ? (
+            <Btn
+              title="Change Wi‑Fi"
+              kind="secondary"
+              onPress={() => {
+                setSaved(false);
+                setEditing(true);
+              }}
+              style={{ marginTop: 10, alignSelf: "flex-start" }}
+            />
+          ) : (
+            <Body muted style={{ marginTop: 8 }}>
+              Only a store manager can change it.
+            </Body>
+          )}
+        </View>
+      )}
+    </Card>
+  );
+
+  const serverCard = (
+    <Card>
+      <H2>Server</H2>
+      <Text style={{ fontSize: 17, fontWeight: "700", color: L.ink }} selectable>
+        {api.base}
+      </Text>
+      {api.base !== DEFAULT_SERVER ? (
+        <Banner tone="warn" title="Not the normal server">
+          {`This tablet is using a test server. The normal one is ${DEFAULT_SERVER}. To switch, sign out and open Advanced on the sign-in screen.`}
+        </Banner>
+      ) : (
+        <Body muted>To use a different server, sign out and open Advanced on the sign-in screen.</Body>
+      )}
+      <KV label="App" value={`SwapUp Store v${APP_VERSION}`} />
+    </Card>
+  );
+
+  return (
+    <View style={{ flex: 1 }}>
+      <TopBar title="Settings" subtitle={store.name} left={{ label: "‹ Home", onPress: onBack }} />
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+        <ScrollView contentContainerStyle={{ padding: pad, gap: 16, alignSelf: "center", width: content + pad * 2 }} keyboardShouldPersistTaps="handled">
+          <Columns wide={wide}>
+            <View style={{ gap: 16 }}>
+              {account}
+              {serverCard}
+            </View>
+            <View style={{ gap: 16 }}>
+              {storeCard}
+              {wifiCard}
+            </View>
+          </Columns>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
+  );
+}

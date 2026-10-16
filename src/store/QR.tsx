@@ -6,6 +6,21 @@ import { SvgXml } from "react-native-svg";
 import QRCode from "qrcode";
 import { L } from "../shared/theme";
 
+// qrcode encodes text with TextEncoder. Hermes ships it, but a QR that can't be
+// drawn at the counter is a dead end, so fall back to a tiny UTF-8 encoder.
+const g = globalThis as unknown as { TextEncoder?: unknown };
+if (typeof g.TextEncoder === "undefined") {
+  g.TextEncoder = class {
+    readonly encoding = "utf-8";
+    encode(input = ""): Uint8Array {
+      const bin = unescape(encodeURIComponent(input));
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+  };
+}
+
 export function QR({ value, size }: { value: string; size: number }) {
   const [xml, setXml] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);

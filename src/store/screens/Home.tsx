@@ -107,7 +107,12 @@ export function Home({
     <Card>
       <Label>Trade-in credit available</Label>
       {credit ? (
-        <CreditBody credit={credit} onPickups={openPickups} pickupBusy={pickupBusy} pickupErr={pickupErr} />
+        <CreditBody
+          credit={credit}
+          onPickups={user.role === "store_manager" ? openPickups : null}
+          pickupBusy={pickupBusy}
+          pickupErr={pickupErr}
+        />
       ) : creditErr ? (
         <Banner tone="bad" title="Couldn't load the credit line" action={{ title: "Try again", onPress: loadCredit }}>
           {creditErr}
@@ -171,7 +176,18 @@ export function Home({
   );
 }
 
-function CreditBody({ credit, onPickups, pickupBusy, pickupErr }: { credit: CreditSummary; onPickups: () => void; pickupBusy: boolean; pickupErr: string | null }) {
+function CreditBody({
+  credit,
+  onPickups,
+  pickupBusy,
+  pickupErr,
+}: {
+  credit: CreditSummary;
+  /** Only a store manager can book pickups (the web page is theirs); null for an advisor. */
+  onPickups: (() => void) | null;
+  pickupBusy: boolean;
+  pickupErr: string | null;
+}) {
   const p = credit.position;
   const util = typeof p.utilisation === "number" && Number.isFinite(p.utilisation) ? p.utilisation : p.exposure > 0 ? 1 : 0;
   const pct = Math.round(util * 100);
@@ -191,13 +207,20 @@ function CreditBody({ credit, onPickups, pickupBusy, pickupErr }: { credit: Cred
         <Body style={{ color: L.bad }}>New trade-ins can't be locked until a pickup frees the line. Phone tests still work.</Body>
       ) : null}
       {credit.advice?.due ? (
-        <Banner tone="warn" title="Book a pickup" action={{ title: "Open Credit & pickups", onPress: onPickups, busy: pickupBusy }}>
+        <Banner
+          tone="warn"
+          title={onPickups ? "Book a pickup" : "A pickup is due"}
+          action={onPickups ? { title: "Open Credit & pickups", onPress: onPickups, busy: pickupBusy } : undefined}
+        >
           <View style={{ gap: 2 }}>
             {credit.advice.reasons.map((r, i) => (
               <Text key={i} style={{ fontSize: 16, color: L.text, lineHeight: 23 }}>
                 • {r}
               </Text>
             ))}
+            {!onPickups ? (
+              <Text style={{ fontSize: 16, color: L.text, lineHeight: 23, fontWeight: "700", marginTop: 4 }}>Ask your store manager to book it.</Text>
+            ) : null}
           </View>
         </Banner>
       ) : null}

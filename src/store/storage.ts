@@ -6,6 +6,7 @@ import * as SecureStore from "expo-secure-store";
 
 const K_TOKEN = "swapup_store_token";
 const K_SERVER = "swapup_store_server";
+const K_EXPIRES = "swapup_store_expires";
 
 async function read(key: string): Promise<string | null> {
   try {
@@ -29,13 +30,19 @@ async function remove(key: string): Promise<void> {
   }
 }
 
-export async function loadSaved(): Promise<{ server: string | null; token: string | null }> {
-  const [server, token] = await Promise.all([read(K_SERVER), read(K_TOKEN)]);
-  return { server, token };
+export async function loadSaved(): Promise<{ server: string | null; token: string | null; expiresAt: string | null }> {
+  const [server, token, expiresAt] = await Promise.all([read(K_SERVER), read(K_TOKEN), read(K_EXPIRES)]);
+  return { server, token, expiresAt };
 }
 
-export const saveToken = (token: string) => write(K_TOKEN, token);
-export const clearToken = () => remove(K_TOKEN);
+export async function saveToken(token: string, expiresAt?: string | null): Promise<void> {
+  await write(K_TOKEN, token);
+  if (expiresAt) await write(K_EXPIRES, expiresAt);
+  else await remove(K_EXPIRES);
+}
+export async function clearToken(): Promise<void> {
+  await Promise.all([remove(K_TOKEN), remove(K_EXPIRES)]);
+}
 export const saveServer = (server: string) => write(K_SERVER, server);
 
 /** "192.168.1.5:4500" → "http://192.168.1.5:4500"; trims spaces and a trailing slash. Null when it can't be a URL. */

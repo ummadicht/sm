@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from "react-native";
+import { KeyboardAvoidingView, Pressable, ScrollView, Text, View } from "react-native";
 import { ApiError, createClient } from "../../shared/api";
 import { DEFAULT_SERVER } from "../../shared/config";
 import { L } from "../../shared/theme";
@@ -70,7 +70,7 @@ export function SignIn({
   }
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: pad, alignItems: "center" }} keyboardShouldPersistTaps="handled">
         <View style={{ width: "100%", maxWidth: wide ? 520 : 480, gap: 18 }}>
           <View style={{ gap: 6 }}>
