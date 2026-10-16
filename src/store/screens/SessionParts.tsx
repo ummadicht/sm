@@ -201,7 +201,7 @@ export function TestQrCard({ joinUrl, code, expiresAt, status, qrSize }: { joinU
     "Tap the link that appears.",
     "Tap “Install SwapUp Check” — or “Test in this browser” (no install; the way to test an iPhone).",
     "If Android asks, allow installs from this browser: Settings → Install unknown apps → your browser → Allow.",
-    "Open the app. If it asks for a code, type the one below.",
+    "Open the app. If it asks for a code, type the big code above.",
   ];
   const left = until(expiresAt);
   return (
@@ -412,7 +412,8 @@ export function TestsCard({ v }: { v: TestSessionView }) {
       {rows.map((t) => {
         const r = results[t.id];
         const key: keyof typeof OUTCOME = r ? (OUTCOME[r.outcome] ? r.outcome : "skip") : finished ? "notrun" : "pending";
-        const o = OUTCOME[key];
+        // A browser run's "unsupported" is the browser's limit, not the phone's.
+        const o = key === "unsupported" && v.device?.appVersion?.startsWith("web-") ? { ...OUTCOME.unsupported, label: "Can't test in a browser" } : OUTCOME[key];
         const untestedKey = t.critical && key !== "pass" && key !== "fail" && (r || finished);
         const tone: Tone = untestedKey ? "warn" : o.tone;
         const color = toneColor(tone);
@@ -544,7 +545,7 @@ export function SummaryCard({ v }: { v: TestSessionView }) {
           sm.faults.map((f, i) => (
             <View key={`${f.id}-${i}`} style={{ gap: 2 }}>
               <Text style={{ fontSize: 17, fontWeight: "800", color: L.bad }}>✕ {faultLabel(f.id)}</Text>
-              {f.because ? <Body muted>because {f.because.replace(/^because\s+/i, "")}</Body> : null}
+              {f.because ? <Body muted>{f.because.replace(/^because\s+/i, "").replace(/^\w/, (c) => c.toUpperCase())}</Body> : null}
             </View>
           ))
         )}

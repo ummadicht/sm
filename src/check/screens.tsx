@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { T } from "../shared/theme";
+import { IS_WEB } from "../shared/config";
 import { Big, Fact, Say, BigEmoji } from "../diagnostics/parts";
 import { TEST_COMPONENTS } from "../diagnostics/tests";
 import { testById, type FunctionalTest } from "../diagnostics/catalog";
@@ -180,7 +181,8 @@ export function WelcomeScreen({ state, onConsent, onLeave }: { state: CheckState
       </Say>
       <View style={{ height: 18 }} />
       <Note tone="ok">
-        Nothing personal is read. No photos, contacts, messages or accounts leave this phone — only the test results, the phone model and its storage size.
+        Nothing personal is read. No photos, contacts, messages or accounts leave this phone — only the test results, the phone model
+        {IS_WEB ? " and the battery level." : " and its storage size."}
       </Note>
       <View style={{ height: 10 }} />
       <Note>The camera and microphone tests ask for permission. A test you can't or don't want to do can be skipped — it is then marked "not tested", never "passed".</Note>
@@ -357,7 +359,7 @@ export function DoneScreen({
         <Fact label="Passed" value={String(c.passed)} tone="pass" />
         <Fact label="Failed" value={String(c.failed)} tone={c.failed ? "fail" : undefined} />
         <Fact label="Skipped" value={String(c.skipped)} tone={c.skipped ? "warn" : undefined} />
-        {c.unsupported ? <Fact label="Can't run on this phone" value={String(c.unsupported)} tone="skip" /> : null}
+        {c.unsupported ? <Fact label={IS_WEB ? "Can't test in this browser" : "Can't run on this phone"} value={String(c.unsupported)} tone="skip" /> : null}
       </View>
       <View style={{ height: 12 }} />
       <SyncBadge snap={snap} />

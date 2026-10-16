@@ -36,7 +36,7 @@ export function TouchTest(p: TestProps) {
   return (
     <TestShell {...p} instructions="Drag your finger over the whole screen until every square is cleared." detail={{ cells: COLS * ROWS, cleared: COLS * ROWS - remaining }} bleed>
       <View style={{ flex: 1 }}>
-        <View style={s.hint}><Text style={s.hintText}>{remaining === 0 ? "All clear ✓" : `${remaining} squares left`}</Text></View>
+        <View style={s.hint}><Text style={s.hintText}>{remaining === 0 ? "All clear ✓" : `${remaining} ${remaining === 1 ? "square" : "squares"} left`}</Text></View>
         <View
           style={s.grid}
           onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}

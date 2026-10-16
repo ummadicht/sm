@@ -4,8 +4,13 @@
 // "unsupported" — never as a pass.
 import type { ViewStyle } from "react-native";
 
-/** The one line a customer sees whenever their browser can't run a test. */
-export const CANT_LINE = "Your browser can't test this. The app can — or the advisor will check it.";
+/**
+ * The one line a customer sees whenever their browser can't run a test. The
+ * SwapUp Check app is Android-only, so an iPhone is never told "the app can".
+ */
+export function cantLine(): string {
+  return isIOS() ? "Your browser can't test this — the advisor will check it by hand." : "Your browser can't test this. The SwapUp Check app can — or the advisor will check it.";
+}
 
 export function ua(): string {
   return typeof navigator !== "undefined" ? navigator.userAgent || "" : "";

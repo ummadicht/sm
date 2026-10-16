@@ -6,7 +6,7 @@ import { TestProps, TestShell } from "../TestShell";
 import { BigEmoji, Say } from "../parts";
 import { Detail } from "../../shared/types";
 import { T } from "../../shared/theme";
-import { CANT_LINE } from "./browser";
+import { cantLine } from "./browser";
 
 /** The body every web test shows when the browser can't run it (the specific reason is the shell's instructions line). */
 export function CantBody({ emoji }: { emoji: string }) {
@@ -15,7 +15,7 @@ export function CantBody({ emoji }: { emoji: string }) {
       <BigEmoji>{emoji}</BigEmoji>
       <Text style={s.cantTitle}>Can't test this in a browser</Text>
       <Say muted center>
-        {CANT_LINE}
+        {cantLine()}
       </Say>
     </View>
   );

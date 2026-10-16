@@ -93,7 +93,7 @@ export function TouchTest(p: TestProps) {
     <TestShell {...p} instructions="Drag your finger over the whole screen until every square is cleared." detail={{ cells: COLS * ROWS, cleared: COLS * ROWS - remaining, input }} bleed>
       <View style={{ flex: 1 }}>
         <View style={s.hint}>
-          <Text style={s.hintText}>{remaining === 0 ? "All clear ✓" : `${remaining} squares left`}</Text>
+          <Text style={s.hintText}>{remaining === 0 ? "All clear ✓" : `${remaining} ${remaining === 1 ? "square" : "squares"} left`}</Text>
         </View>
         <View ref={gridRef} style={[s.grid, webStyle({ touchAction: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none", cursor: "crosshair" })]}>
           {cleared.map((c, i) => (
