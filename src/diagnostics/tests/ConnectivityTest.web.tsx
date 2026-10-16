@@ -26,6 +26,11 @@ async function reachServer(): Promise<boolean> {
   }
 }
 
+/** effectiveType is a speed class ("4g" = fast on any network, Wi‑Fi included), not the radio in use. */
+function speedWord(t: string): string {
+  return t === "4g" ? "fast" : t === "3g" ? "medium" : t === "2g" || t === "slow-2g" ? "slow" : t;
+}
+
 export function ConnectivityTest(p: TestProps) {
   const [d, setD] = useState<Detail>({ cellular: "not visible to a browser", simPresent: null, runtime: "browser" });
   const [auto, setAuto] = useState<Result | null>(null);
@@ -87,7 +92,7 @@ export function ConnectivityTest(p: TestProps) {
           tone={d.connected ? "pass" : d.connected === false ? "fail" : undefined}
         />
         <Row label="Network type" value={type === "wifi" ? "Wi‑Fi" : type} />
-        <Row label="Speed estimate" value={d.effectiveType ? `${String(d.effectiveType).toUpperCase()}${d.downlinkMbps != null ? ` · ~${d.downlinkMbps} Mbps` : ""}` : "not reported"} />
+        <Row label="Connection speed" value={d.effectiveType ? `${speedWord(String(d.effectiveType))}${d.downlinkMbps != null ? ` · ~${d.downlinkMbps} Mbps` : ""}` : "not reported"} />
         <Row label="SIM / mobile signal" value="not visible to a browser" tone="skip" />
         <Row label="GPS" value={gps} tone={gps.startsWith("fix") ? "pass" : gps.startsWith("no fix") || gps.includes("denied") ? "warn" : undefined} />
       </View>
