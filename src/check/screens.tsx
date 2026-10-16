@@ -379,7 +379,19 @@ export function DoneScreen({
 
 /* ─────────────────────────── ended ─────────────────────────── */
 
-export function EndedScreen({ message, onNew }: { message: string; onNew: () => void }) {
+export function EndedScreen({ message, applied, onNew }: { message: string; applied?: boolean; onNew: () => void }) {
+  if (applied) {
+    // The store applied the results (see APPLIED_MESSAGE): a finish, not an error.
+    return (
+      <Screen>
+        <BigEmoji>✅</BigEmoji>
+        <Title>The store has your results</Title>
+        <Note tone="ok">{message}</Note>
+        <View style={{ height: 18 }} />
+        <Big title="Test another phone" onPress={onNew} />
+      </Screen>
+    );
+  }
   return (
     <Screen>
       <Title>This check has ended</Title>

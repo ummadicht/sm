@@ -47,6 +47,13 @@ export type JoinResult =
 
 type Opts = { appVersion: string; retryMs?: number; timeoutMs?: number };
 
+/**
+ * Why a check ended when the store applied the results: the session then
+ * refuses writes and re-joins, but the store HAS the results — this is the
+ * customer's finish line, not an error ("that code is not valid any more").
+ */
+export const APPLIED_MESSAGE = "The advisor has put your results on your trade-in. Nothing more to do on this phone.";
+
 /** Statuses on a device call that mean "this ticket / session isn't accepted" → re-join once. */
 const AUTH_LIKE = new Set([401, 403, 404, 410]);
 
@@ -235,6 +242,21 @@ export class CheckEngine {
     const r = await this.join(st.code, st.server);
     if (r.ok) return "ok";
     if (r.status === 0 || r.status >= 500 || r.status === 429) return "offline";
+    // Refused. If the store applied the results (mid-run, or while this page was
+    // closed), the old ticket can still read the status — say so instead of
+    // "that code is not valid any more". The ticket is kept for status reads.
+    if (st.ticket) {
+      try {
+        const s = await this.client(st).get<RemoteStatus>("/api/device/status");
+        if (s?.status === "applied") {
+          this.patch({ remote: s });
+          await this.update((x) => ({ ...x, ended: APPLIED_MESSAGE }));
+          return "ended";
+        }
+      } catch {
+        /* fall through to the join's own answer */
+      }
+    }
     await this.update((s) => ({ ...s, ended: r.message, ticket: null }));
     return "ended";
   }

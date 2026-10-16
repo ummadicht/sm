@@ -15,7 +15,7 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { T } from "../shared/theme";
 import { DEFAULT_SERVER, CLIENT_VERSION, IS_WEB } from "../shared/config";
-import { CheckEngine, joinErrorMessage } from "./engine";
+import { APPLIED_MESSAGE, CheckEngine, joinErrorMessage } from "./engine";
 import { fileStore, storageIsPersistent } from "./files";
 import { contractDevice } from "./deviceInfo";
 import { parseJoinTarget, resumeStep } from "./core";
@@ -257,7 +257,7 @@ function Root() {
     );
   }
 
-  if (state?.ended) return <EndedScreen message={state.ended} onNew={() => void engine.forget()} />;
+  if (state?.ended) return <EndedScreen message={state.ended} applied={state.ended === APPLIED_MESSAGE} onNew={() => void engine.forget()} />;
 
   if (!state || paused) {
     if (state && paused) {
