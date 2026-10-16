@@ -74,6 +74,7 @@ export function CameraTest(p: TestProps) {
       }
       setFacing((f) => ({ ...f, [side]: got || "unknown" }));
       setOpen((o) => ({ ...o, [side]: "ok" }));
+      setErrs(({ [side]: _old, ...rest }) => rest); // a retry that worked clears the earlier error
       live.current = s;
       setStream(s);
     })();

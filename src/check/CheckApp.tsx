@@ -86,6 +86,18 @@ function Root() {
   const [rerun, setRerun] = useState<string[] | null>(null);
   const [paused, setPaused] = useState(false);
   const pendingLink = useRef<string | null>(null);
+  // The quiet re-join of the saved check. A link to a DIFFERENT code must wait for
+  // it: a late answer about the old session would otherwise land on the new one
+  // (end it, or overwrite it with the old session).
+  const refreshing = useRef<Promise<void>>(Promise.resolve());
+  const refresh = useCallback(() => {
+    const p = refreshing.current
+      .then(() => engine.refreshTicket())
+      .then(() => engine.flush())
+      .catch(() => {});
+    refreshing.current = p;
+    return p;
+  }, [engine]);
 
   // ── boot: load what's on disk, start the retry loop, re-join quietly
   useEffect(() => {
@@ -94,7 +106,12 @@ function Root() {
       await engine.init();
       if (!alive) return;
       engine.start();
-      void engine.refreshTicket().then(() => engine.flush());
+      // Opened with a link to another code (the browser always is, via ?code=):
+      // don't bother re-joining the old check — the link replaces it.
+      const link = pendingLink.current ? parseJoinTarget(pendingLink.current) : null;
+      const cur = engine.getSnapshot().state;
+      const replacing = !!link && link.kind === "join" && !!cur && !cur.ended && cur.code !== link.code;
+      if (!replacing) void refresh();
       if (pendingLink.current) void handleLink(pendingLink.current);
     })();
     return () => {
@@ -140,7 +157,13 @@ function Root() {
         return;
       }
       setLinkCode(t.code);
-      if (cur && !cur.ended) await engine.forget();
+      await refreshing.current;
+      const now = engine.getSnapshot().state;
+      if (now && !now.ended && now.code === t.code) {
+        cleanJoinUrl();
+        return;
+      }
+      if (now && !now.ended) await engine.forget();
       await join(t.code, t.server);
     },
     [engine, join]
@@ -165,10 +188,10 @@ function Root() {
   // ── resume: send anything queued and re-check the ticket when the app comes back
   useEffect(() => {
     const sub = AppState.addEventListener("change", (s) => {
-      if (s === "active") void engine.refreshTicket().then(() => engine.flush());
+      if (s === "active") void refresh();
     });
     return () => sub.remove();
-  }, [engine]);
+  }, [refresh]);
 
   const state = snap.state;
   const plan = state?.session.plan ?? [];
