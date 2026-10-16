@@ -53,7 +53,13 @@ export function NativeCheck({
   }, [engine, st.consentAt]);
 
   const base = nativeStep(!!st.pairing, st.results, plan);
-  const step = rerun ? rerun.stage : base;
+  // Stay on the automatic list until the runner says it is finished (its last
+  // tick stays visible), rather than jumping the moment the last result lands.
+  const [autoActive, setAutoActive] = useState(false);
+  useEffect(() => {
+    if (base === "auto" && !rerun) setAutoActive(true);
+  }, [base, rerun]);
+  const step = rerun ? rerun.stage : autoActive && base !== "pairing" ? "auto" : base;
   const busy = step !== "done";
 
   // Tests the automatic run leaves out are reported as such — never silently missing.
@@ -133,6 +139,7 @@ export function NativeCheck({
           // Every test the runner was given reports something; this only guards against a silent gap.
           const now = engine.getSnapshot().state;
           for (const id of plan.auto) if (now && !now.results[id]) record(id, "skip", { method: "error", reason: "the check did not report a result" });
+          setAutoActive(false);
         }}
         status={<SyncBadge snap={snap} />}
       />

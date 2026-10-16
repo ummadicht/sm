@@ -10,7 +10,7 @@ import { RecordingPresets, useAudioRecorder } from "expo-audio";
 import { T } from "../../shared/theme";
 import type { Detail, Outcome, Verdict } from "./analysis";
 import { type AutoStepId, autoSteps } from "./plan";
-import { batteryStep, connectivityStep, faceidStep, featureStep, motionStep, sensorsStep, vibrationStep, within } from "./steps";
+import { batteryStep, connectivityStep, faceidStep, featureStep, motionStep, sensorsStep, sleep, vibrationStep, within } from "./steps";
 import { resetAudioMode, speakerMicStep, voiceStep } from "./audio";
 import { cameraStep, flashStep, useCameraRig } from "./camera";
 
@@ -107,7 +107,8 @@ export function AutoRunner({ all, todo, names, existing, onResult, onDone, statu
       }
       if (!alive) return;
       setRunning([]);
-      props.current.onDone();
+      await sleep(900); // let the last tick be seen
+      if (alive) props.current.onDone();
     })();
     return () => {
       alive = false;

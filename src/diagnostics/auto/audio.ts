@@ -112,7 +112,10 @@ async function recordWhilePlaying(rec: AudioRecorder, earpiece: boolean): Promis
     } catch {
       /* already gone */
     }
+    const file = rec.uri;
     await rec.stop().catch(() => {});
+    // Only the level readings are used; the room recording itself is deleted at once.
+    if (file) FS.deleteAsync(file, { idempotent: true }).catch(() => {});
   }
 }
 
