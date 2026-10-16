@@ -39,7 +39,7 @@ export function SpeakerTest(p: TestProps) {
     const reason = "This browser can't play sound.";
     return (
       <TestShell {...p} instructions={reason} autoVerdict="unsupported" hideManual detail={{ reason, runtime: "browser" }}>
-        <CantBody emoji={p.test.emoji} reason={reason} />
+        <CantBody emoji={p.test.emoji} />
       </TestShell>
     );
   }

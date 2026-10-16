@@ -36,7 +36,7 @@ export function BatteryTest(p: TestProps) {
     const reason = "This browser can't read the battery.";
     return (
       <TestShell {...p} instructions={reason} autoVerdict="unsupported" hideManual detail={{ ...detail, reason }}>
-        <CantBody emoji={p.test.emoji} reason={reason} />
+        <CantBody emoji={p.test.emoji} />
       </TestShell>
     );
   }

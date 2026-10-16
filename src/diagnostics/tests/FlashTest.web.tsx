@@ -104,7 +104,7 @@ export function FlashTest(p: TestProps) {
     const reason = hasGetUserMedia() ? "This browser can't switch on the light on the back of the phone." : "This browser can't open the camera that drives the light.";
     return (
       <TestShell {...p} instructions={reason} autoVerdict="unsupported" hideManual detail={{ ...detail, reason }}>
-        <CantBody emoji={p.test.emoji} reason={reason} />
+        <CantBody emoji={p.test.emoji} />
       </TestShell>
     );
   }

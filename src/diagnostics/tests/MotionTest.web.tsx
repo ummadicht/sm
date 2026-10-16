@@ -127,7 +127,7 @@ export function MotionTest(p: TestProps) {
     const reason = "This browser sends no tilt-sensor data.";
     return (
       <TestShell {...p} instructions={reason} autoVerdict="unsupported" hideManual detail={{ ...detail, reason }}>
-        <CantBody emoji={p.test.emoji} reason={reason} />
+        <CantBody emoji={p.test.emoji} />
       </TestShell>
     );
   }

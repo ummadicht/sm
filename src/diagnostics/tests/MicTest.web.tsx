@@ -101,7 +101,7 @@ export function MicTest(p: TestProps) {
     const reason = "This browser can't open the microphone.";
     return (
       <TestShell {...p} instructions={reason} autoVerdict="unsupported" hideManual detail={{ ...detail, reason }}>
-        <CantBody emoji={p.test.emoji} reason={reason} />
+        <CantBody emoji={p.test.emoji} />
       </TestShell>
     );
   }

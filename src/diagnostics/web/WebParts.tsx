@@ -8,8 +8,8 @@ import { Detail } from "../../shared/types";
 import { T } from "../../shared/theme";
 import { CANT_LINE } from "./browser";
 
-/** The body every web test shows when the browser can't run it. */
-export function CantBody({ emoji, reason }: { emoji: string; reason?: string }) {
+/** The body every web test shows when the browser can't run it (the specific reason is the shell's instructions line). */
+export function CantBody({ emoji }: { emoji: string }) {
   return (
     <View style={s.cant}>
       <BigEmoji>{emoji}</BigEmoji>
@@ -17,7 +17,6 @@ export function CantBody({ emoji, reason }: { emoji: string; reason?: string }) 
       <Say muted center>
         {CANT_LINE}
       </Say>
-      {reason ? <Text style={s.reason}>{reason}</Text> : null}
     </View>
   );
 }
@@ -29,7 +28,7 @@ export function CantBody({ emoji, reason }: { emoji: string; reason?: string }) 
 export function CantTest({ p, reason, detail }: { p: TestProps; reason: string; detail?: Detail }) {
   return (
     <TestShell {...p} instructions={reason} autoVerdict="unsupported" hideManual detail={{ reason, runtime: "browser", ...(detail ?? {}) }}>
-      <CantBody emoji={p.test.emoji} reason={reason} />
+      <CantBody emoji={p.test.emoji} />
     </TestShell>
   );
 }
@@ -92,5 +91,4 @@ export function captureFrame(v: HTMLVideoElement): { url: string; dark: boolean 
 const s = StyleSheet.create({
   cant: { flex: 1, justifyContent: "center", gap: 14 },
   cantTitle: { color: T.text, fontSize: 24, fontWeight: "800", textAlign: "center" },
-  reason: { color: T.muted, fontSize: 15, lineHeight: 21, textAlign: "center" },
 });

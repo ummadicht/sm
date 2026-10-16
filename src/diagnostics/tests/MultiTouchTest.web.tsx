@@ -78,7 +78,7 @@ export function MultiTouchTest(p: TestProps) {
       : "This browser has no touch screen to test.";
     return (
       <TestShell {...p} instructions={reason} autoVerdict="unsupported" hideManual detail={{ reason, runtime: "browser", maxTouchPoints: touchPoints() }}>
-        <CantBody emoji={p.test.emoji} reason={reason} />
+        <CantBody emoji={p.test.emoji} />
       </TestShell>
     );
   }

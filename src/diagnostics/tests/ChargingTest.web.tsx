@@ -55,7 +55,7 @@ export function ChargingTest(p: TestProps) {
     const reason = "This browser can't tell when a charger is plugged in.";
     return (
       <TestShell {...p} instructions={reason} autoVerdict="unsupported" hideManual detail={{ reason, runtime: "browser" }}>
-        <CantBody emoji={p.test.emoji} reason={reason} />
+        <CantBody emoji={p.test.emoji} />
       </TestShell>
     );
   }
