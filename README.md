@@ -63,8 +63,8 @@ Locally, `ln -s ../../swapup-mobile/dist-web ~/projects/swapup/public/app` makes
 `dist-web/` and Caddy serves it. `expo start --web` (port 8081) can't reach the API — use the
 export + proxy. Contract: MOBILE-API.md §7.
 
-What a browser can't do: earpiece, fingerprint/face, NFC on iPhone, torch outside Chrome on
-Android, SIM, storage size, RAM. Those tests report "Can't test in a browser" and count as
+What a browser can't do: earpiece, fingerprint/face, SIM, storage size, RAM — and NFC and the
+torch anywhere but Chrome on Android. Those tests report "Can't test in a browser" and count as
 untested; the store sees "In the browser, no app" and a note on the summary.
 
 ## Honest limits
