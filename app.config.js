@@ -26,6 +26,20 @@ const variants = {
     userInterfaceStyle: "light",
     backgroundColor: "#f5f6f8",
     permissions: ["android.permission.CAMERA", "android.permission.VIBRATE"],
+    // Both apps link the same native modules, so the store app would inherit the
+    // test app's permissions (mic, location, biometrics…) it never uses. Block them.
+    blockedPermissions: [
+      "android.permission.RECORD_AUDIO",
+      "android.permission.ACCESS_FINE_LOCATION",
+      "android.permission.ACCESS_COARSE_LOCATION",
+      "android.permission.USE_BIOMETRIC",
+      "android.permission.USE_FINGERPRINT",
+      "android.permission.READ_PHONE_STATE",
+      "android.permission.ACTIVITY_RECOGNITION",
+      "android.permission.SYSTEM_ALERT_WINDOW",
+      "android.permission.WRITE_SETTINGS",
+      "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+    ],
     plugins: [
       ["expo-camera", { cameraPermission: "Scan the IMEI barcode on the phone's box." }],
       "expo-secure-store",
@@ -39,6 +53,8 @@ const variants = {
     userInterfaceStyle: "dark",
     backgroundColor: "#0f1729",
     permissions: CHECK_PERMISSIONS,
+    // Drawing over other apps is never needed by the tests.
+    blockedPermissions: ["android.permission.SYSTEM_ALERT_WINDOW"],
     plugins: [
       ["expo-camera", { cameraPermission: "Camera, flashlight and QR tests.", microphonePermission: "Microphone test." }],
       ["expo-audio", { microphonePermission: "Microphone test." }],
@@ -68,6 +84,7 @@ module.exports = () => {
       package: v.package,
       adaptiveIcon: { backgroundColor: "#0f1729", foregroundImage: `./assets/${VARIANT}-icon-foreground.png` },
       permissions: v.permissions,
+      blockedPermissions: v.blockedPermissions,
       predictiveBackGestureEnabled: false,
     },
     plugins: v.plugins,
