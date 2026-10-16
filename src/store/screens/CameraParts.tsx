@@ -88,6 +88,8 @@ export function CameraStepCard({
 
   const status = v.status;
   const graded = !!g.result?.grade;
+  const needRetake = g.capture.verdict === "retake" || !!g.result?.obstruction?.present;
+  const again = graded || needRetake;
   const joined = status === "joined" || status === "testing" || status === "complete";
   const unlocked = !!g.cameraUrl && (g.deviceReady || !!g.override);
   const movedOn = joined && !g.deviceReady && (status === "complete" || (v.progress?.done ?? 0) > 0);
@@ -207,14 +209,14 @@ export function CameraStepCard({
           <View style={{ flexDirection: "row", gap: 20, alignItems: "flex-start" }}>
             <View style={{ flex: 1, minWidth: 0 }}>{guidance}</View>
             <View style={{ width: 320, gap: 10 }}>
-              <OpenButton graded={graded} onPress={takePhotos} />
+              <OpenButton again={again} primary={!graded || needRetake} onPress={takePhotos} />
               <OpenedNote opened={opened} />
             </View>
           </View>
         ) : (
           <>
             {guidance}
-            <OpenButton graded={graded} onPress={takePhotos} />
+            <OpenButton again={again} primary={!graded || needRetake} onPress={takePhotos} />
             <OpenedNote opened={opened} />
           </>
         )}
@@ -229,7 +231,11 @@ export function CameraStepCard({
     <Card style={{ gap: 14 }}>
       <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
         {head}
-        {graded ? <Chip text={g.result!.final ? `Graded ${g.result!.grade}` : `Provisional ${g.result!.grade}`} tone={g.result!.final ? "up" : "warn"} /> : null}
+        {needRetake ? (
+          <Chip text="Retake needed" tone="bad" />
+        ) : graded ? (
+          <Chip text={g.result!.final ? `Graded ${g.result!.grade}` : `Provisional ${g.result!.grade}`} tone={g.result!.final ? "up" : "warn"} />
+        ) : null}
       </View>
       {body}
     </Card>
@@ -254,10 +260,10 @@ function Locked({ title, text }: { title: string; text: string }) {
   );
 }
 
-function OpenButton({ graded, onPress }: { graded: boolean; onPress: () => void }) {
+function OpenButton({ again, primary, onPress }: { again: boolean; primary: boolean; onPress: () => void }) {
   return (
     <View style={{ gap: 6 }}>
-      <Btn title={graded ? "Retake photos" : "Take photos"} kind={graded ? "secondary" : "primary"} onPress={onPress} big />
+      <Btn title={again ? "Retake photos" : "Take photos"} kind={primary ? "primary" : "secondary"} onPress={onPress} big />
       <Text style={{ color: L.muted, fontSize: 14, lineHeight: 20 }}>
         {IS_WEB
           ? "Opens the camera page in a new tab. Chrome on an Android tablet takes the torch-lit photos."
@@ -281,12 +287,27 @@ function OpenedNote({ opened }: { opened: { at: number; inChrome: boolean } | nu
 }
 
 /** camera connected → photos uploaded → capture ok / retake → grading… → graded. */
+type Step = { label: string; state: "done" | "now" | "todo" | "bad"; detail?: string };
+
+/** The last row: what the grade is doing. Never "grading…" when nothing is being graded. */
+function gradeStep(g: CameraGrading): Step {
+  const c = g.capture;
+  const r = g.result;
+  const why = r?.reasons.length ? r.reasons.join(" ") : undefined;
+  if (c.verdict === "retake") return { label: "Grade", state: "todo", detail: "Waits for photos the camera accepts." };
+  if (r?.obstruction?.present) return { label: "Case on the phone — remove it and retake", state: "bad", detail: "The grade from these photos is not used." };
+  if (r?.grade) return r.final ? { label: `Graded ${r.grade}`, state: "done" } : { label: `Provisional ${r.grade}`, state: "now", detail: r.provisionalWhy ?? why };
+  if (r && (r.tierUsed === "stub" || r.status === "failed")) return { label: "Grading failed", state: "bad", detail: byEye(why) };
+  if (g.timedOut) return { label: "No grade came back", state: "bad", detail: byEye(why) };
+  if (r?.status === "grading" || c.verdict === "ok" || c.cosmeticDone) return { label: "Grading…", state: "now", detail: "Usually 10–30 seconds after the photos are accepted." };
+  return { label: "Grade", state: "todo" };
+}
+
 function Progress({ g }: { g: CameraGrading }) {
   const c = g.capture;
   const r = g.result;
   const uploaded = c.cosmeticDone || !!c.verdict || !!r?.grade;
-  const failed = !r?.grade && (r?.tierUsed === "stub" || r?.status === "failed");
-  const steps: { label: string; state: "done" | "now" | "todo" | "bad"; detail?: string }[] = [
+  const steps: Step[] = [
     c.connected
       ? { label: "Camera connected", state: "done", detail: c.connectedAt ? ago(c.connectedAt) || undefined : undefined }
       : { label: "Camera not connected yet", state: "now", detail: "Tap “Take photos” — this ticks when the camera page opens." },
@@ -294,11 +315,7 @@ function Progress({ g }: { g: CameraGrading }) {
     c.verdict === "retake"
       ? { label: "Photos rejected — retake", state: "bad", detail: c.reasons.length ? c.reasons.join(" · ") : "The camera page says what to retake." }
       : { label: "Photos accepted", state: c.verdict === "ok" ? "done" : uploaded ? "now" : "todo" },
-    {
-      label: r?.grade ? (r.final ? `Graded ${r.grade}` : `Provisional ${r.grade}${r.refining ? " — final check running" : ""}`) : failed ? "Grading failed" : "Grading…",
-      state: r?.grade ? (r.final ? "done" : "now") : failed ? "bad" : c.verdict === "ok" || c.cosmeticDone ? "now" : "todo",
-      detail: failed ? (r?.reasons.join(" ") || "Check the condition by eye.") : !r?.grade && (c.verdict === "ok" || c.cosmeticDone) ? "Usually 10–30 seconds." : undefined,
-    },
+    gradeStep(g),
   ];
   return (
     <View style={{ gap: 2, borderTopWidth: 1, borderTopColor: L.border, paddingTop: 10 }}>
@@ -390,14 +407,14 @@ export function CameraAiCard({ g }: { g: CameraGrading }) {
         <View style={{ flex: 1, gap: 6 }}>
           <Text style={{ fontSize: 17, fontWeight: "700", color: L.ink }}>Cosmetic grade · {GRADE_MEANING[r.grade] ?? r.grade}</Text>
           <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-            <Chip text={r.final ? "Final" : "Provisional"} tone={r.final ? "up" : "warn"} />
+            {obstructed ? <Chip text="Not used — case on the phone" tone="bad" /> : <Chip text={r.final ? "Final" : "Provisional"} tone={r.final ? "up" : "warn"} />}
             {r.conclusive === true ? <Chip text="Conclusive" tone="up" /> : null}
             {r.conclusive === false ? <Chip text={r.gradeRange ? `Range ${r.gradeRange.best}–${r.gradeRange.worst}` : "Not conclusive"} tone="warn" /> : null}
             {r.needsHumanReview ? <Chip text="Needs a person to check" tone="warn" /> : null}
           </View>
         </View>
       </View>
-      {!r.final ? (
+      {!r.final && !obstructed ? (
         <Body muted>
           {r.provisionalWhy ||
             (r.refining
