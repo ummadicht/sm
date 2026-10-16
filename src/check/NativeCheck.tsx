@@ -18,6 +18,7 @@ import { PairingScreen } from "./PairingScreen";
 import { Screen, SyncBadge, Title, Note } from "./screens";
 import { countResults, type Detail, type Outcome, type PairingRec } from "./core";
 import type { CheckEngine, Snapshot } from "./engine";
+import { ClearDataGuide } from "./ClearDataGuide";
 
 const KEEP_AWAKE = "swapup-check-native";
 
@@ -216,6 +217,7 @@ function NativeDone({
       <View style={{ height: 12 }} />
       <SyncBadge snap={snap} />
       {!applied ? <Say muted>The advisor is reviewing your results on their screen.</Say> : null}
+      <ClearDataGuide applied={applied} />
       {photos === "skipped" || photos === "unavailable" ? (
         <View style={{ marginTop: 12 }}>
           <Note tone="warn">No photos were taken, so the advisor checks the screen and the body by eye.</Note>

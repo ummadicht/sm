@@ -10,6 +10,7 @@ import { Big, Fact, Say, BigEmoji } from "../diagnostics/parts";
 import { TEST_COMPONENTS } from "../diagnostics/tests";
 import { testById, type FunctionalTest } from "../diagnostics/catalog";
 import type { CheckEngine, Snapshot } from "./engine";
+import { ClearDataGuide } from "./ClearDataGuide";
 import { checkImei, cleanCode, countResults, isValidCode, parseJoinTarget, type CheckState, type Declared, type Outcome, type PlanItem } from "./core";
 
 /* ─────────────────────────── shared bits ─────────────────────────── */
@@ -364,6 +365,7 @@ export function DoneScreen({
       <View style={{ height: 12 }} />
       <SyncBadge snap={snap} />
       {!applied ? <Say muted>The advisor is reviewing your results on their screen.</Say> : null}
+      <ClearDataGuide applied={applied} />
       {redo.length && !applied ? (
         <>
           <View style={{ height: 18 }} />
@@ -387,6 +389,7 @@ export function EndedScreen({ message, applied, onNew }: { message: string; appl
         <BigEmoji>✅</BigEmoji>
         <Title>The store has your results</Title>
         <Note tone="ok">{message}</Note>
+        <ClearDataGuide applied />
         <View style={{ height: 18 }} />
         <Big title="Test another phone" onPress={onNew} />
       </Screen>
