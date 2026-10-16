@@ -56,3 +56,31 @@ or 30 s after `cosmeticDone`; "Skip photos" only appears if the store never conn
 
 Results go through the existing outbox (`src/check/engine.ts`) to SwapUp, which forwards them to
 GradeIQ (full map, merge:true).
+
+## As built (2026-10-16) — where the code differs from the table above
+
+Checked end to end against the dev server (:4500) and local GradeIQ (:3700) with curl; **not yet run
+on a physical phone**, so every threshold below is untuned on hardware.
+
+- **Order:** flash runs **before** the cameras (`plan.ts` `AUTO_ORDER`): while the phone lies screen-up
+  the rear lens faces the counter, so the torch makes a visible difference. The camera step then asks
+  the customer to hold the phone up if a frame is too dark.
+- **Pairing exits** (`pairing.ts`): `handoffDone`; 30 s after `cosmeticDone`; `state` disabled/failed →
+  at once; 15 s of refused polls (≥ 3) → "camera grading unavailable"; **Continue without photos** after
+  3 min with no sign of the store's camera, or after 6 min with nothing changing once it connected.
+  "Connected" = the camera asked for a pattern or judged a capture (the server does not relay GradeIQ's
+  `connectedAt` to the phone). A 503 keeps polling; only 401/403 refresh the ticket (≤ every 20 s).
+- **`display`** is posted by the phone **only** when no photos were taken: `skip`,
+  `{ method: "GradeIQ camera sweep", photos, reason: "not camera-checked: …" }`. Otherwise the phone
+  never posts it. ⚠ SwapUp's `summarise()` does not yet fold GradeIQ's LCD verdict into `display`, so
+  a native check currently reads `incomplete` (17/18) — a server change.
+- **Speaker / earpiece** need a ≥ 3 dB on/off level gap as well as the correlation; the earpiece
+  passes only when ≥ 3 dB quieter than the loudspeaker run, else skip (route not confirmed).
+- **Motion** passes on a phone built without a gyroscope (`gyroscope: false`); **no magnetometer** is a
+  skip; **no flash hardware** is `unsupported`; flash fails only if a photo with the torch on throws
+  (expo-camera reports no torch errors).
+- **Camera:** not ready within 10 s → skip; an error → fail with `detail.side` (front/rear/both).
+- **Touch** is its own 6×10 grid (`touch.ts`, `Actions.tsx`): fail only after 15 s of the finger
+  repeatedly landing next to squares that won't clear (≤ 25 % left); 45 s idle or 150 s total → skip.
+- Every result carries `detail.method`; every detail stays far below the server's 2,000-character cap
+  (a longer one is stored as `{ truncated: true }`, which would lose `side`).
