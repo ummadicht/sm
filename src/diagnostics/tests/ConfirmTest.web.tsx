@@ -151,7 +151,7 @@ function NfcWeb(p: TestProps) {
     return <CantTest p={p} reason="The browser can't reach an NFC reader on this phone." detail={{ error: err }} />;
   }
 
-  const auto: Result | null = phase === "found" ? "pass" : phase === "denied" ? "skip" : null;
+  const auto: Result | null = phase === "found" ? "pass" : null;
   return (
     <TestShell {...p} instructions="Tap Start, then hold any contactless card (bank, metro, ID) or NFC tag flat against the back of the phone, near the top." autoVerdict={auto} detail={detail}>
       <View style={s.wrap}>

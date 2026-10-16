@@ -10,7 +10,6 @@ import { T } from "../../shared/theme";
 import { Big, Say } from "../parts";
 import { CantBody } from "../web/WebParts";
 import { errName, hasGetUserMedia, mediaFailure, stopStream } from "../web/browser";
-import { Result } from "../catalog";
 
 const CANDLES = 5;
 const BLOW_DB = -22; // RMS dBFS; a close blow or loud voice is well above this, a quiet room ~ -50
@@ -107,10 +106,9 @@ export function MicTest(p: TestProps) {
     );
   }
 
-  const auto: Result | null = perm === "denied" ? "skip" : null;
   const level = db == null ? 0 : Math.max(0, Math.min(1, (db + 60) / 60));
   return (
-    <TestShell {...p} instructions="Blow (or speak loudly) into the bottom microphone until all five candles go out." autoVerdict={auto} detail={detail}>
+    <TestShell {...p} instructions="Blow (or speak loudly) into the bottom microphone until all five candles go out." detail={detail}>
       <View style={s.wrap}>
         <View style={s.candles}>
           {Array.from({ length: CANDLES }).map((_, i) => (
