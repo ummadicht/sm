@@ -6,6 +6,7 @@ import { L } from "../../shared/theme";
 import { normaliseServer } from "../storage";
 import { errText } from "../staffClient";
 import type { StaffUser, TokenResponse } from "../types";
+import { SignUp } from "./SignUp";
 import { Banner, Body, Btn, Card, Field, H1, useLayout } from "../ui";
 
 /** Counter roles only — anything else is turned away with a sentence that says why. */
@@ -20,11 +21,33 @@ export function staffProblem(u: StaffUser): string | null {
 export function SignIn({
   initialServer,
   notice,
+  initialInvite,
   onSignedIn,
 }: {
   initialServer: string;
   notice?: string;
+  /** An invite code from a link (swapupstore://join?invite=… or /app/store/?invite=…) opens sign-up directly. */
+  initialInvite?: string;
   onSignedIn: (server: string, res: TokenResponse) => void;
+}) {
+  const [signUp, setSignUp] = useState<null | "invite" | "register">(initialInvite ? "invite" : null);
+  if (signUp) {
+    const base = normaliseServer(initialServer) ?? DEFAULT_SERVER;
+    return <SignUp server={base} mode={signUp} initialInvite={initialInvite} onBack={() => setSignUp(null)} onSignedIn={onSignedIn} />;
+  }
+  return <SignInForm initialServer={initialServer} notice={notice} onSignedIn={onSignedIn} onSignUp={setSignUp} />;
+}
+
+function SignInForm({
+  initialServer,
+  notice,
+  onSignedIn,
+  onSignUp,
+}: {
+  initialServer: string;
+  notice?: string;
+  onSignedIn: (server: string, res: TokenResponse) => void;
+  onSignUp: (mode: "invite" | "register") => void;
 }) {
   const { wide, pad } = useLayout();
   const [server, setServer] = useState(initialServer);
@@ -109,6 +132,12 @@ export function SignIn({
             />
             {error ? <Banner tone="bad" title="Couldn't sign in">{error}</Banner> : null}
             <Btn title="Sign in" onPress={submit} busy={busy} big />
+          </Card>
+
+          <Card style={{ gap: 10 }}>
+            <Text style={{ fontSize: 17, fontWeight: "800", color: L.ink }}>New to SwapUp?</Text>
+            <Btn title="Join my store with an invite code" kind="secondary" onPress={() => onSignUp("invite")} />
+            <Btn title="Register a new store" kind="ghost" onPress={() => onSignUp("register")} />
           </Card>
 
           {IS_WEB ? null : (

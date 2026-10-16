@@ -1,7 +1,7 @@
 // Shapes the store app reads from the SwapUp server. Source of truth:
 // ~/projects/swapup/docs/MOBILE-API.md — keep these in step with it.
 
-export type StoreRef = { id: string; name: string; code: string; city: string; kind: string };
+export type StoreRef = { id: string; name: string; code: string; city: string; kind: string; status?: "pending" | "active" | "rejected"; reviewNote?: string | null };
 
 export type StaffUser = {
   id: string;

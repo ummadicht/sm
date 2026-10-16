@@ -1,5 +1,6 @@
 // Who is signed in, to which store, on which server — and the way out.
 // A store manager can also set the store Wi‑Fi here, before a customer is waiting.
+import { InviteStaff } from "./InviteStaff";
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, KeyboardAvoidingView, ScrollView, Text, View } from "react-native";
 import { APP_VERSION, DEFAULT_SERVER, IS_WEB } from "../../shared/config";
@@ -173,6 +174,7 @@ export function Settings({
         <ScrollView contentContainerStyle={{ padding: pad, gap: 16, alignSelf: "center", width: content + pad * 2 }} keyboardShouldPersistTaps="handled">
           <Columns wide={wide}>
             <View style={{ gap: 16 }}>
+              {canEditWifi ? <InviteStaff api={api} storeId={store.id} storeName={store.name} /> : null}
               {account}
               {serverCard}
             </View>

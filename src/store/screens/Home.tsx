@@ -103,6 +103,17 @@ export function Home({
     }
   }
 
+  const approval =
+    store.status === "pending" ? (
+      <Banner tone="warn" title={`${store.name} is waiting for approval`}>
+        {`${user.org?.name ?? "Your programme"} checks new stores before they can take trade-ins. Meanwhile you can test customers' phones and see quotes. Trade-ins start once the store is approved and given a credit limit.`}
+      </Banner>
+    ) : store.status === "rejected" ? (
+      <Banner tone="bad" title={`${store.name} was not approved`}>
+        {store.reviewNote || "Contact your programme for details."}
+      </Banner>
+    ) : null;
+
   const creditCard = (
     <Card>
       <Label>Trade-in credit available</Label>
@@ -152,6 +163,8 @@ export function Home({
         </View>
         <Btn title="Settings" kind="secondary" onPress={onSettings} />
       </View>
+
+      {approval}
 
       <Columns wide={wide}>
         {startCard}

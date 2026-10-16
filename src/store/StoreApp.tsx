@@ -6,7 +6,7 @@
 // any 401 anywhere sends the app back to sign-in.
 import "../shared/platform"; // browser shims (Alert, BackHandler) — a no-op on native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, BackHandler, Text, View } from "react-native";
+import { ActivityIndicator, BackHandler, Linking, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { ApiError, createClient } from "../shared/api";
@@ -19,7 +19,7 @@ import { Settings } from "./screens/Settings";
 import { SignIn, staffProblem } from "./screens/SignIn";
 import { WebScreen } from "./screens/Web";
 import { staffClient, errText } from "./staffClient";
-import { clearToken, loadSaved, saveServer, saveToken } from "./storage";
+import { clearToken, loadSaved, normaliseServer, saveServer, saveToken } from "./storage";
 import type { Screen, SessionLinks, StaffUser, TokenResponse } from "./types";
 import { Banner, Body, Btn, H1, useLayout } from "./ui";
 
@@ -64,6 +64,33 @@ function Root() {
   const links = useRef(new Map<string, SessionLinks>());
   // Several polls can 401 at once; only the first one signs the app out.
   const ending = useRef(false);
+  // An invite link (swapupstore://join?invite=CODE[&server=…] or /app/store/?invite=CODE) opens sign-up with the code filled in.
+  const [invite, setInvite] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    const read = (url: string | null) => {
+      if (!url) return;
+      const m = /[?&]invite=([A-Za-z0-9]{8})\b/.exec(url);
+      if (!m) return;
+      setInvite(m[1].toUpperCase());
+      const sm = /[?&]server=([^&#]+)/.exec(url);
+      if (sm && !IS_WEB) {
+        try {
+          const n = normaliseServer(decodeURIComponent(sm[1]));
+          if (n) setServer(n);
+        } catch {
+          /* ignore a malformed server */
+        }
+      }
+      if (IS_WEB && typeof window !== "undefined" && window.history?.replaceState) {
+        // Keep the code out of the address bar once read (it is a credential for a few days).
+        const clean = window.location.pathname;
+        window.history.replaceState(null, "", clean);
+      }
+    };
+    Linking.getInitialURL().then(read).catch(() => {});
+    const sub = Linking.addEventListener("url", (e) => read(e.url));
+    return () => sub.remove();
+  }, []);
 
   // ── launch: restore the saved sign-in
   const restore = useCallback(async () => {
@@ -167,7 +194,18 @@ function Root() {
   }
 
   if (phase.kind === "signin" || !auth || !api) {
-    return <SignIn key={server} initialServer={server} notice={phase.kind === "signin" ? phase.notice : undefined} onSignedIn={signedIn} />;
+    return (
+      <SignIn
+        key={`${server}|${invite ?? ""}`}
+        initialServer={server}
+        initialInvite={invite}
+        notice={phase.kind === "signin" ? phase.notice : undefined}
+        onSignedIn={(base, res) => {
+          setInvite(undefined);
+          return signedIn(base, res);
+        }}
+      />
+    );
   }
 
   const openWeb = (back: Screen) => (url: string, title: string) => setScreen({ name: "web", url, title, back });
