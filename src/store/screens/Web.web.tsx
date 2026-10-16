@@ -18,6 +18,21 @@ const DESK_TAB = "swapup-desk";
 /** The hand-off link lasts 60 s on the server; stop offering it a little before. */
 const LINK_LIFE_MS = 55_000;
 
+/**
+ * The hand-off must run on THIS origin — that is where the desk is and where its
+ * cookie has to land. The server may answer with an absolute URL built from its
+ * configured public address (e.g. http://localhost:4500 behind the local proxy,
+ * or another alias of the same server); keep its path and query, use our origin.
+ */
+export function sameOriginUrl(url: string): string {
+  try {
+    const u = new URL(url, window.location.href);
+    return u.origin === window.location.origin ? u.href : window.location.origin + u.pathname + u.search + u.hash;
+  } catch {
+    return url;
+  }
+}
+
 function openDeskTab(url: string): boolean {
   try {
     const w = window.open(url, DESK_TAB);
@@ -33,8 +48,9 @@ function openDeskTab(url: string): boolean {
   }
 }
 
-export function WebScreen({ url, title, onClose }: { url: string; title: string; onClose: () => void }) {
+export function WebScreen({ url: rawUrl, title, onClose }: { url: string; title: string; onClose: () => void }) {
   const { pad } = useLayout();
+  const url = sameOriginUrl(rawUrl);
   const [blocked, setBlocked] = useState(false);
   const [stillBlocked, setStillBlocked] = useState(false);
   const [expired, setExpired] = useState(false);
