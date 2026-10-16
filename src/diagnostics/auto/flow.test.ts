@@ -7,6 +7,7 @@ const Plan: typeof import("./plan") = await import("./plan" + ".ts");
 const Tch: typeof import("./touch") = await import("./touch" + ".ts");
 
 const poll = (p: Partial<import("./pairing").ScreenPoll> = {}): import("./pairing").ScreenPoll => ({
+  state: "ready",
   pattern: "idle",
   shown: null,
   cosmeticDone: false,
@@ -28,7 +29,19 @@ test("pairing: parse the proxied /screen body", () => {
   assert.equal(P.parseScreen(null), null);
   assert.equal(P.parseScreen({ error: "nope" }), null);
   const s = P.parseScreen({ pattern: "white", shown: "idle", cosmeticDone: true, handoffDone: "yes", capture: { verdict: "retake", reasons: ["blur", 3] }, connectedAt: "2026-10-16T10:00:00Z", model: "x" });
-  assert.deepEqual(s, { pattern: "white", shown: "idle", cosmeticDone: true, handoffDone: false, connectedAt: "2026-10-16T10:00:00Z", capture: { verdict: "retake", reasons: ["blur"] } });
+  assert.deepEqual(s, { state: null, pattern: "white", shown: "idle", cosmeticDone: true, handoffDone: false, connectedAt: "2026-10-16T10:00:00Z", capture: { verdict: "retake", reasons: ["blur"] } });
+  // SwapUp's actual shape (MOBILE-API §4): state + no connectedAt.
+  const su = P.parseScreen({ state: "pending", pattern: "idle", shown: null, cosmeticDone: false, handoffDone: false, capture: null });
+  assert.equal(su?.state, "pending");
+  assert.equal(su?.connectedAt, null);
+});
+
+test("pairing: state disabled / failed → leave at once and run the tests; pending waits", () => {
+  assert.equal(P.trackPoll(P.newTracker(0), poll({ state: "disabled" }), 500).leave, "disabled");
+  assert.equal(P.trackPoll(P.newTracker(0), poll({ state: "failed" }), 500).leave, "failed");
+  const r = P.trackPoll(P.newTracker(0), poll({ state: "pending" }), 500);
+  assert.equal(r.leave, null);
+  assert.equal(r.tracker.connectedAt, null);
 });
 
 test("pairing: leave on handoffDone at once", () => {

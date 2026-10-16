@@ -5,9 +5,13 @@
 // 236-275 and 794-808): poll ~700 ms, leave on handoffDone, or 30 s after
 // cosmeticDone when the camera never says it is finished.
 //
-// Contract: SwapUp's ticket-authenticated GET/POST /api/device/screen, a proxy
-// of GradeIQ's /api/sessions/{id}/screen ({pattern, shown, cosmeticDone,
-// handoffDone, capture, connectedAt}). No runtime imports — node --test runs it.
+// Contract: SwapUp's ticket-authenticated GET/POST /api/device/screen
+// (swapup docs/MOBILE-API.md §4 "Photo check"), a proxy of GradeIQ's
+// /api/sessions/{id}/screen: { state, pattern, shown, cosmeticDone, handoffDone,
+// capture }. state disabled/failed → no photo check, run the tests; pending →
+// wait; ready → show the pattern. 503 → keep polling. GradeIQ's `connectedAt`
+// is not relayed, so "the store's camera is there" = it asked for a pattern or
+// judged a capture. No runtime imports — node --test runs it.
 
 /** Solid fills, exactly GradeIQ V2Flow's FILLS. "stripes" is drawn separately; anything else is "idle". */
 export const PATTERN_FILLS: Readonly<Record<string, string>> = {
@@ -49,6 +53,8 @@ export function displayablePattern(p: unknown): string {
 }
 
 export type ScreenPoll = {
+  /** SwapUp's GradeIQ state for this check; null when the server doesn't say (treated as ready). */
+  state: string | null;
   pattern: string;
   shown: string | null;
   cosmeticDone: boolean;
@@ -64,6 +70,7 @@ export function parseScreen(raw: unknown): ScreenPoll | null {
   if (typeof r.pattern !== "string") return null;
   const cap = r.capture && typeof r.capture === "object" ? (r.capture as Record<string, unknown>) : null;
   return {
+    state: typeof r.state === "string" ? r.state : null,
     pattern: r.pattern,
     shown: typeof r.shown === "string" ? r.shown : null,
     cosmeticDone: r.cosmeticDone === true,
@@ -93,7 +100,8 @@ export function newTracker(now: number): Tracker {
   return { startedAt: now, connectedAt: null, cosmeticSince: null, lastChangeAt: now, lastSig: "", refusals: 0, refusingSince: null, lastPollOkAt: null };
 }
 
-export type Leave = "handoff" | "grace";
+/** handoff / grace: the photos are done. disabled / failed: no camera grading for this check — run the tests. */
+export type Leave = "handoff" | "grace" | "disabled" | "failed";
 
 /** Fold one successful poll into the tracker; says when to leave the pairing screen. */
 export function trackPoll(tr: Tracker, poll: ScreenPoll, now: number): { tracker: Tracker; leave: Leave | null } {
@@ -110,6 +118,7 @@ export function trackPoll(tr: Tracker, poll: ScreenPoll, now: number): { tracker
     lastPollOkAt: now,
     cosmeticSince: poll.cosmeticDone ? tr.cosmeticSince ?? now : null,
   };
+  if (poll.state === "disabled" || poll.state === "failed") return { tracker: next, leave: poll.state };
   if (poll.handoffDone) return { tracker: next, leave: "handoff" };
   if (next.cosmeticSince != null && now - next.cosmeticSince >= GRACE_AFTER_COSMETIC_MS) return { tracker: next, leave: "grace" };
   return { tracker: next, leave: null };

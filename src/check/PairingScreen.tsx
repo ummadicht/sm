@@ -54,7 +54,8 @@ export function PairingScreen({ engine, state, onDone, onBleed, onWrongCode }: P
   const [ready, setReady] = useState(false);
   const [drawing, setDrawing] = useState("idle");
   const [poll, setPoll] = useState<ScreenPoll | null>(null);
-  const [offline, setOffline] = useState(false);
+  /** offline = no network answer; busy = the server answered 5xx/429 (e.g. it can't reach GradeIQ just now). */
+  const [trouble, setTrouble] = useState<null | "offline" | "busy">(null);
   const [offer, setOffer] = useState<ReturnType<typeof skipOffer>>(null);
   const tracker = useRef<Tracker>(newTracker(Date.now()));
   const drawingRef = useRef("idle");
@@ -132,17 +133,21 @@ export function PairingScreen({ engine, state, onDone, onBleed, onWrongCode }: P
           tracker.current = t.tracker;
           if (t.unavailable) return leave({ outcome: "unavailable", reason: "the store's system sent an answer this app doesn't understand" });
         } else {
-          setOffline(false);
+          setTrouble(null);
           const t = trackPoll(tracker.current, p, now);
           tracker.current = t.tracker;
           setPoll(p);
+          if (t.leave === "disabled") return leave({ outcome: "unavailable", reason: "camera grading is switched off for this store" });
+          if (t.leave === "failed") return leave({ outcome: "unavailable", reason: "camera grading could not start for this check" });
           if (t.leave) return leave({ outcome: t.leave, reason: null });
           const want = displayablePattern(p.pattern);
           if (want !== drawingRef.current) setDrawing(want);
           else if (needsEcho(p, want) && (!lastEcho.current || now - lastEcho.current.at > 1500)) echo(want);
         }
-      } else if (r.status === 0 || r.status >= 500 || r.status === 429) {
-        setOffline(true);
+      } else if (r.status === 0) {
+        setTrouble("offline");
+      } else if (r.status >= 500 || r.status === 429) {
+        setTrouble("busy");
       } else if (r.status !== 401 && r.status !== 403) {
         // The server said no (no camera grading for this check, or an older server without the route).
         const t = trackRefusal(tracker.current, now);
@@ -163,17 +168,16 @@ export function PairingScreen({ engine, state, onDone, onBleed, onWrongCode }: P
 
   const connected = tracker.current.connectedAt != null;
   const retake = poll?.capture?.verdict === "retake" || poll?.capture?.verdict === "retaking";
-  const statusLine = !ready
-    ? "One moment — allow the camera, microphone and location when asked, so the tests can run by themselves."
-    : offline
-      ? "Waiting for Wi‑Fi…"
-      : poll?.cosmeticDone
-        ? "Photos accepted — finishing the screen check…"
-        : retake
-          ? "The advisor is retaking the photos."
-          : connected
-            ? "Connected — the advisor is taking photos. Keep the phone still."
-            : "Waiting for the advisor's camera…";
+  const statusLine = (() => {
+    if (!ready) return "One moment — allow the camera, microphone and location when asked, so the tests can run by themselves.";
+    if (trouble === "offline") return "Waiting for Wi‑Fi…";
+    if (trouble === "busy") return "The store's system is busy — this carries on by itself.";
+    if (poll?.state === "pending") return "Getting the photo check ready…";
+    if (poll?.cosmeticDone) return "Photos accepted — finishing the screen check…";
+    if (retake) return "The advisor is retaking the photos.";
+    if (connected) return "Connected — the advisor is taking photos. Keep the phone still.";
+    return "Waiting for the advisor's camera…";
+  })();
 
   return (
     <View style={s.root}>
@@ -184,7 +188,7 @@ export function PairingScreen({ engine, state, onDone, onBleed, onWrongCode }: P
         <View style={s.phoneScreen} />
       </View>
       <View style={[s.status, { borderColor: connected ? T.pass : T.border }]}>
-        <View style={[s.dot, { backgroundColor: offline ? T.warn : connected ? T.pass : T.muted }]} />
+        <View style={[s.dot, { backgroundColor: trouble ? T.warn : connected ? T.pass : T.muted }]} />
         <Text style={s.statusText}>{statusLine}</Text>
       </View>
       <Text style={s.privacy}>
