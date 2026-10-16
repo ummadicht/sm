@@ -1,34 +1,53 @@
 // Browser version of "feel the buzz": navigator.vibrate (Chrome on Android)
 // from the customer's tap, then the customer says whether they felt it.
-// iPhone Safari has no vibration API → the browser can't test it.
+// iPhone Safari has no vibration API, and a browser that refuses every buzz
+// can't run the test either → "unsupported". The Yes/No question only appears
+// once the browser has actually accepted a buzz, so nobody can pass a phone
+// that was never asked to vibrate.
 import React, { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { TestProps, TestShell } from "../TestShell";
 import { Big, BigEmoji, Say } from "../parts";
-import { CantTest } from "../web/WebParts";
+import { CantBody, CantTest } from "../web/WebParts";
 
 function canVibrate(): boolean {
   return typeof navigator !== "undefined" && typeof navigator.vibrate === "function";
 }
 
 export function VibrationTest(p: TestProps) {
-  const [n, setN] = useState(0);
-  const [refused, setRefused] = useState(false);
+  const [tries, setTries] = useState(0);
+  const [accepted, setAccepted] = useState(0);
   if (!canVibrate()) return <CantTest p={p} reason="This browser can't make the phone vibrate." />;
 
   const buzz = () => {
-    const ok = navigator.vibrate([400, 150, 400]); // two strong pulses, like the app
-    setRefused(!ok);
-    setN((x) => x + 1);
+    let ok = false;
+    try {
+      ok = navigator.vibrate([400, 150, 400]); // two strong pulses, like the app
+    } catch {
+      ok = false;
+    }
+    setTries((x) => x + 1);
+    if (ok) setAccepted((x) => x + 1);
   };
-  const detail = { triggered: n, browserAccepted: n ? !refused : null, method: "navigator.vibrate", runtime: "browser" };
+  const detail = { triggered: tries, browserAccepted: accepted, method: "navigator.vibrate", runtime: "browser" };
+
+  if (tries >= 2 && accepted === 0) {
+    const reason = "This browser refused to make the phone vibrate.";
+    return (
+      <TestShell {...p} instructions={reason} autoVerdict="unsupported" hideManual detail={{ ...detail, reason }}>
+        <CantBody emoji={p.test.emoji} />
+      </TestShell>
+    );
+  }
   return (
     <TestShell {...p} instructions="Hold the phone loosely and tap Buzz. You should feel two strong pulses. Weak, rattling or no vibration is a fail." hideManual detail={detail}>
       <View style={s.wrap}>
         <BigEmoji>📳</BigEmoji>
-        <Big title={n ? "Buzz again" : "Buzz"} onPress={buzz} />
-        {refused ? <Say muted center style={{ fontSize: 15 }}>The browser refused to vibrate. Make sure the phone isn't on silent / Do Not Disturb, then tap Buzz again.</Say> : null}
-        {n > 0 ? (
+        <Big title={tries ? "Buzz again" : "Buzz"} onPress={buzz} />
+        {tries > 0 && accepted === 0 ? (
+          <Say muted center style={{ fontSize: 15 }}>The browser didn't start the vibration. Turn off silent / Do Not Disturb, then tap Buzz again.</Say>
+        ) : null}
+        {accepted > 0 ? (
           <>
             <Say center>Did you feel two buzzes?</Say>
             <View style={{ flexDirection: "row", gap: 10 }}>
