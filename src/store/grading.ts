@@ -126,8 +126,19 @@ export type CameraGrading = {
   screenProblem: string | null;
   /** Withheld by the server until deviceReady (or an override). */
   cameraUrl: string | null;
+  /** The server's sentence for why the camera is still locked. */
+  cameraLocked: string | null;
+  /** The server allows "Take photos anyway" (null = it didn't say). */
+  canOverride: boolean | null;
+  /** The server can retry setting up camera grading. */
+  canRetry: boolean;
+  /** Forwarding the phone's results to GradeIQ is behind (SwapUp's own results stay authoritative). */
+  outOfSync: string | null;
+  /** SwapUp stopped waiting for a final grade (180 s after the photos were accepted). */
+  timedOut: boolean;
   override: { reason: string | null; by: string | null; at: string | null } | null;
   capture: {
+    connected: boolean;
     connectedAt: string | null;
     cosmeticDone: boolean;
     handoffDone: boolean;
@@ -314,8 +325,13 @@ export function readGrading(raw: unknown): CameraGrading {
     deviceReady: false,
     screenProblem: null,
     cameraUrl: null,
+    cameraLocked: null,
+    canOverride: null,
+    canRetry: false,
+    outOfSync: null,
+    timedOut: false,
     override: null,
-    capture: { connectedAt: null, cosmeticDone: false, handoffDone: false, verdict: null, reasons: [], attempt: null },
+    capture: { connected: false, connectedAt: null, cosmeticDone: false, handoffDone: false, verdict: null, reasons: [], attempt: null },
     result: null,
     disagreements: [],
     lcdNotChecked: null,
@@ -330,8 +346,10 @@ export function readGrading(raw: unknown): CameraGrading {
   const screen = obj(pick(g, "screen", "pairing"));
   const capRaw = obj(pick(g, "capture") ?? pick(screen, "capture"));
   const capV = str(capRaw?.verdict);
+  const connectedAt = str(pick(g, "cameraConnectedAt", "connectedAt") ?? pick(screen, "connectedAt"));
   const capture = {
-    connectedAt: str(pick(g, "cameraConnectedAt", "connectedAt") ?? pick(screen, "connectedAt")),
+    connected: g.cameraConnected === true || !!connectedAt,
+    connectedAt,
     cosmeticDone: (pick(g, "cosmeticDone") ?? pick(screen, "cosmeticDone")) === true,
     handoffDone: (pick(g, "handoffDone") ?? pick(screen, "handoffDone")) === true,
     verdict: (capV === "ok" || capV === "retake" ? capV : null) as CaptureVerdict,
@@ -346,11 +364,15 @@ export function readGrading(raw: unknown): CameraGrading {
   const deviceReady = ready === true || (ready === undefined && typeof shown === "string" && !!shown);
 
   const screenErr = pick(g, "screenError", "screenProblem", "pairingError") ?? pick(screen, "error");
-  const screenProblem =
-    str(screenErr) ??
-    (pick(g, "screenReadable", "screenOk") === false || str(pick(g, "screenState", "pairingState")) === "unreadable" || str(screen?.state) === "unreadable"
-      ? "SwapUp couldn't read the pairing status from GradeIQ."
-      : null);
+  const cameraLocked = str(g.cameraLocked);
+  const canOverride = bool(g.canOverride);
+  // "Unreadable" is not "not read yet": with the server's own flags, only an
+  // unreadable /screen that it lets staff override counts.
+  const unreadable =
+    canOverride !== null
+      ? g.screenReadable === false && canOverride
+      : pick(g, "screenReadable", "screenOk") === false || str(pick(g, "screenState", "pairingState")) === "unreadable" || str(screen?.state) === "unreadable";
+  const screenProblem = str(screenErr) ?? (unreadable ? (cameraLocked ?? "SwapUp couldn't read the pairing status from GradeIQ.") : null);
 
   const ov = pick(g, "override", "cameraOverride");
   const ovObj = obj(ov);
@@ -457,6 +479,11 @@ export function readGrading(raw: unknown): CameraGrading {
     deviceReady,
     screenProblem: deviceReady ? null : screenProblem,
     cameraUrl: str(pick(g, "cameraUrl", "camUrl")),
+    cameraLocked,
+    canOverride,
+    canRetry: g.canRetry === true,
+    outOfSync: g.outOfSync === true ? (str(obj(g.sync)?.error) ?? "GradeIQ out of sync, retrying.") : null,
+    timedOut: g.timedOut === true,
     override,
     capture,
     result,
