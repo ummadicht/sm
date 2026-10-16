@@ -3,7 +3,7 @@
 // tests rely on the tester pressing Pass / Fail. Skip is always available —
 // a device that can't run a test must never be graded as if it failed it.
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import { FunctionalTest, Result } from "./catalog";
 import { Detail } from "../shared/types";
 import { T } from "../shared/theme";
@@ -30,6 +30,15 @@ type ShellProps = TestProps & {
 };
 
 export function TestShell({ test, onResult, index, count, instructions, children, autoVerdict, detail, hideManual, bleed }: ShellProps) {
+  // "unsupported" = this phone/browser can't run the test. Only the browser
+  // build reports it today; the bar then offers just Continue (records it as
+  // untested), with no "override" — there is nothing the tester could judge.
+  const unsupported = autoVerdict === "unsupported";
+  const pillText =
+    autoVerdict === "pass" ? "Auto pass"
+    : autoVerdict === "fail" ? "Auto fail"
+    : unsupported && Platform.OS === "web" ? "Can't test in a browser"
+    : "Not available";
   return (
     <View style={s.root}>
       {!bleed && (
@@ -44,12 +53,12 @@ export function TestShell({ test, onResult, index, count, instructions, children
       <View style={s.bar}>
         {autoVerdict ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
-            <Pill text={autoVerdict === "pass" ? "Auto pass" : autoVerdict === "fail" ? "Auto fail" : "Not available"} tone={autoVerdict === "pass" ? "pass" : autoVerdict === "fail" ? "fail" : "skip"} />
-            <Text style={{ color: T.muted, fontSize: 12 }}>You can override.</Text>
+            <Pill text={pillText} tone={autoVerdict === "pass" ? "pass" : autoVerdict === "fail" ? "fail" : "skip"} />
+            {!unsupported && <Text style={{ color: T.muted, fontSize: 12 }}>You can override.</Text>}
           </View>
         ) : null}
         <View style={{ flexDirection: "row", gap: 8 }}>
-          <Btn title="Skip" kind="skip" onPress={() => onResult("skip", detail)} style={{ flex: 1 }} />
+          {!(hideManual && unsupported) && <Btn title="Skip" kind="skip" onPress={() => onResult("skip", detail)} style={{ flex: 1 }} />}
           {!hideManual && <Btn title="Fail" kind="fail" onPress={() => onResult("fail", detail)} style={{ flex: 1 }} />}
           {!hideManual && <Btn title="Pass" kind="pass" onPress={() => onResult("pass", detail)} style={{ flex: 1.4 }} />}
           {hideManual && autoVerdict && autoVerdict !== "skip" && (
