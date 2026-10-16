@@ -32,8 +32,13 @@ export const NO_CONNECT_MS = 180_000;
  * the advisor is still taking the manual photos.
  */
 export const STALL_MS = 360_000;
-/** Consecutive refusals (4xx other than auth) before the camera check is treated as unavailable. */
-export const UNAVAILABLE_AFTER = 3;
+/**
+ * The camera check is treated as unavailable only when the server has refused
+ * (4xx other than auth) every poll for this long — a check whose GradeIQ
+ * session is still being created must not be written off after two seconds.
+ */
+export const UNAVAILABLE_AFTER_MS = 15_000;
+export const UNAVAILABLE_MIN_REFUSALS = 3;
 
 /** What this phone can actually draw for a requested pattern — and so what it echoes as `shown`. */
 export function displayablePattern(p: unknown): string {
@@ -80,11 +85,12 @@ export type Tracker = {
   lastChangeAt: number;
   lastSig: string;
   refusals: number;
+  refusingSince: number | null;
   lastPollOkAt: number | null;
 };
 
 export function newTracker(now: number): Tracker {
-  return { startedAt: now, connectedAt: null, cosmeticSince: null, lastChangeAt: now, lastSig: "", refusals: 0, lastPollOkAt: null };
+  return { startedAt: now, connectedAt: null, cosmeticSince: null, lastChangeAt: now, lastSig: "", refusals: 0, refusingSince: null, lastPollOkAt: null };
 }
 
 export type Leave = "handoff" | "grace";
@@ -100,6 +106,7 @@ export function trackPoll(tr: Tracker, poll: ScreenPoll, now: number): { tracker
     lastChangeAt: sig !== tr.lastSig ? now : tr.lastChangeAt,
     lastSig: sig,
     refusals: 0,
+    refusingSince: null,
     lastPollOkAt: now,
     cosmeticSince: poll.cosmeticDone ? tr.cosmeticSince ?? now : null,
   };
@@ -108,10 +115,14 @@ export function trackPoll(tr: Tracker, poll: ScreenPoll, now: number): { tracker
   return { tracker: next, leave: null };
 }
 
-/** A refused poll (4xx that is not about the ticket). After a few in a row the camera check is unavailable. */
-export function trackRefusal(tr: Tracker): { tracker: Tracker; unavailable: boolean } {
+/** A refused poll (4xx that is not about the ticket). Refused for long enough → the camera check is unavailable. */
+export function trackRefusal(tr: Tracker, now: number): { tracker: Tracker; unavailable: boolean } {
   const refusals = tr.refusals + 1;
-  return { tracker: { ...tr, refusals }, unavailable: refusals >= UNAVAILABLE_AFTER };
+  const refusingSince = tr.refusingSince ?? now;
+  return {
+    tracker: { ...tr, refusals, refusingSince },
+    unavailable: refusals >= UNAVAILABLE_MIN_REFUSALS && now - refusingSince >= UNAVAILABLE_AFTER_MS,
+  };
 }
 
 /** Why "Continue without photos" is offered right now, or null if it isn't. */

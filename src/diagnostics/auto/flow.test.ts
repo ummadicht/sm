@@ -71,15 +71,18 @@ test("pairing: 'Continue without photos' only after 3 min with no store connecti
   assert.notEqual(P.trackPoll(P.newTracker(0), poll({ pattern: "black" }), 10).tracker.connectedAt, null);
 });
 
-test("pairing: refusals in a row → unavailable; a good poll resets the count", () => {
+test("pairing: refused for 15 s straight → unavailable; a good poll resets it", () => {
   let tr = P.newTracker(0);
-  let r = P.trackRefusal(tr);
-  r = P.trackRefusal(r.tracker);
-  assert.equal(r.unavailable, false);
-  tr = P.trackPoll(r.tracker, poll(), 10).tracker;
-  assert.equal(tr.refusals, 0);
-  r = P.trackRefusal(P.trackRefusal(P.trackRefusal(tr).tracker).tracker);
+  let r = P.trackRefusal(tr, 1000);
+  r = P.trackRefusal(r.tracker, 1700);
+  r = P.trackRefusal(r.tracker, 2400);
+  assert.equal(r.unavailable, false, "three quick refusals are not enough");
+  r = P.trackRefusal(r.tracker, 1000 + P.UNAVAILABLE_AFTER_MS);
   assert.equal(r.unavailable, true);
+  tr = P.trackPoll(r.tracker, poll(), 20_000).tracker;
+  assert.equal(tr.refusals, 0);
+  assert.equal(tr.refusingSince, null);
+  assert.equal(P.trackRefusal(tr, 20_700).unavailable, false);
 });
 
 test("pairing: re-echo when the server's `shown` differs from what is drawn", () => {
