@@ -11,7 +11,7 @@ import { Row } from "../../shared/ui";
 import { Result } from "../catalog";
 import { Big, Say } from "../parts";
 import { CantBody } from "../web/WebParts";
-import { motionNeedsTap, OrientationEventLike, requestMotionAccess } from "../web/browser";
+import { MOTION_DENIED, motionNeedsTap, OrientationEventLike, requestMotionAccess } from "../web/browser";
 
 const WAIT_MS = 3000;
 const NEED_DEG = 40;
@@ -103,11 +103,7 @@ export function SensorsTest(p: TestProps) {
     return (
       <TestShell {...p} instructions="Turn the phone a half-circle for the compass." hideManual detail={{ ...detail, permission: phase === "denied" ? "denied" : "not-asked" }}>
         <View style={s.wrap}>
-          <Say center>
-            {phase === "denied"
-              ? "Motion access was turned down. To allow it, close Safari completely and open this page again — or skip this test."
-              : "Your phone will ask to use motion and orientation. Tap Allow."}
-          </Say>
+          <Say center>{phase === "denied" ? MOTION_DENIED() : "Tap Start. If your phone asks to use motion and orientation, tap Allow."}</Say>
           <Big title={phase === "denied" ? "Ask again" : "Start"} onPress={ask} />
         </View>
       </TestShell>

@@ -10,8 +10,7 @@ import { TestProps, TestShell } from "../TestShell";
 import { T } from "../../shared/theme";
 import { Big, Say } from "../parts";
 import { CantBody } from "../web/WebParts";
-import { isIOS, motionNeedsTap, requestMotionAccess } from "../web/browser";
-import { Result } from "../catalog";
+import { isIOS, MOTION_DENIED, motionNeedsTap, requestMotionAccess } from "../web/browser";
 
 const BALL = 36, TARGET = 90;
 const WAIT_MS = 3000;
@@ -133,15 +132,10 @@ export function MotionTest(p: TestProps) {
     );
   }
   if (phase === "tap" || phase === "denied") {
-    const auto: Result | null = phase === "denied" ? "skip" : null;
     return (
-      <TestShell {...p} instructions="Tilt the phone to roll the ball into the ring and hold it there." autoVerdict={auto} hideManual detail={{ ...detail, permission: phase === "denied" ? "denied" : "not-asked" }}>
+      <TestShell {...p} instructions="Tilt the phone to roll the ball into the ring and hold it there." hideManual detail={{ ...detail, permission: phase === "denied" ? "denied" : "not-asked" }}>
         <View style={s.wrap}>
-          {phase === "denied" ? (
-            <Say center>Motion access was turned down. To allow it, close Safari completely and open this page again — or skip this test.</Say>
-          ) : (
-            <Say center>Your phone will ask to use motion. Tap Allow.</Say>
-          )}
+          {phase === "denied" ? <Say center>{MOTION_DENIED()}</Say> : <Say center>Tap Start. If your phone asks to use motion, tap Allow.</Say>}
           <Big title={phase === "denied" ? "Ask again" : "Start"} onPress={ask} />
         </View>
       </TestShell>

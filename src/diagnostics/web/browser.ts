@@ -67,6 +67,13 @@ export async function requestMotionAccess(): Promise<"granted" | "denied" | "not
   }
 }
 
+/** What to say when motion access was refused (the way back differs per browser). */
+export function MOTION_DENIED(): string {
+  return isIOS()
+    ? "Motion access was turned down. To allow it, close Safari completely and open this page again — or skip this test."
+    : "Motion sensors are blocked for this page. Allow them (tap the lock or ⓘ next to the address → Motion sensors), then tap Ask again — or skip this test.";
+}
+
 /* ───────────── camera / microphone ───────────── */
 
 export function hasGetUserMedia(): boolean {

@@ -86,7 +86,7 @@ export function DisplayTest(p: TestProps) {
       >
         <View style={s.badge}>
           <Text style={s.badgeTitle}>{fill.name} · {i + 1}/{FILLS.length}</Text>
-          <Text style={s.badgeHint}>{fill.hint}. Tap to continue.</Text>
+          <Text style={s.badgeHint}>{fill.hint}{/[?.!]$/.test(fill.hint) ? "" : "."} Tap to continue.</Text>
         </View>
       </Pressable>
     );
