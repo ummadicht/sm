@@ -13,7 +13,16 @@ import { faultLabel } from "./SessionParts";
 import { Banner, Body, Btn, Card, Chip, Field, H2, KV, Label, Tone, ago, toneColor } from "../ui";
 
 const IS_WEB = Platform.OS === "web";
+/** The server refuses shorter reasons (testSessions.cameraOverride). */
 const MIN_REASON = 8;
+/** A phone that has joined but isn't echoing yet is usually still opening the photo screen: don't tempt an override for this long. */
+const OVERRIDE_GRACE_MS = 30_000;
+
+/** The server's sentence, ending with the advice to check by eye exactly once. */
+export function byEye(msg: string | null | undefined): string {
+  const m = (msg ?? "").trim();
+  return /by eye/i.test(m) ? m : `${m ? `${m.replace(/\.?$/, ".")} ` : ""}Check the condition by eye.`;
+}
 
 // ── ③ Photograph the phone ───────────────────────────────────────────────────
 
@@ -37,6 +46,20 @@ export function CameraStepCard({
   const [reason, setReason] = useState("");
   const [ovBusy, setOvBusy] = useState(false);
   const [ovErr, setOvErr] = useState<string | null>(null);
+  const [retryBusy, setRetryBusy] = useState(false);
+  const [retryErr, setRetryErr] = useState<string | null>(null);
+
+  async function retry() {
+    setRetryErr(null);
+    setRetryBusy(true);
+    try {
+      onSession(await api.post<unknown>(`/api/test-sessions/${encodeURIComponent(v.id)}/grading-retry`));
+    } catch (e) {
+      setRetryErr(errText(e));
+    } finally {
+      setRetryBusy(false);
+    }
+  }
 
   const head = (
     <View style={{ gap: 4 }}>
@@ -51,9 +74,14 @@ export function CameraStepCard({
     return (
       <Card>
         {head}
-        <Banner tone={g.phase === "failed" ? "bad" : "muted"} title={title}>
-          {`${g.message ? `${g.message} ` : g.phase === "absent" ? "This SwapUp server doesn't offer camera grading yet. " : ""}Check the condition by eye.`}
+        <Banner
+          tone={g.phase === "failed" ? "bad" : "muted"}
+          title={title}
+          action={g.canRetry && !TERMINAL_STATUSES.has(v.status) ? { title: "Retry", onPress: retry, busy: retryBusy } : undefined}
+        >
+          {byEye(g.message ?? (g.phase === "absent" ? "This SwapUp server doesn't offer camera grading yet." : null))}
         </Banner>
+        {retryErr ? <Banner tone="bad" title="Camera grading still unavailable">{retryErr}</Banner> : null}
       </Card>
     );
   }
@@ -63,7 +91,11 @@ export function CameraStepCard({
   const joined = status === "joined" || status === "testing" || status === "complete";
   const unlocked = !!g.cameraUrl && (g.deviceReady || !!g.override);
   const movedOn = joined && !g.deviceReady && (status === "complete" || (v.progress?.done ?? 0) > 0);
-  const canOverride = joined && !g.deviceReady && !g.override && (!!g.screenProblem || movedOn);
+  // The server says when an override is allowed; we only hold it back for the first
+  // half-minute after joining when nothing is wrong yet (the phone is still opening the photo screen).
+  const joinedFor = v.joinedAt ? Date.now() - Date.parse(v.joinedAt) : Infinity;
+  const allowed = g.canOverride ?? (joined && (!!g.screenProblem || movedOn));
+  const canOverride = allowed && joined && !g.deviceReady && !g.override && (!!g.screenProblem || movedOn || joinedFor >= OVERRIDE_GRACE_MS);
 
   async function takePhotos() {
     if (!g.cameraUrl) return;
@@ -126,20 +158,20 @@ export function CameraStepCard({
     body = (
       <View style={{ gap: 12 }}>
         <Locked
-          title={g.deviceReady ? "Getting the camera link from SwapUp…" : "Waiting for the customer's phone to open SwapUp Check"}
+          title={
+            g.deviceReady ? "Getting the camera link from SwapUp…" : g.screenProblem ? "Can't confirm the customer's phone is ready" : "Waiting for the customer's phone to open SwapUp Check"
+          }
           text={
-            g.deviceReady
+            g.screenProblem ??
+            g.cameraLocked ??
+            (g.deviceReady
               ? "The customer's phone is ready. The button appears in a moment."
               : joined
-                ? "SwapUp Check is connected but isn't showing the photo screen yet. It unlocks this step by itself once the phone is lying on the counter with SwapUp Check open."
-                : "Photos come after the customer's phone joins: it shows the screen patterns the camera asks for, so the screen gets checked too."
+                ? "SwapUp Check is connected but isn't showing the photo screen yet. This unlocks by itself once the phone is lying on the counter with SwapUp Check open."
+                : "Photos come after the customer's phone joins: it shows the screen patterns the camera asks for, so the screen gets checked too.")
           }
         />
-        {g.screenProblem ? (
-          <Banner tone="warn" title="Can't confirm the customer's phone is ready">
-            {g.screenProblem}
-          </Banner>
-        ) : movedOn ? (
+        {g.screenProblem ? null : movedOn ? (
           <Banner tone="warn" title="The customer's phone has moved on to its tests">
             It isn't showing the photo screen, so the camera can't check the display. You can still photograph the outside.
           </Banner>
@@ -188,6 +220,7 @@ export function CameraStepCard({
         )}
         {openErr ? <Banner tone="bad" title="Camera page didn't open">{openErr}</Banner> : null}
         <Progress g={g} />
+        {g.outOfSync ? <Text style={{ color: L.muted, fontSize: 14 }}>GradeIQ out of sync, retrying — SwapUp's own test results are unaffected.</Text> : null}
       </View>
     );
   }
@@ -202,6 +235,8 @@ export function CameraStepCard({
     </Card>
   );
 }
+
+const TERMINAL_STATUSES: ReadonlySet<string> = new Set(["applied", "expired", "cancelled"]);
 
 const overrideWho = (g: CameraGrading) => [g.override?.by, g.override?.reason].filter(Boolean).join(": ");
 
@@ -252,8 +287,8 @@ function Progress({ g }: { g: CameraGrading }) {
   const uploaded = c.cosmeticDone || !!c.verdict || !!r?.grade;
   const failed = !r?.grade && (r?.tierUsed === "stub" || r?.status === "failed");
   const steps: { label: string; state: "done" | "now" | "todo" | "bad"; detail?: string }[] = [
-    { label: "Camera connected", state: c.connectedAt ? "done" : "now", detail: c.connectedAt ? ago(c.connectedAt) || undefined : "Waiting for the camera page" },
-    { label: "Photos uploaded", state: uploaded ? "done" : c.connectedAt ? "now" : "todo" },
+    { label: "Camera connected", state: c.connected ? "done" : "now", detail: c.connectedAt ? ago(c.connectedAt) || undefined : c.connected ? undefined : "Waiting for the camera page" },
+    { label: "Photos uploaded", state: uploaded ? "done" : c.connected ? "now" : "todo" },
     c.verdict === "retake"
       ? { label: "Photos rejected — retake", state: "bad", detail: c.reasons.length ? c.reasons.join(" · ") : "The camera page says what to retake." }
       : { label: "Photos accepted", state: c.verdict === "ok" ? "done" : uploaded ? "now" : "todo" },
@@ -287,11 +322,11 @@ function Progress({ g }: { g: CameraGrading }) {
 /** Why there's no letter, in the advisor's words. Null when there's nothing honest to add. */
 function noGradeWhy(g: CameraGrading): { tone: Tone; title: string; text: string } | null {
   const r = g.result;
-  if (g.phase === "disabled") return { tone: "muted", title: "Camera grading is switched off", text: `${g.message ? `${g.message} ` : ""}Check the condition by eye.` };
-  if (g.phase === "failed") return { tone: "bad", title: "Camera grading failed", text: `${g.message ? `${g.message} ` : ""}Check the condition by eye.` };
+  if (g.phase === "disabled") return { tone: "muted", title: "Camera grading is switched off", text: byEye(g.message) };
+  if (g.phase === "failed") return { tone: "bad", title: "Camera grading unavailable", text: byEye(g.message) };
   if (r?.obstruction?.present) return { tone: "bad", title: "Remove the case and retake", text: `The camera saw ${r.obstruction.type && r.obstruction.type !== "none" ? `a ${r.obstruction.type}` : "a case or cover"} on the phone.${r.obstruction.note ? ` ${r.obstruction.note}` : ""}` };
   if (g.capture.verdict === "retake") return { tone: "warn", title: "Photos rejected — retake", text: g.capture.reasons.length ? g.capture.reasons.join(" · ") : "The camera page says what to retake." };
-  if (r && (r.tierUsed === "stub" || r.status === "failed")) return { tone: "bad", title: "Camera grading failed", text: r.reasons.join(" ") || "GradeIQ couldn't grade these photos. Check the condition by eye." };
+  if (r && (r.tierUsed === "stub" || r.status === "failed")) return { tone: "bad", title: "Camera grading failed", text: byEye(r.reasons.join(" ") || "GradeIQ couldn't grade these photos.") };
   if (r && r.coverage !== null && r.coverage < 0.5) return { tone: "warn", title: "Not enough of the phone was visible", text: `The camera saw ${pct(r.coverage)} of the phone. Retake the photos.` };
   if (r?.status === "grading" || g.capture.cosmeticDone || g.capture.verdict === "ok")
     return { tone: "fix", title: "Grading…", text: r?.status === "grading" && r.reasons.length ? r.reasons.join(" ") : "The photos are in. The grade usually lands in 10–30 seconds." };

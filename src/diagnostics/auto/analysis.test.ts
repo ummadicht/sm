@@ -206,3 +206,36 @@ test("flash verdict: +15% and a real delta passes; bright scene / no change skip
   assert.equal(A.flashVerdict(st(200), st(240), null).detail.reason, "the scene was already bright");
   assert.equal(A.flashVerdict(null, null, "torch unavailable").outcome, "fail");
 });
+
+const Tone: typeof import("./tone") = await import("./tone" + ".ts");
+
+test("tone: a valid WAV whose bursts sit where the correlation expects them", () => {
+  const spec = { ...A.TONE, bursts: A.TONE_BURSTS };
+  const wav = Tone.toneWav(spec);
+  const dv = new DataView(wav.buffer);
+  assert.equal(String.fromCharCode(...wav.subarray(0, 4)), "RIFF");
+  assert.equal(String.fromCharCode(...wav.subarray(8, 12)), "WAVE");
+  assert.equal(dv.getUint32(24, true), A.TONE.sampleRate);
+  const n = dv.getUint32(40, true) / 2;
+  assert.equal(n, Math.round((A.TONE.sampleRate * A.TONE.lengthMs) / 1000));
+  const rms = (fromMs: number, toMs: number) => {
+    const a = Math.round((fromMs / 1000) * A.TONE.sampleRate), b = Math.round((toMs / 1000) * A.TONE.sampleRate);
+    let s = 0;
+    for (let i = a; i < b; i++) s += (dv.getInt16(44 + i * 2, true) / 32767) ** 2;
+    return Math.sqrt(s / (b - a));
+  };
+  assert.ok(rms(100, 300) > 0.5, "burst 1 loud");
+  assert.ok(rms(450, 750) < 0.001, "gap silent");
+  assert.ok(rms(900, 1500) > 0.5, "burst 2 loud");
+  assert.ok(rms(1650, 1950) < 0.001, "gap silent");
+  assert.ok(rms(2050, 2350) > 0.5, "burst 3 loud");
+});
+
+test("tone: base64 round-trips", () => {
+  for (const len of [0, 1, 2, 3, 4, 5, 300]) {
+    const bytes = new Uint8Array(len).map((_, i) => (i * 37 + 11) & 255);
+    const b64 = Tone.bytesToBase64(bytes);
+    assert.equal(b64.length % 4, 0);
+    assert.deepEqual(Array.from(A.base64ToBytes(b64)), Array.from(bytes));
+  }
+});
