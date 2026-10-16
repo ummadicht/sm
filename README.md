@@ -44,6 +44,29 @@ signed with the SwapUp release key in `~/.swapup-keys` (never commit it; losing 
 customers must uninstall before an update). Publish with `~/projects/swapup/deploy/deploy.sh`,
 which uploads `dist/*.apk` to `/var/www/swapup-downloads` (served by Caddy at `/downloads/`).
 
+## The browser versions (same code, no install)
+
+Both apps also run in a browser, served by the SwapUp server itself at **`/app/store/`** and
+**`/app/check/`** (same origin as the API — no CORS). The join page's first option,
+"Test in this browser — no install", opens `/app/check/?code=…`; it is the only way to test an
+iPhone. Browser-only code lives in `*.web.ts(x)` files (Metro picks them for web; the APKs never
+contain them).
+
+```bash
+bash scripts/export-web.sh store     # → dist-web/store/   (base /app/store)
+bash scripts/export-web.sh check     # → dist-web/check/   (base /app/check)
+node scripts/web-dev-proxy.mjs       # http://localhost:4620/app/store/ · /app/check/ · rest → :4500
+```
+
+Locally, `ln -s ../../swapup-mobile/dist-web ~/projects/swapup/public/app` makes the server's
+`/j` page offer the browser test. Production: `~/projects/swapup/deploy/deploy.sh` uploads
+`dist-web/` and Caddy serves it. `expo start --web` (port 8081) can't reach the API — use the
+export + proxy. Contract: MOBILE-API.md §7.
+
+What a browser can't do: earpiece, fingerprint/face, NFC on iPhone, torch outside Chrome on
+Android, SIM, storage size, RAM. Those tests report "Can't test in a browser" and count as
+untested; the store sees "In the browser, no app" and a note on the summary.
+
 ## Honest limits
 
 - Android does not let apps read the **IMEI** (Android 10+) or **battery health %** — the
