@@ -65,3 +65,8 @@ export const fileStore: Store = {
     return (installIdCache = id);
   },
 };
+
+/** The app's document directory always survives a restart (the browser twin can't promise that). */
+export function storageIsPersistent(): boolean {
+  return true;
+}

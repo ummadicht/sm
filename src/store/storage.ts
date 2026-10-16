@@ -1,34 +1,13 @@
-// The store app keeps two things on the tablet, both in the OS keystore
-// (expo-secure-store): the staff session token and the server it belongs to.
+// The store app keeps two things on the tablet: the staff session token and the
+// server it belongs to. Native: the OS keystore (expo-secure-store, see
+// ./keystore.ts); browser: this origin's localStorage (./keystore.web.ts).
 // Every call is best-effort — a keystore hiccup must never crash the counter;
 // the worst case is signing in again.
-import * as SecureStore from "expo-secure-store";
+import { read, remove, write } from "./keystore";
 
 const K_TOKEN = "swapup_store_token";
 const K_SERVER = "swapup_store_server";
 const K_EXPIRES = "swapup_store_expires";
-
-async function read(key: string): Promise<string | null> {
-  try {
-    return await SecureStore.getItemAsync(key);
-  } catch {
-    return null;
-  }
-}
-async function write(key: string, value: string): Promise<void> {
-  try {
-    await SecureStore.setItemAsync(key, value);
-  } catch {
-    /* best effort */
-  }
-}
-async function remove(key: string): Promise<void> {
-  try {
-    await SecureStore.deleteItemAsync(key);
-  } catch {
-    /* best effort */
-  }
-}
 
 export async function loadSaved(): Promise<{ server: string | null; token: string | null; expiresAt: string | null }> {
   const [server, token, expiresAt] = await Promise.all([read(K_SERVER), read(K_TOKEN), read(K_EXPIRES)]);

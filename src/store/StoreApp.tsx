@@ -4,12 +4,13 @@
 // new trade-in / session / settings / web desk. The staff token lives in the
 // OS keystore (expo-secure-store) and is checked against GET /api/me on launch;
 // any 401 anywhere sends the app back to sign-in.
+import "../shared/platform"; // browser shims (Alert, BackHandler) — a no-op on native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, BackHandler, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { ApiError, createClient } from "../shared/api";
-import { DEFAULT_SERVER } from "../shared/config";
+import { DEFAULT_SERVER, IS_WEB } from "../shared/config";
 import { L } from "../shared/theme";
 import { Home } from "./screens/Home";
 import { NewTradeIn } from "./screens/NewTradeIn";
@@ -68,7 +69,9 @@ function Root() {
   const restore = useCallback(async () => {
     setPhase({ kind: "booting" });
     const saved = await loadSaved();
-    const base = saved.server || DEFAULT_SERVER;
+    // In the browser the server is always the page's own origin (same-origin: no
+    // CORS, and the desk hand-off cookie lands where the desk is).
+    const base = (IS_WEB ? null : saved.server) || DEFAULT_SERVER;
     setServer(base);
     if (!saved.token) {
       setPhase({ kind: "signin" });

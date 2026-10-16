@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { KeyboardAvoidingView, Pressable, ScrollView, Text, View } from "react-native";
 import { ApiError, createClient } from "../../shared/api";
-import { DEFAULT_SERVER } from "../../shared/config";
+import { DEFAULT_SERVER, IS_WEB } from "../../shared/config";
 import { L } from "../../shared/theme";
 import { normaliseServer } from "../storage";
 import { errText } from "../staffClient";
@@ -28,7 +28,8 @@ export function SignIn({
 }) {
   const { wide, pad } = useLayout();
   const [server, setServer] = useState(initialServer);
-  const [advanced, setAdvanced] = useState(initialServer !== DEFAULT_SERVER);
+  // The browser build always talks to the server that served the page — no server picker there.
+  const [advanced, setAdvanced] = useState(!IS_WEB && initialServer !== DEFAULT_SERVER);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -60,7 +61,7 @@ export function SignIn({
       let msg = errText(e);
       if (e instanceof ApiError && e.status === 0) {
         msg += ` (Trying ${base}.)`;
-        if (base.startsWith("http://")) msg += " Make sure this tablet is on the same Wi‑Fi as that computer.";
+        if (base.startsWith("http://") && !IS_WEB) msg += " Make sure this tablet is on the same Wi‑Fi as that computer.";
       }
       if (e instanceof ApiError && e.status === 404) msg = `${base} doesn't look like a SwapUp server (no sign-in there). Check the address under Advanced.`;
       setError(msg);
@@ -110,9 +111,11 @@ export function SignIn({
             <Btn title="Sign in" onPress={submit} busy={busy} big />
           </Card>
 
-          <Pressable onPress={() => setAdvanced((v) => !v)} hitSlop={10} accessibilityRole="button">
-            <Text style={{ color: L.fix, fontSize: 16, fontWeight: "700" }}>{advanced ? "Hide advanced" : "Advanced"}</Text>
-          </Pressable>
+          {IS_WEB ? null : (
+            <Pressable onPress={() => setAdvanced((v) => !v)} hitSlop={10} accessibilityRole="button">
+              <Text style={{ color: L.fix, fontSize: 16, fontWeight: "700" }}>{advanced ? "Hide advanced" : "Advanced"}</Text>
+            </Pressable>
+          )}
           {advanced ? (
             <Card>
               <Field

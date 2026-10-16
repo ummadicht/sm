@@ -2,7 +2,7 @@
 // A store manager can also set the store Wi‑Fi here, before a customer is waiting.
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, KeyboardAvoidingView, ScrollView, Text, View } from "react-native";
-import { APP_VERSION, DEFAULT_SERVER } from "../../shared/config";
+import { APP_VERSION, DEFAULT_SERVER, IS_WEB } from "../../shared/config";
 import { L } from "../../shared/theme";
 import { StaffClient, errText } from "../staffClient";
 import type { StaffUser, WifiResponse } from "../types";
@@ -153,14 +153,16 @@ export function Settings({
       <Text style={{ fontSize: 17, fontWeight: "700", color: L.ink }} selectable>
         {api.base}
       </Text>
-      {api.base !== DEFAULT_SERVER ? (
+      {IS_WEB ? (
+        <Body muted>This page always uses the SwapUp server it was opened from.</Body>
+      ) : api.base !== DEFAULT_SERVER ? (
         <Banner tone="warn" title="Not the normal server">
           {`This tablet is using a test server. The normal one is ${DEFAULT_SERVER}. To switch, sign out and open Advanced on the sign-in screen.`}
         </Banner>
       ) : (
         <Body muted>To use a different server, sign out and open Advanced on the sign-in screen.</Body>
       )}
-      <KV label="App" value={`SwapUp Store v${APP_VERSION}`} />
+      <KV label="App" value={IS_WEB ? `SwapUp Store in the browser v${APP_VERSION}` : `SwapUp Store v${APP_VERSION}`} />
     </Card>
   );
 

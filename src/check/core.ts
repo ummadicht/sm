@@ -36,7 +36,8 @@ export type ContractDevice = {
   totalDiskBytes: number | null;
   totalMemoryBytes: number | null;
   batteryLevelPct: number | null;
-  isPhysicalDevice: boolean;
+  /** null = can't tell (a browser can't). */
+  isPhysicalDevice: boolean | null;
   appVersion: string;
 };
 
@@ -107,6 +108,8 @@ function cleanServer(s: string | null | undefined): string | null {
  * What a scanned QR or an opened link means:
  *  - swapupcheck://join?code=K7M2QX&server=https%3A%2F%2F…
  *  - https://host[/base]/j/K7M2QX            (the store's test QR / download page)
+ *  - https://host[/base]/app/check/?code=K7M2QX[&server=…]  (the browser check — the
+ *    join page's "Test in this browser" link; no server → the page's own host)
  *  - a bare 6-character code
  * Returns null for anything else. `kind: "wifi"` flags the store's Wi‑Fi QR so
  * the screen can say what to do with it instead of "not recognised".
@@ -123,6 +126,15 @@ export function parseJoinTarget(raw: string): (JoinTarget & { kind: "join" }) | 
     const { code } = cleanCode(q.code || "");
     if (!isValidCode(code)) return null;
     return { kind: "join", code, server: cleanServer(q.server) };
+  }
+
+  // https://host[/base]/app/check/?code=CODE[&server=…] — the browser version of the app
+  const browser = s.match(/^(https?:\/\/[^\s?#]*?)\/app\/check\/?(?:index\.html)?\?([^#]*)(?:#.*)?$/i);
+  if (browser) {
+    const q = parseQuery(browser[2]);
+    const { code } = cleanCode(q.code || "");
+    if (!isValidCode(code)) return null;
+    return { kind: "join", code, server: cleanServer(q.server) ?? cleanServer(browser[1]) };
   }
 
   // https://host/…/j/CODE (optionally with a trailing slash, query or hash)
@@ -251,4 +263,100 @@ export function newInstallId(rand: () => number = Math.random): string {
     for (let i = 0; i < 24; i++) s += a[Math.floor(rand() * a.length)];
   }
   return "inst_" + s;
+}
+
+// ---------------------------------------------------------------- browser identity
+
+/**
+ * What a browser's user-agent string says about the phone it runs on. Pure, so
+ * it is testable in Node; check/deviceInfo.web.ts adds the User-Agent Client
+ * Hints answer (Chrome on Android gives the real model code there, e.g.
+ * "SM-S901E") on top.
+ *
+ * Honest about the traps:
+ *  - Chrome's reduced UA says "Android 10; K" on every phone — "K" is not a
+ *    model and "10" is not the Android version, so both come back null.
+ *  - Samsung Internet writes "SAMSUNG SM-S901E"; old UAs append "Build/…".
+ *  - An iPhone's UA never says which iPhone; Safari 26 freezes the OS at 18_6.
+ *  - An iPad in desktop mode claims to be a Mac (only touch points give it away).
+ */
+export type UaInfo = {
+  os: "android" | "ios" | "other";
+  brand: string | null;
+  modelName: string | null;
+  modelCode: string | null;
+  osVersion: string | null;
+  mobile: boolean;
+};
+
+/** Brand from a model code — only where the code itself says so (never a guess). */
+export function brandForModel(model: string | null): string | null {
+  if (!model) return null;
+  const m = model.trim().toUpperCase();
+  // Samsung: SM-…, older GT-…, Japanese carrier SC-…/SCG…/SCV…
+  if (/^(SM|GT|SC)-|^SC[GV]\d/.test(m)) return "samsung";
+  if (/^PIXEL\b/.test(m)) return "google";
+  return null;
+}
+
+/** "13.0.0" → "13", "14.1.0" → "14.1" (Android reports a major version; trailing zeros add nothing). */
+export function trimVersion(v: string | null | undefined): string | null {
+  if (!v) return null;
+  const t = v.trim().replace(/_/g, ".");
+  if (!/^\d+(\.\d+)*$/.test(t)) return null;
+  return t.replace(/(\.0+)+$/, "");
+}
+
+const NOT_A_MODEL = /^(mobile|tablet|wv|u|k|linux|[a-z]{2}(?:[-_][a-z]{2,4})?|rv:.*|x11|arm.*|aarch64)$/i;
+
+export function parseUserAgent(ua: string, maxTouchPoints = 0): UaInfo {
+  const s = ua || "";
+  const out: UaInfo = { os: "other", brand: null, modelName: null, modelCode: null, osVersion: null, mobile: /Mobi|Android|iPhone|iPod/i.test(s) };
+
+  const ios = s.match(/\((iPhone|iPad|iPod)[^)]*?OS (\d+(?:_\d+)*)/i);
+  if (ios) {
+    const kind = ios[1].toLowerCase() === "ipad" ? "iPad" : ios[1].toLowerCase() === "ipod" ? "iPod" : "iPhone";
+    out.os = "ios";
+    out.brand = "Apple";
+    out.modelName = kind;
+    out.mobile = true;
+    let v = trimVersion(ios[2]);
+    // Safari 26+ freezes the OS token (at 18_6) while its own Version/ moves on.
+    const safari = s.match(/Version\/(\d+)/);
+    if (v && safari && Number(safari[1]) > Number(v.split(".")[0])) v = null;
+    out.osVersion = v;
+    return out;
+  }
+  if (/\bMacintosh\b/.test(s) && maxTouchPoints > 1) {
+    // iPadOS asks for desktop sites by default and sends a Mac UA.
+    out.os = "ios";
+    out.brand = "Apple";
+    out.modelName = "iPad";
+    out.mobile = true;
+    return out;
+  }
+
+  const paren = s.match(/\(([^)]*\bAndroid\b[^)]*)\)/i);
+  if (paren) {
+    out.os = "android";
+    out.mobile = true;
+    const parts = paren[1].split(";").map((p) => p.trim()).filter(Boolean);
+    const ai = parts.findIndex((p) => /^Android\b/i.test(p));
+    const ver = ai >= 0 ? parts[ai].match(/^Android\s+([\d.]+)/i) : null;
+    let model: string | null = null;
+    for (const p of parts.slice(ai + 1)) {
+      const cleaned = p.replace(/\s*Build\/.*$/i, "").replace(/^SAMSUNG\s+/i, "").trim();
+      if (!cleaned || NOT_A_MODEL.test(cleaned)) continue;
+      model = cleaned;
+      break;
+    }
+    const reduced = /;\s*K\s*$/.test(paren[1]) || (parts[parts.length - 1] || "") === "K";
+    out.modelCode = model;
+    out.modelName = model;
+    out.brand = brandForModel(model);
+    // The reduced UA pins every phone to "Android 10" — that number means nothing.
+    out.osVersion = reduced ? null : trimVersion(ver ? ver[1] : null);
+    return out;
+  }
+  return out;
 }
