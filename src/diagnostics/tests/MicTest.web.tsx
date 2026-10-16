@@ -65,15 +65,22 @@ export function MicTest(p: TestProps) {
     const an = ctx.createAnalyser();
     an.fftSize = 2048;
     src.connect(an);
-    const buf = new Uint8Array(an.fftSize);
+    // Float samples where available (8-bit samples bottom out around -45 dB).
+    const fbuf = typeof an.getFloatTimeDomainData === "function" ? new Float32Array(an.fftSize) : null;
+    const bbuf = new Uint8Array(an.fftSize);
     const timer = setInterval(() => {
-      an.getByteTimeDomainData(buf);
       let sum = 0;
-      for (let i = 0; i < buf.length; i++) {
-        const v = (buf[i] - 128) / 128;
-        sum += v * v;
+      if (fbuf) {
+        an.getFloatTimeDomainData(fbuf);
+        for (let i = 0; i < fbuf.length; i++) sum += fbuf[i] * fbuf[i];
+      } else {
+        an.getByteTimeDomainData(bbuf);
+        for (let i = 0; i < bbuf.length; i++) {
+          const v = (bbuf[i] - 128) / 128;
+          sum += v * v;
+        }
       }
-      const rms = Math.sqrt(sum / buf.length);
+      const rms = Math.sqrt(sum / an.fftSize);
       const m = rms > 0 ? Math.max(-100, 20 * Math.log10(rms)) : -100;
       setDb(m);
       // Background level: a slow-moving minimum of what the room sounds like.
