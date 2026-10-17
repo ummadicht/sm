@@ -253,7 +253,7 @@ function CreditBody({
 
 function SessionRow({ s: x, onPress }: { s: TestSessionView; onPress: () => void }) {
   const st = STATUS[x.status] ?? { label: x.status, tone: "muted" as Tone };
-  // Joined but no camera grade yet (and camera grading is on): the advisor still has step 3 to do.
+  // Photos still to take (camera grading on, no grade yet): step 1 with a two-pass server, step 3 with an older one.
   const needPhotos = photosNeeded(x, x.status === "joined" || x.status === "testing" || x.status === "complete");
   const model = x.summary?.model.label || [x.device?.brand, x.device?.modelName].filter(Boolean).join(" ") || null;
   const when =

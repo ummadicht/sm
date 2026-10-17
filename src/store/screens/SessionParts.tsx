@@ -1,5 +1,8 @@
 // The pieces of the Session screen: the two customer-facing QR cards, the
 // live stepper, and the result cards (device, tests, declarations, summary).
+// With a two-pass server (docs/TWO-PASS-CAMERA.md) the QR cards sit under
+// step 2 "Connect the customer's phone" (ConnectHead) and step 3 shows the
+// phone testing itself (TestsStepCard); the camera steps are in ./CameraParts.
 import React, { useState } from "react";
 import { Text, View } from "react-native";
 import { L } from "../../shared/theme";
@@ -43,6 +46,8 @@ export function WifiCard({
   qrSize,
   onSaved,
   onRetry,
+  label = "Step 1 · optional",
+  next = "step 2",
 }: {
   api: StaffClient;
   storeId: string;
@@ -52,11 +57,15 @@ export function WifiCard({
   qrSize: number;
   onSaved: (w: WifiInfo | null) => void;
   onRetry: () => void;
+  /** The small label above the title — the numbering depends on the server's flow. */
+  label?: string;
+  /** What the customer goes to next without Wi‑Fi ("step 2", "the test code"). */
+  next?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const head = (
     <View style={{ gap: 4 }}>
-      <Label>Step 1 · optional</Label>
+      <Label>{label}</Label>
       <H2>Join our Wi‑Fi</H2>
     </View>
   );
@@ -99,7 +108,7 @@ export function WifiCard({
           <Banner tone="muted" title="No store Wi‑Fi saved">
             Ask your manager to add the store Wi‑Fi in the app.
           </Banner>
-          <Body muted>The customer can use mobile data instead — go straight to step 2.</Body>
+          <Body muted>{`The customer can use mobile data instead — go straight to ${next}.`}</Body>
         </View>
       ) : (
         <>
@@ -195,7 +204,21 @@ export function WifiForm({
 
 // ── ② Test your phone ────────────────────────────────────────────────────────
 
-export function TestQrCard({ joinUrl, code, expiresAt, status, qrSize }: { joinUrl: string; code: string; expiresAt: string; status: SessionStatus; qrSize: number }) {
+export function TestQrCard({
+  joinUrl,
+  code,
+  expiresAt,
+  status,
+  qrSize,
+  label = "Step 2",
+}: {
+  joinUrl: string;
+  code: string;
+  expiresAt: string;
+  status: SessionStatus;
+  qrSize: number;
+  label?: string;
+}) {
   const steps = [
     "Open the camera and point it at this code.",
     "Tap the link that appears.",
@@ -207,7 +230,7 @@ export function TestQrCard({ joinUrl, code, expiresAt, status, qrSize }: { joinU
   return (
     <Card style={{ alignItems: "center" }}>
       <View style={{ alignSelf: "stretch", gap: 4 }}>
-        <Label>Step 2</Label>
+        <Label>{label}</Label>
         <H2>Test your phone</H2>
       </View>
       <QR value={joinUrl} size={qrSize} />
@@ -238,6 +261,68 @@ export function TestQrCard({ joinUrl, code, expiresAt, status, qrSize }: { joinU
           {left === "now" ? "This code is about to expire." : `This code works for another ${left} unless the app connects.`}
         </Text>
       ) : null}
+    </Card>
+  );
+}
+
+// ── two passes: step 2 header, step 3 card ───────────────────────────────────
+
+/**
+ * Step 2 "Connect the customer's phone" — above the two QR cards. It comes AFTER
+ * the photos on screen, and is emphasised once they are done or skipped; the codes
+ * stay visible either way, so a customer who is ready early can still scan.
+ */
+export function ConnectHead({ focus, live, showQr, onToggleQr }: { focus: boolean; live: boolean; showQr: boolean; onToggleQr: () => void }) {
+  const now = focus && !live;
+  return (
+    <Card style={now ? { borderColor: L.fix, borderWidth: 2 } : undefined}>
+      <View style={{ gap: 4 }}>
+        <Label style={now ? { color: L.fix } : undefined}>{now ? "Step 2 · now" : "Step 2 · customer's phone"}</Label>
+        <H2>Connect the customer's phone</H2>
+      </View>
+      {live ? (
+        <>
+          <Body>SwapUp Check is open on the customer's phone.</Body>
+          <Btn title={showQr ? "Hide the QR codes" : "Show the QR codes again"} kind="ghost" onPress={onToggleQr} style={{ alignSelf: "flex-start", paddingHorizontal: 0 }} />
+        </>
+      ) : focus ? (
+        <Body>Turn the tablet to the customer: the Wi‑Fi code if they need it, then the test code. SwapUp Check downloads, opens and tests the phone by itself.</Body>
+      ) : (
+        <Body muted>After the photos (step 1) — or skip them. If the customer is ready now, they can scan already.</Body>
+      )}
+    </Card>
+  );
+}
+
+/** Step 3 "The phone tests itself" — today's live progress, in one place. */
+export function TestsStepCard({ v }: { v: TestSessionView }) {
+  const done = v.progress?.done ?? Object.keys(v.results ?? {}).length;
+  const total = v.progress?.total ?? v.plan?.length ?? 0;
+  const running = v.status === "joined" || v.status === "testing";
+  const finished = v.status === "complete" || v.status === "applied";
+  return (
+    <Card>
+      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <View style={{ gap: 4, flexShrink: 1, minWidth: 0 }}>
+          <Label>Step 3 · customer's phone</Label>
+          <H2>The phone tests itself</H2>
+        </View>
+        {finished ? <Chip text="Tests done" tone="up" /> : running && total ? <Chip text={`${done} of ${total}`} tone="fix" /> : null}
+      </View>
+      {running || finished ? (
+        <View style={{ height: 10, borderRadius: 5, backgroundColor: L.surface2, overflow: "hidden" }}>
+          <View style={{ width: `${total ? Math.min(100, Math.round((done / total) * 100)) : 0}%`, height: "100%", backgroundColor: finished ? L.up : L.fix }} />
+        </View>
+      ) : null}
+      <Body muted={!running}>
+        {finished
+          ? `The customer's phone has finished — ${done} of ${total} tests in. Each result is below.`
+          : running
+            ? `${done} of ${total} tests done. Each result appears below as it lands. The customer only swipes the screen and plugs in the charger when asked.`
+            : v.status === "expired" || v.status === "cancelled"
+              ? "The phone didn't finish testing."
+              : "Starts by itself once SwapUp Check opens on the customer's phone — no questions."}
+      </Body>
     </Card>
   );
 }

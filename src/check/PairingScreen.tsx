@@ -1,9 +1,13 @@
-// Native SwapUp Check, LAST step (after the tests): "Lay your phone on the
-// counter, screen up — the advisor photographs it." The store device runs GradeIQ's camera page
+// Native SwapUp Check, LAST step (after the tests): "Lay it on the counter,
+// screen up — the advisor's tablet checks the screen." The store device runs GradeIQ's camera page
 // (/v2/cam) and asks this screen for patterns (white, black, stripes, colours…)
 // through SwapUp's /api/device/screen; this phone draws each one full-screen
 // and echoes what it is ACTUALLY drawing. Mirrors GradeIQ's own primary phone
 // (giq/app/components/V2Flow.tsx 236-275, 794-808). Pure decisions: ../diagnostics/auto/pairing.ts.
+//
+// Since 2026-10-17 the store photographs the phone's outside FIRST, before this app
+// even joins (swapup docs/TWO-PASS-CAMERA.md), so what is left for this screen is
+// the screen check. An older store app still does both here in one pass.
 //
 // The permissions the tests need were asked for before the tests (GetReady), so
 // no permission dialog can cover a pattern mid-sweep here.
@@ -18,6 +22,7 @@ import {
   POLL_MS,
   STRIPE_PX,
   displayablePattern,
+  freshNews,
   needsEcho,
   newTracker,
   parseScreen,
@@ -152,22 +157,25 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
       <Pattern name={drawing}>
         {offer ? (
           <View style={s.overOffer}>
-            <Big title="Finish without photos" kind="secondary" onPress={() => leave({ outcome: "skipped", reason: "the photo check stopped part-way" })} />
+            <Big title="Finish without the screen check" kind="secondary" onPress={() => leave({ outcome: "skipped", reason: "the screen check stopped part-way" })} />
           </View>
         ) : null}
       </Pattern>
     );
 
   const connected = tracker.current.connectedAt != null;
-  const retake = poll?.capture?.verdict === "retake" || poll?.capture?.verdict === "retaking";
+  // Only what the camera said since this screen mounted: the photos taken before the
+  // phone joined (pass 1) leave cosmeticDone + "ok" behind, which say nothing about now.
+  const news = poll ? freshNews(tracker.current, poll) : null;
+  const retake = news?.capture?.verdict === "retake" || news?.capture?.verdict === "retaking";
   const statusLine = (() => {
     if (!ready) return "One moment…";
     if (trouble === "offline") return "Waiting for Wi‑Fi…";
     if (trouble === "busy") return "The store's system is busy — this carries on by itself.";
-    if (poll?.state === "pending") return "Getting the photo check ready…";
-    if (poll?.cosmeticDone) return "Photos accepted — finishing the screen check…";
+    if (poll?.state === "pending") return "Getting the screen check ready…";
+    if (news?.cosmeticDone) return "Photos accepted — finishing the screen check…";
     if (retake) return "The advisor is retaking the photos.";
-    if (connected) return "Connected — the advisor is taking photos. Keep the phone still.";
+    if (connected) return "Connected — the advisor's camera is checking it. Keep the phone still.";
     return "Waiting for the advisor's camera…";
   })();
 
@@ -175,7 +183,7 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
     <View style={s.root}>
       <Text style={s.kicker}>{state.session.storeName}</Text>
       <Text style={s.title}>Tests done — lay it on the counter, screen up</Text>
-      <Say>Last step: the advisor photographs it, so the screen and glass get checked too.</Say>
+      <Say>Last step: the advisor's tablet checks the screen.</Say>
       <View style={s.phone}>
         <View style={s.phoneScreen} />
       </View>
@@ -188,16 +196,16 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
       {offer ? (
         <>
           <Big
-            title="Finish without photos"
+            title="Finish without the screen check"
             kind="secondary"
             onPress={() =>
               leave({
                 outcome: "skipped",
-                reason: offer === "never-connected" ? "the store's camera page did not open within 90 seconds of the tests finishing" : "the photo check stopped part-way",
+                reason: offer === "never-connected" ? "the store's camera page did not open within 90 seconds of the tests finishing" : "the screen check stopped part-way",
               })
             }
           />
-          <Text style={s.small}>The advisor then checks the screen and body by eye.</Text>
+          <Text style={s.small}>The advisor then checks the screen by eye.</Text>
         </>
       ) : null}
       <Text style={s.small}>Trade-in {state.session.caseRef}</Text>

@@ -62,7 +62,9 @@ test("pairing: leave 30 s after cosmeticDone when handoffDone never comes (V2Flo
 });
 
 test("pairing: a retake clears cosmeticDone, so the grace clock restarts", () => {
-  let tr = P.trackPoll(P.newTracker(0), poll({ connectedAt: "x", cosmeticDone: true }), 1000).tracker;
+  let tr = P.trackPoll(P.newTracker(0), poll({ connectedAt: "x" }), 500).tracker;
+  tr = P.trackPoll(tr, poll({ connectedAt: "x", cosmeticDone: true }), 1000).tracker;
+  assert.equal(tr.cosmeticSince, 1000);
   tr = P.trackPoll(tr, poll({ connectedAt: "x", capture: { verdict: "retake", reasons: [] } }), 20_000).tracker;
   assert.equal(tr.cosmeticSince, null);
   const r = P.trackPoll(tr, poll({ connectedAt: "x", cosmeticDone: true }), 40_000);
@@ -70,7 +72,69 @@ test("pairing: a retake clears cosmeticDone, so the grace clock restarts", () =>
   assert.equal(r.tracker.cosmeticSince, 40_000);
 });
 
-test("pairing: 'Finish without photos' only after 90 s with no store camera page", () => {
+// Two camera passes (swapup docs/TWO-PASS-CAMERA.md): the photos are taken before the
+// phone joins, so this screen can mount with pass 1's cosmeticDone + "ok" already on /screen.
+const PASS1 = { cosmeticDone: true, capture: { verdict: "ok", reasons: [] }, connectedAt: "2026-10-17T09:00:00Z" };
+
+test("pairing: pass 1's cosmeticDone already there at mount — not connected, no grace, the 90 s offer still comes", () => {
+  let r = P.trackPoll(P.newTracker(0), poll(PASS1), 1000);
+  assert.equal(r.leave, null);
+  assert.equal(r.tracker.connectedAt, null, "an old cosmeticDone / capture is not the camera being here now");
+  assert.equal(r.tracker.cosmeticSince, null, "and it must not start the 30 s grace");
+  assert.deepEqual(P.freshNews(r.tracker, poll(PASS1)), { cosmeticDone: false, capture: null });
+  // Well past the grace: still on the photo screen, waiting for the screen check.
+  r = P.trackPoll(r.tracker, poll(PASS1), 1000 + P.GRACE_AFTER_COSMETIC_MS + 5000);
+  assert.equal(r.leave, null);
+  assert.equal(P.skipOffer(r.tracker, 89_999), null);
+  assert.equal(P.skipOffer(r.tracker, 90_000), "never-connected");
+  // Pass 2 opens: a NEW connectedAt, then the sweep's patterns, then handoffDone.
+  r = P.trackPoll(r.tracker, poll({ ...PASS1, connectedAt: "2026-10-17T09:06:00Z" }), 50_000);
+  assert.equal(r.tracker.connectedAt, 50_000);
+  r = P.trackPoll(r.tracker, poll({ ...PASS1, connectedAt: "2026-10-17T09:06:00Z", pattern: "white" }), 52_000);
+  assert.equal(r.leave, null, "pass 1's cosmeticDone never cuts the sweep short");
+  r = P.trackPoll(r.tracker, poll({ ...PASS1, connectedAt: "2026-10-17T09:06:00Z", handoffDone: true }), 90_000);
+  assert.equal(r.leave, "handoff");
+});
+
+test("pairing: the single pass (drives a colour, then cosmeticDone, no handoff) — grace as before", () => {
+  let r = P.trackPoll(P.newTracker(0), poll(), 500);
+  assert.equal(r.tracker.connectedAt, null);
+  r = P.trackPoll(r.tracker, poll({ pattern: "white" }), 700);
+  r = P.trackPoll(r.tracker, poll({ cosmeticDone: true }), 1000);
+  assert.equal(r.tracker.connectedAt, 700);
+  assert.equal(r.tracker.cosmeticSince, 1000);
+  assert.equal(P.freshNews(r.tracker, poll({ cosmeticDone: true })).cosmeticDone, true);
+  r = P.trackPoll(r.tracker, poll({ cosmeticDone: true }), 1000 + P.GRACE_AFTER_COSMETIC_MS - 1);
+  assert.equal(r.leave, null);
+  r = P.trackPoll(r.tracker, poll({ cosmeticDone: true }), 1000 + P.GRACE_AFTER_COSMETIC_MS);
+  assert.equal(r.leave, "grace");
+});
+
+test("pairing: pass 1's leftovers become news only once they change", () => {
+  // The capture verdict changes after mount (a retake judged now): that is the camera.
+  let r = P.trackPoll(P.newTracker(0), poll(PASS1), 1000);
+  r = P.trackPoll(r.tracker, poll({ ...PASS1, cosmeticDone: false, capture: { verdict: "retake", reasons: ["blur"] } }), 2000);
+  assert.equal(r.tracker.connectedAt, 2000);
+  assert.equal(P.freshNews(r.tracker, poll({ capture: { verdict: "retake", reasons: ["blur"] } })).capture?.verdict, "retake");
+  // cosmeticDone cleared, then set again by a photos-only pass 1 that drives no colour:
+  // news (the camera is here), but no grace — the screen check hasn't run.
+  r = P.trackPoll(r.tracker, poll({ ...PASS1 }), 10_000);
+  assert.equal(r.tracker.cosmeticSince, 10_000);
+  assert.equal(P.trackPoll(r.tracker, poll(PASS1), 10_000 + P.GRACE_AFTER_COSMETIC_MS).leave, null);
+});
+
+test("pairing: a photos-only pass 1 that FINISHES after this screen mounted never walks the phone off", () => {
+  let r = P.trackPoll(P.newTracker(0), poll(), 500); // mounted clean: pass 1 still running on the tablet
+  r = P.trackPoll(r.tracker, poll({ cosmeticDone: true, capture: { verdict: "ok", reasons: [] } }), 20_000);
+  assert.equal(r.tracker.sawPattern, false);
+  r = P.trackPoll(r.tracker, poll({ cosmeticDone: true, capture: { verdict: "ok", reasons: [] } }), 20_000 + P.GRACE_AFTER_COSMETIC_MS + 60_000);
+  assert.equal(r.leave, null, "waits for the screen check (pass 2) — its handoff, or the advisor skipping");
+  r = P.trackPoll(r.tracker, poll({ cosmeticDone: true, pattern: "white" }), 200_000);
+  r = P.trackPoll(r.tracker, poll({ cosmeticDone: true, handoffDone: true }), 230_000);
+  assert.equal(r.leave, "handoff");
+});
+
+test("pairing: 'Finish without the screen check' only after 90 s with no store camera page", () => {
   let tr = P.newTracker(0);
   tr = P.trackPoll(tr, poll(), 1000).tracker;
   assert.equal(P.skipOffer(tr, 89_999), null);

@@ -83,7 +83,7 @@ export type CheckState = {
 /**
  * handoff     — the camera page said it was finished (handoffDone)
  * grace       — photos were accepted but the camera never said finished; left after 30 s (as GradeIQ's /v2 does)
- * skipped     — the customer tapped "Continue without photos" (the store never connected / stalled)
+ * skipped     — the customer tapped "Finish without the screen check" (the store never connected / stalled)
  * unavailable — the server refused the pairing calls (no camera grading for this check)
  */
 export type PairingRec = { outcome: "handoff" | "grace" | "skipped" | "unavailable"; at: string; reason: string | null };

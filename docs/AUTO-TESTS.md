@@ -6,14 +6,20 @@ browser to native app testing, all automatically without any questions — simpl
 ## The customer's experience
 
 ```
+[before this: the advisor finds the customer by mobile and photographs the phone — no app needed]
 Scan the store's QR → SwapUp Check opens → "Testing your phone" (permission dialogs, then straight on)
 → "Testing your phone…" (one progress bar, steps tick by themselves)
 → two physical ACTIONS only: "Swipe over every square" · "Plug in the charger" (auto-skips after 45 s)
-→ [photos: "Tests done — lay it on the counter, screen up"; "Finish without photos" after 90 s with no camera page]
+→ [screen check: "Tests done — lay it on the counter, screen up" / "Last step: the advisor's tablet
+   checks the screen"; "Finish without the screen check" after 90 s with no camera page]
 → Done — "Show this to the advisor"
 
 Changed 2026-10-16: the photos used to come FIRST, so a customer could sit on "Waiting for the
 advisor's camera…" for 3 minutes. Tests now start at once and the photos are the last step.
+Changed 2026-10-17 (server repo docs/TWO-PASS-CAMERA.md): the store's camera now works in TWO
+passes — the outside is photographed BEFORE the phone joins (pass 1, nothing for this app to do),
+and only the screen check (pass 2, the colour sweep) happens on this app's last screen. An older
+store app still does both on that screen in one pass; this app handles either.
 ```
 
 No yes/no questions, no "did you hear/see/feel it", no Pass/Fail buttons. The damage questions
@@ -55,9 +61,10 @@ server repo).
 
 1. Join (deep link / QR / code) → 2. Get ready (`src/check/GetReady.tsx`: camera, microphone and
 location permission dialogs — the tests only read them) → 3. Automatic steps (keep-awake, one
-progress bar) → 4. Actions (touch, charger) → 5. Pairing / photos (poll `GET /api/device/screen`
+progress bar) → 4. Actions (touch, charger) → 5. Pairing / screen check (poll `GET /api/device/screen`
 ~700 ms, show the requested pattern full-screen, post `POST /api/device/screen {shown}`; leave when
-`handoffDone` or 30 s after `cosmeticDone`; "Finish without photos" after 90 s with no store camera page, or over a pattern unchanged for 90 s)
+`handoffDone` or 30 s after a `cosmeticDone` that appeared while this screen was up; "Finish without
+the screen check" after 90 s with no store camera page, or over a pattern unchanged for 90 s)
 → 6. Done.
 
 Results go through the existing outbox (`src/check/engine.ts`) to SwapUp, which forwards them to
@@ -71,12 +78,19 @@ on a physical phone**, so every threshold below is untuned on hardware.
 - **Order:** flash runs **before** the cameras (`plan.ts` `AUTO_ORDER`): while the phone lies screen-up
   the rear lens faces the counter, so the torch makes a visible difference. The camera step then asks
   the customer to hold the phone up if a frame is too dark.
-- **Pairing exits** (`pairing.ts`): `handoffDone`; 30 s after `cosmeticDone`; `state` disabled/failed →
-  at once; 15 s of refused polls (≥ 3) → "camera grading unavailable"; **Finish without photos** after
-  90 s with no store camera page (a new relayed `connectedAt`, a pattern or a capture verdict counts), or after 6 min with nothing changing once it connected.
-  "Connected" = the camera asked for a pattern or judged a capture (the server does not relay GradeIQ's
-  `connectedAt` to the phone). A 503 keeps polling; only 401/403 refresh the ticket (≤ every 20 s).
-- **`display`** is posted by the phone **only** when no photos were taken: `skip`,
+- **Pairing exits** (`pairing.ts`): `handoffDone`; 30 s after a NEW `cosmeticDone`; `state` disabled/failed →
+  at once; 15 s of refused polls (≥ 3) → "camera grading unavailable"; **Finish without the screen
+  check** after 90 s with no store camera page, or after 6 min with nothing changing once it connected.
+  "Connected" = a NEW relayed `connectedAt` (a camera page loaded after this screen mounted), a
+  pattern, or a `cosmeticDone` / capture verdict that appeared or changed after mount. The
+  `connectedAt`, `cosmeticDone` and capture already on `/screen` when the screen mounts are
+  baselines (`Tracker.firstConnectedAt` / `staleCosmeticDone` / `staleCapture`): with the photos
+  taken before the phone joined, pass 1 leaves `cosmeticDone: true` + `capture: ok` behind, and
+  treating those as live would start the 30 s grace and walk the phone off this screen before the
+  screen check ran. A baseline is dropped once its value changes (a retake clears `cosmeticDone`),
+  so a later one counts. `handoffDone` is never baselined (only pass 2 / a full pass sets it).
+  A 503 keeps polling; only 401/403 refresh the ticket (≤ every 20 s).
+- **`display`** is posted by the phone **only** when the screen check didn't happen here: `skip`,
   `{ method: "GradeIQ camera sweep", photos, reason: "not camera-checked: …" }`. Otherwise the phone
   never posts it. ⚠ SwapUp's `summarise()` does not yet fold GradeIQ's LCD verdict into `display`, so
   a native check currently reads `incomplete` (17/18) — a server change.

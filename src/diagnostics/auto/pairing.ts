@@ -6,6 +6,12 @@
 // 236-275 and 794-808): poll ~700 ms, leave on handoffDone, or 30 s after
 // cosmeticDone when the camera never says it is finished.
 //
+// Two camera passes (swapup docs/TWO-PASS-CAMERA.md, 2026-10-17): the store
+// photographs the phone FIRST, before it joins (pass 1, no app needed), and
+// checks its screen LAST, here (pass 2). So when this screen mounts, /screen may
+// already say cosmeticDone with a capture verdict — pass 1's leftovers. They are
+// baselined like connectedAt: only ones that appear or change after mount count.
+//
 // Contract: SwapUp's ticket-authenticated GET/POST /api/device/screen
 // (swapup docs/MOBILE-API.md §4 "Photo check"), a proxy of GradeIQ's
 // /api/sessions/{id}/screen: { state, pattern, shown, cosmeticDone, handoffDone,
@@ -30,12 +36,13 @@ export const STRIPE_PX = 6;
 export const POLL_MS = 700;
 export const GRACE_AFTER_COSMETIC_MS = 30_000;
 /**
- * "Finish without photos" appears when the store's camera page has not opened in
- * this long. The store's "Take photos" only unlocks when this screen first echoes,
- * so the clock and the advisor start together; the advisor then has to open the
- * camera page — which counts as connected the moment it loads (SwapUp relays
- * GradeIQ's connectedAt since 2026-10-17), not only when it asks for a pattern.
- * Once connected, only STALL_MS applies.
+ * "Finish without the screen check" appears when the store's camera page has not
+ * opened in this long. The store's "Check the screen" (and the older one-pass
+ * "Take photos") only unlocks when this screen first echoes, so the clock and the
+ * advisor start together; the advisor then has to open the camera page — which
+ * counts as connected the moment it loads (SwapUp relays GradeIQ's connectedAt
+ * since 2026-10-17), not only when it asks for a pattern. Pass 1's cosmeticDone,
+ * already there at mount, does not count. Once connected, only STALL_MS applies.
  */
 export const NO_CONNECT_MS = 90_000;
 /**
@@ -101,9 +108,27 @@ export type Tracker = {
    * undefined = no poll yet.
    */
   firstConnectedAt?: string | null;
+  /**
+   * cosmeticDone as first seen on this screen, kept only while it stays set. The
+   * photos are now taken before the phone joins, so a cosmeticDone already there
+   * at mount is pass 1's — it must neither count as "the camera is here" nor start
+   * the 30 s grace (that would walk off this screen before the screen check ran).
+   * Once it clears (a retake), a later cosmeticDone is new. undefined = no poll yet.
+   */
+  staleCosmeticDone?: boolean;
+  /** The capture verdict (+ reasons) as first seen on this screen, dropped once it changes — same reason. null = none at mount. */
+  staleCapture?: string | null;
   /** When this phone first saw evidence of the store's camera (connectedAt, a pattern, a capture verdict…). */
   connectedAt: number | null;
   cosmeticSince: number | null;
+  /**
+   * The camera has driven a colour on THIS screen since it mounted. The 30 s
+   * grace after cosmeticDone (GradeIQ's single pass, which never says handoff)
+   * only applies then: a photos-only pass 1 that merely FINISHES after this
+   * screen mounted never drives a pattern, and must not walk the phone off
+   * before the screen check (pass 2) has run.
+   */
+  sawPattern?: boolean;
   /** Last time anything in the screen state changed. */
   lastChangeAt: number;
   lastSig: string;
@@ -116,30 +141,49 @@ export function newTracker(now: number): Tracker {
   return { startedAt: now, connectedAt: null, cosmeticSince: null, lastChangeAt: now, lastSig: "", refusals: 0, refusingSince: null, lastPollOkAt: null };
 }
 
-/** handoff / grace: the photos are done. disabled / failed: no camera grading for this check — run the tests. */
+/** handoff / grace: the camera is done with this phone. disabled / failed: no camera grading for this check — go to Done. */
 export type Leave = "handoff" | "grace" | "disabled" | "failed";
+
+const captureSig = (poll: ScreenPoll): string | null => (poll.capture ? [poll.capture.verdict, ...poll.capture.reasons].join("|") : null);
+
+/** cosmeticDone / capture that are news from a camera here NOW — not pass 1's leftovers from before this screen mounted. */
+export function freshNews(tr: Tracker, poll: ScreenPoll): { cosmeticDone: boolean; capture: ScreenPoll["capture"] } {
+  return {
+    cosmeticDone: poll.cosmeticDone && !tr.staleCosmeticDone,
+    capture: poll.capture && tr.staleCapture == null ? poll.capture : null,
+  };
+}
 
 /** Fold one successful poll into the tracker; says when to leave the pairing screen. */
 export function trackPoll(tr: Tracker, poll: ScreenPoll, now: number): { tracker: Tracker; leave: Leave | null } {
-  const firstConnectedAt = tr.firstConnectedAt === undefined ? poll.connectedAt : tr.firstConnectedAt;
+  const first = tr.firstConnectedAt === undefined;
+  const firstConnectedAt = first ? poll.connectedAt : tr.firstConnectedAt;
   const freshCameraPage = !!poll.connectedAt && poll.connectedAt !== firstConnectedAt;
+  // Baselines: set by the first poll, dropped for good the moment the value changes.
+  const capSig = captureSig(poll);
+  const staleCosmeticDone = first ? poll.cosmeticDone : !!tr.staleCosmeticDone && poll.cosmeticDone;
+  const staleCapture = first ? capSig : tr.staleCapture != null && tr.staleCapture === capSig ? tr.staleCapture : null;
+  const news = freshNews({ ...tr, staleCosmeticDone, staleCapture }, poll);
   const connected =
-    freshCameraPage || displayablePattern(poll.pattern) !== "idle" || poll.cosmeticDone || poll.handoffDone || !!poll.capture;
+    freshCameraPage || displayablePattern(poll.pattern) !== "idle" || news.cosmeticDone || poll.handoffDone || !!news.capture;
   const sig = [poll.pattern, poll.cosmeticDone, poll.handoffDone, poll.connectedAt, poll.capture?.verdict ?? ""].join("|");
   const next: Tracker = {
     ...tr,
     firstConnectedAt,
+    staleCosmeticDone,
+    staleCapture,
     connectedAt: tr.connectedAt ?? (connected ? now : null),
     lastChangeAt: sig !== tr.lastSig ? now : tr.lastChangeAt,
     lastSig: sig,
     refusals: 0,
     refusingSince: null,
     lastPollOkAt: now,
-    cosmeticSince: poll.cosmeticDone ? tr.cosmeticSince ?? now : null,
+    cosmeticSince: news.cosmeticDone ? tr.cosmeticSince ?? now : null,
+    sawPattern: !!tr.sawPattern || displayablePattern(poll.pattern) !== "idle",
   };
   if (poll.state === "disabled" || poll.state === "failed") return { tracker: next, leave: poll.state };
   if (poll.handoffDone) return { tracker: next, leave: "handoff" };
-  if (next.cosmeticSince != null && now - next.cosmeticSince >= GRACE_AFTER_COSMETIC_MS) return { tracker: next, leave: "grace" };
+  if (next.sawPattern && next.cosmeticSince != null && now - next.cosmeticSince >= GRACE_AFTER_COSMETIC_MS) return { tracker: next, leave: "grace" };
   return { tracker: next, leave: null };
 }
 
@@ -160,7 +204,7 @@ export function trackRefusal(tr: Tracker, now: number): { tracker: Tracker; unav
  */
 export const PATTERN_STALL_MS = 90_000;
 
-/** Why "Finish without photos" is offered right now, or null if it isn't. `patternUp`: a pattern fills the screen. */
+/** Why "Finish without the screen check" is offered right now, or null if it isn't. `patternUp`: a pattern fills the screen. */
 export function skipOffer(tr: Tracker, now: number, patternUp = false): "never-connected" | "stalled" | null {
   if (patternUp && now - tr.lastChangeAt >= PATTERN_STALL_MS) return "stalled";
   if (tr.connectedAt == null) return now - tr.startedAt >= NO_CONNECT_MS ? "never-connected" : null;

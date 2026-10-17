@@ -12,6 +12,11 @@
 //     own `final` can only make it LESS final here, never more;
 //   - the camera URL is the only key to the GradeIQ session, so it is opened on
 //     this device only, never shown as a QR or copied anywhere.
+//
+// Two camera passes (docs/TWO-PASS-CAMERA.md in the server repo, 2026-10-17): the
+// photos FIRST (photosUrl — no app on the customer's phone needed, so never gated)
+// and the screen check LAST (screenUrl — gated like cameraUrl, after the tests). A
+// server that sends none of the new fields is an older one: one cameraUrl does both.
 
 export type GradingPhase =
   /** The server sent no grading object (older server, or camera grading not set up). */
@@ -124,11 +129,21 @@ export type CameraGrading = {
   deviceReady: boolean;
   /** The server could not read GradeIQ's /screen — readiness unknown (fail closed). */
   screenProblem: string | null;
-  /** Withheld by the server until deviceReady (or an override). */
+  /** Withheld by the server until deviceReady (or an override). One pass: photos AND the screen sweep. */
   cameraUrl: string | null;
+  /** The server knows the two passes (it sends photosUrl / photosDone, even as null / false). */
+  twoPass: boolean;
+  /** Pass 1, photos only — offered as soon as camera grading is ready, before the phone joins. */
+  photosUrl: string | null;
+  /** Pass 2, the screen check — withheld exactly like cameraUrl. */
+  screenUrl: string | null;
+  /** GradeIQ said the photos are in (cosmeticDone seen). */
+  photosDone: boolean;
+  /** The screen sweep has run (a displayCheck exists, or pass 2 said it was done). */
+  screenDone: boolean;
   /** The server's sentence for why the camera is still locked. */
   cameraLocked: string | null;
-  /** The server allows "Take photos anyway" (null = it didn't say). */
+  /** The server allows the override ("Take photos anyway" / "Check the screen anyway"; null = it didn't say). */
   canOverride: boolean | null;
   /** The server can retry setting up camera grading. */
   canRetry: boolean;
@@ -327,6 +342,11 @@ export function readGrading(raw: unknown): CameraGrading {
     deviceReady: false,
     screenProblem: null,
     cameraUrl: null,
+    twoPass: false,
+    photosUrl: null,
+    screenUrl: null,
+    photosDone: false,
+    screenDone: false,
     cameraLocked: null,
     canOverride: null,
     canRetry: false,
@@ -476,12 +496,21 @@ export function readGrading(raw: unknown): CameraGrading {
     return null;
   })();
 
+  // Key presence, not value: a two-pass server sends photosUrl: null while camera
+  // grading is still being set up, and that must not drop us back to one pass.
+  const twoPass = ["photosUrl", "screenUrl", "photosDone", "screenDone"].some((k) => k in g);
+
   return {
     phase,
     message: str(pick(g, "message", "error", "note", "reason")),
     deviceReady,
     screenProblem: deviceReady ? null : screenProblem,
     cameraUrl: str(pick(g, "cameraUrl", "camUrl")),
+    twoPass,
+    photosUrl: str(g.photosUrl),
+    screenUrl: str(g.screenUrl),
+    photosDone: bool(g.photosDone) ?? capture.cosmeticDone,
+    screenDone: bool(g.screenDone) ?? (capture.handoffDone || (!!result?.display && result.display.verdict !== "unknown")),
     cameraLocked,
     canOverride,
     canRetry: g.canRetry === true,
@@ -499,12 +528,27 @@ export function readGrading(raw: unknown): CameraGrading {
 /** True when the camera has produced a grade letter we can show (final or provisional). */
 export const isCameraGraded = (g: CameraGrading) => !!g.result?.grade;
 
-/** For Home: photos still to take — the phone has joined, camera grading is on, and there is no grade. */
+/**
+ * For Home: photos still to take. One pass: the phone has joined, camera grading is
+ * on, and there is no grade. Two passes: the photos come first, so they are due as
+ * soon as the server offers them (photosUrl is only sent while the session is open).
+ */
 export function photosNeeded(raw: unknown, joined: boolean): boolean {
-  if (!joined) return false;
   const g = readGrading(raw);
   if (g.phase === "absent" || g.phase === "disabled" || g.phase === "failed") return false;
+  if (g.twoPass) return !!g.photosUrl && !g.photosDone && !isCameraGraded(g);
+  if (!joined) return false;
   return !isCameraGraded(g);
+}
+
+/** Step 1 of the two-pass session screen. `skipped`: the advisor chose "Skip photos" (recorded nowhere). */
+export type PhotosStep = "none" | "pending" | "todo" | "skipped" | "done";
+
+export function photosStep(g: CameraGrading, skipped: boolean): PhotosStep {
+  if (g.phase === "absent" || g.phase === "disabled" || g.phase === "failed") return "none";
+  if (g.photosDone || isCameraGraded(g)) return "done";
+  if (skipped) return "skipped";
+  return g.phase === "pending" ? "pending" : "todo";
 }
 
 // ── plain words ──────────────────────────────────────────────────────────────

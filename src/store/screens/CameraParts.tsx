@@ -1,11 +1,18 @@
-// Step ③ on the Session screen — the advisor photographs the customer's phone
-// with THIS device on GradeIQ's camera page — and the "Camera AI (GradeIQ)"
-// results card. Everything shown comes from session.grading (../grading.ts);
-// nothing here makes up a grade, a verdict or a reason.
+// The advisor's camera steps on the Session screen — GradeIQ's camera page on THIS
+// device — and the "Camera AI (GradeIQ)" results card. Everything shown comes from
+// session.grading (../grading.ts); nothing here makes up a grade, a verdict or a reason.
+//
+// Two passes (docs/TWO-PASS-CAMERA.md in the server repo, 2026-10-17):
+//   PhotosStepCard — step 1: the photos, BEFORE the customer's phone joins. No app is
+//                    needed for them, so the button is there at once (photosUrl).
+//   ScreenStepCard — step 4: the screen check, AFTER its tests. The phone has to show
+//                    the colours the camera asks for, so it stays locked until the phone
+//                    is on its photo screen (screenUrl — fail closed, override with a reason).
+// CameraStepCard is the one-pass card an older server gets (cameraUrl does both).
 import React, { useRef, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { L } from "../../shared/theme";
-import { CameraFault, CameraFinding, CameraGrading, CameraResult, GRADE_MEANING, disagreementLine, findingLine, pct } from "../grading";
+import { CameraFault, CameraFinding, CameraGrading, CameraResult, GRADE_MEANING, disagreementLine, findingLine, pct, photosStep } from "../grading";
 import { openCameraPage } from "../openCamera";
 import { StaffClient, errText } from "../staffClient";
 import type { TestSessionView } from "../types";
@@ -33,7 +40,236 @@ export function byEye(msg: string | null | undefined): string {
   return /by eye/i.test(m) ? m : `${m ? `${m.replace(/\.?$/, ".")} ` : ""}Check the condition by eye.`;
 }
 
-// ── ③ Photograph the phone ───────────────────────────────────────────────────
+const TERMINAL_STATUSES: ReadonlySet<string> = new Set(["applied", "expired", "cancelled"]);
+
+// ── shared by the camera cards ───────────────────────────────────────────────
+
+/**
+ * Where the customer's phone is, as far as the camera lock goes — the one-pass card
+ * and the screen check share it, so both hold an override back for the same reasons.
+ */
+function usePhoneGate(v: TestSessionView, g: CameraGrading) {
+  // When the customer's phone last made progress, on THIS device's clock (the
+  // results carry the phone's own clock, which may be minutes off).
+  const activity = useRef<{ sig: string; at: number }>({ sig: "", at: Date.now() });
+  const activitySig = `${v.status}|${v.progress?.done ?? 0}|${Object.keys(v.results ?? {}).length}`;
+  if (activitySig !== activity.current.sig) activity.current = { sig: activitySig, at: Date.now() };
+  const status = v.status;
+  const joined = status === "joined" || status === "testing" || status === "complete";
+  // SwapUp Check 0.3.0+ (native) runs its tests FIRST and shows the photo screen
+  // last, so a phone that is testing is on its way there — not gone. The browser
+  // check and older apps never come back to it: for them, progress means moved on.
+  // A phone that has sent nothing for 3 minutes is not "testing" any more either.
+  const photosLast = photosLastApp(v.device?.appVersion ?? null);
+  const progressed = (v.progress?.done ?? 0) > 0;
+  const quiet = progressed && Date.now() - activity.current.at > STALE_TESTING_MS;
+  const testing = photosLast && joined && !g.deviceReady && status !== "complete" && progressed && !quiet;
+  const movedOn = joined && !g.deviceReady && (status === "complete" || (!photosLast && progressed) || (photosLast && quiet));
+  // The server says when an override is allowed; we hold it back while the phone is
+  // still testing (the photo screen is coming), and for the first half-minute after
+  // joining when nothing is wrong yet.
+  const joinedFor = v.joinedAt ? Date.now() - Date.parse(v.joinedAt) : Infinity;
+  const allowed = g.canOverride ?? (joined && (!!g.screenProblem || movedOn));
+  const canOverride =
+    allowed && joined && !g.deviceReady && !g.override && (!!g.screenProblem || movedOn || (!testing && joinedFor >= OVERRIDE_GRACE_MS));
+  return { status, joined, photosLast, testing, movedOn, canOverride };
+}
+
+/** POST …/grading-retry — a fresh GradeIQ session when setting one up failed. */
+function useRetry(api: StaffClient, v: TestSessionView, onSession: (r: unknown) => void) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function retry() {
+    setErr(null);
+    setBusy(true);
+    try {
+      onSession(await api.post<unknown>(`/api/test-sessions/${encodeURIComponent(v.id)}/grading-retry`));
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return { retry, busy, err };
+}
+
+/** Open a camera page in Chrome (or a new tab in the browser app) and remember that we did. */
+function useOpener() {
+  const [openErr, setOpenErr] = useState<string | null>(null);
+  const [opened, setOpened] = useState<{ at: number; inChrome: boolean } | null>(null);
+  async function open(url: string | null) {
+    if (!url) return;
+    setOpenErr(null);
+    const r = await openCameraPage(url);
+    if (r.ok) setOpened({ at: Date.now(), inChrome: r.inChrome });
+    else setOpenErr(r.error);
+  }
+  return { open, opened, openErr };
+}
+
+/** "Take photos anyway" / "Check the screen anyway": a reason, recorded with the advisor's name. */
+function OverrideBox({
+  v,
+  api,
+  onSession,
+  openTitle,
+  confirmTitle,
+  explain,
+  placeholder,
+}: {
+  v: TestSessionView;
+  api: StaffClient;
+  onSession: (r: unknown) => void;
+  openTitle: string;
+  confirmTitle: string;
+  explain: React.ReactNode;
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function send() {
+    const why = reason.trim();
+    if (why.length < MIN_REASON) {
+      setErr("Say why in a few words — it goes on the case with your name.");
+      return;
+    }
+    setErr(null);
+    setBusy(true);
+    try {
+      const r = await api.post<unknown>(`/api/test-sessions/${encodeURIComponent(v.id)}/camera-override`, { reason: why });
+      onSession(r);
+      setOpen(false);
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) return <Btn title={openTitle} kind="secondary" onPress={() => setOpen(true)} style={{ alignSelf: "flex-start" }} />;
+  return (
+    <View style={{ gap: 10 }}>
+      <Body>{explain}</Body>
+      <Field label="Why go ahead without it?" value={reason} onChangeText={setReason} placeholder={placeholder} editable={!busy} error={err} />
+      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+        <Btn title={confirmTitle} onPress={send} busy={busy} style={{ flexGrow: 1 }} />
+        <Btn title="Keep waiting" kind="secondary" onPress={() => setOpen(false)} disabled={busy} />
+      </View>
+    </View>
+  );
+}
+
+function Numbered({ items }: { items: string[] }) {
+  return (
+    <View style={{ gap: 8 }}>
+      {items.map((t, i) => (
+        <View key={i} style={{ flexDirection: "row", gap: 10 }}>
+          <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: L.fixBg, alignItems: "center", justifyContent: "center" }}>
+            <Text style={{ color: L.fix, fontWeight: "800", fontSize: 15 }}>{i + 1}</Text>
+          </View>
+          <Text style={{ flex: 1, fontSize: 17, lineHeight: 24, color: L.text }}>{t}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** The instructions beside the big button: side by side on a tablet, stacked on a phone. */
+function GuideAndButton({ wide, guide, button }: { wide: boolean; guide: React.ReactNode; button: React.ReactNode }) {
+  return wide ? (
+    <View style={{ flexDirection: "row", gap: 20, alignItems: "flex-start" }}>
+      <View style={{ flex: 1, minWidth: 0 }}>{guide}</View>
+      <View style={{ width: 320, gap: 10 }}>{button}</View>
+    </View>
+  ) : (
+    <>
+      {guide}
+      {button}
+    </>
+  );
+}
+
+function StepHead({ label, title, chip }: { label: string; title: string; chip?: React.ReactNode }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+      <View style={{ flexShrink: 1, minWidth: 0, gap: 4 }}>
+        <Label>{label}</Label>
+        <H2>{title}</H2>
+      </View>
+      {chip ?? null}
+    </View>
+  );
+}
+
+/** The grade chip: retake / graded / provisional. */
+function gradeChip(g: CameraGrading): React.ReactNode {
+  const needRetake = g.capture.verdict === "retake" || !!g.result?.obstruction?.present;
+  if (needRetake) return <Chip text="Retake needed" tone="bad" />;
+  if (g.result?.grade) return <Chip text={g.result.final ? `Graded ${g.result.grade}` : `Provisional ${g.result.grade}`} tone={g.result.final ? "up" : "warn"} />;
+  return null;
+}
+
+/** Off, failed or not offered: say so, and send the advisor to their own eyes. */
+function NoCamera({ v, g, retry }: { v: TestSessionView; g: CameraGrading; retry: ReturnType<typeof useRetry> }) {
+  const title = g.phase === "disabled" ? "Camera grading is switched off" : g.phase === "failed" ? "Camera grading unavailable" : "No camera grading on this server";
+  return (
+    <>
+      <Banner
+        tone={g.phase === "failed" ? "bad" : "muted"}
+        title={title}
+        action={g.canRetry && !TERMINAL_STATUSES.has(v.status) ? { title: "Retry", onPress: retry.retry, busy: retry.busy } : undefined}
+      >
+        {byEye(g.message ?? (g.phase === "absent" ? "This SwapUp server doesn't offer camera grading yet." : null))}
+      </Banner>
+      {retry.err ? <Banner tone="bad" title="Camera grading still unavailable">{retry.err}</Banner> : null}
+    </>
+  );
+}
+
+function Locked({ title, text }: { title: string; text: string }) {
+  return (
+    <View style={{ flexDirection: "row", gap: 14, alignItems: "flex-start", padding: 14, borderRadius: L.radius, backgroundColor: L.surface2 }}>
+      <Text style={{ fontSize: 28 }} accessibilityLabel="Locked">
+        🔒
+      </Text>
+      <View style={{ flex: 1, gap: 4 }}>
+        <Text style={{ fontSize: 18, fontWeight: "800", color: L.ink }}>{title}</Text>
+        <Body muted>{text}</Body>
+      </View>
+    </View>
+  );
+}
+
+function OpenButton({ title, primary, onPress }: { title: string; primary: boolean; onPress: () => void }) {
+  return (
+    <View style={{ gap: 6 }}>
+      <Btn title={title} kind={primary ? "primary" : "secondary"} onPress={onPress} big />
+      <Text style={{ color: L.muted, fontSize: 14, lineHeight: 20 }}>
+        {IS_WEB
+          ? "Opens the camera page in a new tab. Chrome on an Android tablet takes the torch-lit photos."
+          : "Opens the camera page in Chrome on this device. Come back here when it says it's done."}
+      </Text>
+    </View>
+  );
+}
+
+function OpenedNote({ opened }: { opened: { at: number; inChrome: boolean } | null }) {
+  if (!opened) return null;
+  return (
+    <Text style={{ color: opened.inChrome ? L.muted : L.warn, fontSize: 14, lineHeight: 20, fontWeight: opened.inChrome ? "400" : "700" }}>
+      {opened.inChrome
+        ? `Camera page opened ${ago(new Date(opened.at).toISOString()) || "just now"}.`
+        : IS_WEB
+          ? "Opened in this browser. Without Chrome on Android there are no torch-lit photos."
+          : "Chrome isn't on this device, so the camera page opened in the default browser — no torch-lit photos."}
+    </Text>
+  );
+}
+
+// ── one pass (an older server): Step ③ Photograph the phone ───────────────────
 
 export function CameraStepCard({
   v,
@@ -49,123 +285,35 @@ export function CameraStepCard({
   /** The override answered with a fresh session (or a fresh grading object). */
   onSession: (r: unknown) => void;
 }) {
-  // When the customer's phone last made progress, on THIS device's clock (the
-  // results carry the phone's own clock, which may be minutes off).
-  const activity = useRef<{ sig: string; at: number }>({ sig: "", at: Date.now() });
-  const activitySig = `${v.status}|${v.progress?.done ?? 0}|${Object.keys(v.results ?? {}).length}`;
-  if (activitySig !== activity.current.sig) activity.current = { sig: activitySig, at: Date.now() };
-  const [openErr, setOpenErr] = useState<string | null>(null);
-  const [opened, setOpened] = useState<{ at: number; inChrome: boolean } | null>(null);
-  const [overrideOpen, setOverrideOpen] = useState(false);
-  const [reason, setReason] = useState("");
-  const [ovBusy, setOvBusy] = useState(false);
-  const [ovErr, setOvErr] = useState<string | null>(null);
-  const [retryBusy, setRetryBusy] = useState(false);
-  const [retryErr, setRetryErr] = useState<string | null>(null);
+  const gate = usePhoneGate(v, g);
+  const retry = useRetry(api, v, onSession);
+  const opener = useOpener();
+  const head = <StepHead label="Step 3 · advisor" title="Photograph the phone" chip={gradeChip(g)} />;
 
-  async function retry() {
-    setRetryErr(null);
-    setRetryBusy(true);
-    try {
-      onSession(await api.post<unknown>(`/api/test-sessions/${encodeURIComponent(v.id)}/grading-retry`));
-    } catch (e) {
-      setRetryErr(errText(e));
-    } finally {
-      setRetryBusy(false);
-    }
-  }
-
-  const head = (
-    <View style={{ gap: 4 }}>
-      <Label>Step 3 · advisor</Label>
-      <H2>Photograph the phone</H2>
-    </View>
-  );
-
-  // Off, failed or not offered: say so, and send the advisor to their own eyes.
   if (g.phase === "absent" || g.phase === "disabled" || g.phase === "failed") {
-    const title = g.phase === "disabled" ? "Camera grading is switched off" : g.phase === "failed" ? "Camera grading unavailable" : "No camera grading on this server";
     return (
       <Card>
-        {head}
-        <Banner
-          tone={g.phase === "failed" ? "bad" : "muted"}
-          title={title}
-          action={g.canRetry && !TERMINAL_STATUSES.has(v.status) ? { title: "Retry", onPress: retry, busy: retryBusy } : undefined}
-        >
-          {byEye(g.message ?? (g.phase === "absent" ? "This SwapUp server doesn't offer camera grading yet." : null))}
-        </Banner>
-        {retryErr ? <Banner tone="bad" title="Camera grading still unavailable">{retryErr}</Banner> : null}
+        <StepHead label="Step 3 · advisor" title="Photograph the phone" />
+        <NoCamera v={v} g={g} retry={retry} />
       </Card>
     );
   }
 
-  const status = v.status;
+  const { status, joined, photosLast, testing, movedOn, canOverride } = gate;
   const graded = !!g.result?.grade;
   const needRetake = g.capture.verdict === "retake" || !!g.result?.obstruction?.present;
   const again = graded || needRetake;
-  const joined = status === "joined" || status === "testing" || status === "complete";
   const unlocked = !!g.cameraUrl && (g.deviceReady || !!g.override);
-  // SwapUp Check 0.3.0+ (native) runs its tests FIRST and shows the photo screen
-  // last, so a phone that is testing is on its way here — not gone. The browser
-  // check and older apps never come back to it: for them, progress means moved on.
-  // A phone that has sent nothing for 3 minutes is not "testing" any more either.
-  const photosLast = photosLastApp(v.device?.appVersion ?? null);
-  const progressed = (v.progress?.done ?? 0) > 0;
-  const quiet = progressed && Date.now() - activity.current.at > STALE_TESTING_MS;
-  const testing = photosLast && joined && !g.deviceReady && status !== "complete" && progressed && !quiet;
-  const movedOn = joined && !g.deviceReady && (status === "complete" || (!photosLast && progressed) || (photosLast && quiet));
-  // The server says when an override is allowed; we hold it back while the phone is
-  // still testing (the photo screen is coming), and for the first half-minute after
-  // joining when nothing is wrong yet.
-  const joinedFor = v.joinedAt ? Date.now() - Date.parse(v.joinedAt) : Infinity;
-  const allowed = g.canOverride ?? (joined && (!!g.screenProblem || movedOn));
-  const canOverride =
-    allowed && joined && !g.deviceReady && !g.override && (!!g.screenProblem || movedOn || (!testing && joinedFor >= OVERRIDE_GRACE_MS));
-
-  async function takePhotos() {
-    if (!g.cameraUrl) return;
-    setOpenErr(null);
-    const r = await openCameraPage(g.cameraUrl);
-    if (r.ok) setOpened({ at: Date.now(), inChrome: r.inChrome });
-    else setOpenErr(r.error);
-  }
-
-  async function sendOverride() {
-    const why = reason.trim();
-    if (why.length < MIN_REASON) {
-      setOvErr("Say why in a few words — it goes on the case with your name.");
-      return;
-    }
-    setOvErr(null);
-    setOvBusy(true);
-    try {
-      const r = await api.post<unknown>(`/api/test-sessions/${encodeURIComponent(v.id)}/camera-override`, { reason: why });
-      onSession(r);
-      setOverrideOpen(false);
-    } catch (e) {
-      setOvErr(errText(e));
-    } finally {
-      setOvBusy(false);
-    }
-  }
 
   const guidance = (
-    <View style={{ gap: 8 }}>
-      {[
+    <Numbered
+      items={[
         "Take the case off the customer's phone.",
         "Wipe the screen and the back.",
         "Leave SwapUp Check open on the counter, screen up — the camera page tells it what to show.",
         "Follow the prompts on the camera page until it says it's done.",
-      ].map((t, i) => (
-        <View key={i} style={{ flexDirection: "row", gap: 10 }}>
-          <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: L.fixBg, alignItems: "center", justifyContent: "center" }}>
-            <Text style={{ color: L.fix, fontWeight: "800", fontSize: 15 }}>{i + 1}</Text>
-          </View>
-          <Text style={{ flex: 1, fontSize: 17, lineHeight: 24, color: L.text }}>{t}</Text>
-        </View>
-      ))}
-    </View>
+      ]}
+    />
   );
 
   let body: React.ReactNode;
@@ -220,21 +368,20 @@ export function CameraStepCard({
           </Banner>
         ) : null}
         {canOverride ? (
-          overrideOpen ? (
-            <View style={{ gap: 10 }}>
-              <Body>
+          <OverrideBox
+            v={v}
+            api={api}
+            onSession={onSession}
+            openTitle="Take photos anyway"
+            confirmTitle="Take photos without the screen check"
+            placeholder="e.g. customer's phone won't stay on the photo screen"
+            explain={
+              <>
                 Without the customer's phone paired, the display is <Text style={{ fontWeight: "800" }}>not camera-checked</Text>. The photos still grade the glass, back and frame.
                 Your name and reason go on the case.
-              </Body>
-              <Field label="Why go ahead without it?" value={reason} onChangeText={setReason} placeholder="e.g. customer's phone won't stay on the photo screen" editable={!ovBusy} error={ovErr} />
-              <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-                <Btn title="Take photos without the screen check" onPress={sendOverride} busy={ovBusy} style={{ flexGrow: 1 }} />
-                <Btn title="Keep waiting" kind="secondary" onPress={() => setOverrideOpen(false)} disabled={ovBusy} />
-              </View>
-            </View>
-          ) : (
-            <Btn title="Take photos anyway" kind="secondary" onPress={() => setOverrideOpen(true)} style={{ alignSelf: "flex-start" }} />
-          )
+              </>
+            }
+          />
         ) : null}
       </View>
     );
@@ -246,84 +393,337 @@ export function CameraStepCard({
             {`Going ahead without the customer's phone paired${overrideWho(g) ? ` (${overrideWho(g)})` : ""}. Check the display by eye.`}
           </Banner>
         ) : null}
-        {wide ? (
-          <View style={{ flexDirection: "row", gap: 20, alignItems: "flex-start" }}>
-            <View style={{ flex: 1, minWidth: 0 }}>{guidance}</View>
-            <View style={{ width: 320, gap: 10 }}>
-              <OpenButton again={again} primary={!graded || needRetake} onPress={takePhotos} />
-              <OpenedNote opened={opened} />
-            </View>
-          </View>
-        ) : (
-          <>
-            {guidance}
-            <OpenButton again={again} primary={!graded || needRetake} onPress={takePhotos} />
-            <OpenedNote opened={opened} />
-          </>
-        )}
-        {openErr ? <Banner tone="bad" title="Camera page didn't open">{openErr}</Banner> : null}
+        <GuideAndButton
+          wide={wide}
+          guide={guidance}
+          button={
+            <>
+              <OpenButton title={again ? "Retake photos" : "Take photos"} primary={!graded || needRetake} onPress={() => opener.open(g.cameraUrl)} />
+              <OpenedNote opened={opener.opened} />
+            </>
+          }
+        />
+        {opener.openErr ? <Banner tone="bad" title="Camera page didn't open">{opener.openErr}</Banner> : null}
         <Progress g={g} />
-        {g.outOfSync ? <Text style={{ color: L.muted, fontSize: 14 }}>GradeIQ out of sync, retrying — SwapUp's own test results are unaffected.</Text> : null}
+        {g.outOfSync ? <OutOfSync /> : null}
       </View>
     );
   }
 
   return (
     <Card style={{ gap: 14 }}>
-      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-        <View style={{ flexShrink: 1, minWidth: 0 }}>{head}</View>
-        {needRetake ? (
-          <Chip text="Retake needed" tone="bad" />
-        ) : graded ? (
-          <Chip text={g.result!.final ? `Graded ${g.result!.grade}` : `Provisional ${g.result!.grade}`} tone={g.result!.final ? "up" : "warn"} />
-        ) : null}
-      </View>
+      {head}
       {body}
     </Card>
   );
 }
 
-const TERMINAL_STATUSES: ReadonlySet<string> = new Set(["applied", "expired", "cancelled"]);
+const OutOfSync = () => <Text style={{ color: L.muted, fontSize: 14 }}>GradeIQ out of sync, retrying — SwapUp's own test results are unaffected.</Text>;
 
 const overrideWho = (g: CameraGrading) => [g.override?.by, g.override?.reason].filter(Boolean).join(": ");
 
-function Locked({ title, text }: { title: string; text: string }) {
-  return (
-    <View style={{ flexDirection: "row", gap: 14, alignItems: "flex-start", padding: 14, borderRadius: L.radius, backgroundColor: L.surface2 }}>
-      <Text style={{ fontSize: 28 }} accessibilityLabel="Locked">
-        🔒
-      </Text>
-      <View style={{ flex: 1, gap: 4 }}>
-        <Text style={{ fontSize: 18, fontWeight: "800", color: L.ink }}>{title}</Text>
-        <Body muted>{text}</Body>
+// ── two passes: Step 1 · Photograph the phone (before it joins) ───────────────
+
+export function PhotosStepCard({
+  v,
+  g,
+  api,
+  wide,
+  skipped,
+  onSkip,
+  onSession,
+}: {
+  v: TestSessionView;
+  g: CameraGrading;
+  api: StaffClient;
+  wide: boolean;
+  /** "Skip photos" was tapped. It records nothing on the server. */
+  skipped: boolean;
+  onSkip: (skip: boolean) => void;
+  onSession: (r: unknown) => void;
+}) {
+  const retry = useRetry(api, v, onSession);
+  const opener = useOpener();
+  const step = photosStep(g, skipped);
+  const status = v.status;
+  const graded = !!g.result?.grade;
+  const needRetake = g.capture.verdict === "retake" || !!g.result?.obstruction?.present;
+  // Photos while the customer's phone is ALREADY on its photo screen (connected
+  // before the photos were taken): a photos-only pass ends with a NEW cosmeticDone,
+  // and the phone leaves its photo screen 30 s after that — before the screen check
+  // could run. The one-pass page (cameraUrl, unlocked by the same rule as the screen
+  // check) takes the photos and checks the screen in one go instead.
+  const both = g.deviceReady && !g.screenDone && !!g.cameraUrl;
+  const url = both ? g.cameraUrl : g.photosUrl;
+
+  const chip =
+    step === "skipped" ? <Chip text="Skipped" tone="muted" /> : (gradeChip(g) ?? (step === "done" ? <Chip text="Photos taken" tone="up" /> : null));
+  const head = <StepHead label="Step 1 · advisor" title="Photograph the phone" chip={chip} />;
+  const skipLink = (
+    <View style={{ gap: 4 }}>
+      <Btn title="Skip photos" kind="ghost" onPress={() => onSkip(true)} style={{ alignSelf: "flex-start", paddingHorizontal: 0 }} />
+      <Text style={{ color: L.muted, fontSize: 14, lineHeight: 20 }}>Without photos the trade-in has no camera grade — the glass, back and frame are checked by eye.</Text>
+    </View>
+  );
+
+  let body: React.ReactNode;
+  if (status === "expired" || status === "cancelled") {
+    body = <Body muted>{graded || g.photosDone ? "Photos were taken for this test." : "Not camera-graded — this test ended before photos were taken."}</Body>;
+  } else if (status === "applied") {
+    body = <Body muted>{graded || g.photosDone ? "Photos were taken before the results went on the case." : "Not camera-graded — the results went on the case without photos."}</Body>;
+  } else if (step === "none") {
+    body = (
+      <>
+        <NoCamera v={v} g={g} retry={retry} />
+        <Body muted>Carry on with step 2.</Body>
+      </>
+    );
+  } else if (step === "pending") {
+    body = (
+      <>
+        <Banner tone="muted" title="Setting up camera grading…">
+          {g.message || "This takes a few seconds — the button appears here."}
+        </Banner>
+        {skipLink}
+      </>
+    );
+  } else if (step === "skipped") {
+    body = (
+      <>
+        <Banner tone="muted" title="Photos skipped — no camera grade">
+          Check the glass, back and frame by eye. The screen can still be camera-checked at step 4.
+        </Banner>
+        <Btn title="Take photos after all" kind="ghost" onPress={() => onSkip(false)} style={{ alignSelf: "flex-start", paddingHorizontal: 0 }} />
+      </>
+    );
+  } else if (!url) {
+    body = (
+      <>
+        <Body muted>Getting the camera link from SwapUp…</Body>
+        {step === "todo" ? skipLink : null}
+      </>
+    );
+  } else if (step === "done" && !needRetake) {
+    // Taken: the result, and a retake if the advisor wants one.
+    body = (
+      <View style={{ gap: 12 }}>
+        <Body>
+          {status === "waiting" || status === "opened"
+            ? "Photos accepted. Next, connect the customer's phone (step 2)."
+            : "Photos accepted. The grade shows here and in Camera AI below."}
+        </Body>
+        <Progress g={g} />
+        {g.outOfSync ? <OutOfSync /> : null}
+        {both ? <Body muted>The customer's phone is on its photo screen now, so a retake also checks the screen.</Body> : null}
+        <Btn title="Retake photos" kind="secondary" onPress={() => opener.open(url)} style={{ alignSelf: "flex-start" }} />
+        <OpenedNote opened={opener.opened} />
+        {opener.openErr ? <Banner tone="bad" title="Camera page didn't open">{opener.openErr}</Banner> : null}
       </View>
-    </View>
+    );
+  } else {
+    const guidance = (
+      <Numbered
+        items={
+          both
+            ? [
+                "Take the case off the customer's phone.",
+                "Wipe the screen and the back.",
+                "Leave SwapUp Check open on the counter, screen up — the camera page tells it what to show.",
+                "Follow the prompts on the camera page until it says it's done.",
+              ]
+            : [
+                "Take the case off the customer's phone.",
+                "Wipe the screen and the back.",
+                "Follow the camera page — it asks for each side in turn — until it says the photos are done.",
+              ]
+        }
+      />
+    );
+    body = (
+      <View style={{ gap: 14 }}>
+        {both ? (
+          <Banner tone="fix" title="The customer's phone is already on its photo screen">
+            So this takes the photos and checks the screen in one go.
+          </Banner>
+        ) : (
+          <Body muted>No app needed on the customer's phone for this — it comes before the phone is connected.</Body>
+        )}
+        <GuideAndButton
+          wide={wide}
+          guide={guidance}
+          button={
+            <>
+              <OpenButton title={needRetake ? "Retake photos" : "Take photos"} primary onPress={() => opener.open(url)} />
+              <OpenedNote opened={opener.opened} />
+            </>
+          }
+        />
+        {opener.openErr ? <Banner tone="bad" title="Camera page didn't open">{opener.openErr}</Banner> : null}
+        <Progress g={g} />
+        {g.outOfSync ? <OutOfSync /> : null}
+        {step === "todo" ? skipLink : null}
+      </View>
+    );
+  }
+
+  return (
+    <Card style={{ gap: 14 }}>
+      {head}
+      {body}
+    </Card>
   );
 }
 
-function OpenButton({ again, primary, onPress }: { again: boolean; primary: boolean; onPress: () => void }) {
-  return (
-    <View style={{ gap: 6 }}>
-      <Btn title={again ? "Retake photos" : "Take photos"} kind={primary ? "primary" : "secondary"} onPress={onPress} big />
-      <Text style={{ color: L.muted, fontSize: 14, lineHeight: 20 }}>
-        {IS_WEB
-          ? "Opens the camera page in a new tab. Chrome on an Android tablet takes the torch-lit photos."
-          : "Opens the camera page in Chrome on this device. Come back here when it says it's done."}
-      </Text>
-    </View>
-  );
-}
+// ── two passes: Step 4 · Check the screen (after the tests) ───────────────────
 
-function OpenedNote({ opened }: { opened: { at: number; inChrome: boolean } | null }) {
-  if (!opened) return null;
+export function ScreenStepCard({
+  v,
+  g,
+  api,
+  wide,
+  onSession,
+}: {
+  v: TestSessionView;
+  g: CameraGrading;
+  api: StaffClient;
+  wide: boolean;
+  onSession: (r: unknown) => void;
+}) {
+  const gate = usePhoneGate(v, g);
+  const opener = useOpener();
+  const { status, joined, photosLast, testing, movedOn, canOverride } = gate;
+  const d = g.result?.display ?? null;
+  const verdictChip =
+    d?.verdict === "pass" ? (
+      <Chip text="No faults seen" tone="up" />
+    ) : d?.verdict === "fail" ? (
+      <Chip text="Fault seen" tone="bad" />
+    ) : !d && g.gradePending ? (
+      <Chip text="Working it out…" tone="fix" />
+    ) : g.screenDone ? (
+      <Chip text="No clear verdict" tone="warn" />
+    ) : null;
+  const head = <StepHead label="Step 4 · advisor" title="Check the screen" chip={g.screenDone || d ? verdictChip : null} />;
+
+  let body: React.ReactNode;
+  if (status === "expired" || status === "cancelled") {
+    body = <Body muted>{g.screenDone ? "The screen was camera-checked for this test." : "Not camera-checked — this test ended before the screen check."}</Body>;
+  } else if (status === "applied") {
+    body = <Body muted>{g.screenDone ? "The screen was camera-checked before the results went on the case." : "Not camera-checked — the results went on the case without a screen check."}</Body>;
+  } else if (g.phase === "absent" || g.phase === "disabled" || g.phase === "failed") {
+    body = <Body muted>No camera grading for this trade-in — check the screen by eye.</Body>;
+  } else if (g.phase === "pending") {
+    body = <Body muted>Setting up camera grading…</Body>;
+  } else if (g.screenDone) {
+    body = (
+      <View style={{ gap: 8 }}>
+        <Body>
+          {d?.verdict === "pass"
+            ? "Checked by this tablet's camera — no screen faults seen."
+            : d?.verdict === "fail"
+              ? "Checked by this tablet's camera — it saw a screen fault. Details in Camera AI below."
+              : !d && g.gradePending
+                ? "Screen check done — the camera's verdict is being worked out. It usually lands within 30 seconds."
+                : "The screen check ran, but gave no clear verdict. Check the screen by eye."}
+        </Body>
+        {d?.missing.length ? <Body muted>{`Colours not captured: ${d.missing.join(", ")}.`}</Body> : null}
+        {g.override ? <Body muted>{`Unlocked by override${overrideWho(g) ? ` (${overrideWho(g)})` : ""} — recorded as not camera-checked.`}</Body> : null}
+      </View>
+    );
+  } else if (!g.screenUrl) {
+    // Locked until the customer's phone is echoing the camera's patterns (fail closed).
+    body = (
+      <View style={{ gap: 12 }}>
+        <Locked
+          title={
+            g.deviceReady
+              ? "Getting the camera link from SwapUp…"
+              : g.screenProblem
+                ? "Can't confirm the customer's phone is ready"
+                : testing
+                  ? "The customer's phone is running its tests"
+                  : joined
+                    ? "Waiting for the customer's phone to show its photo screen"
+                    : "Waiting for the customer's phone"
+          }
+          text={
+            g.screenProblem ??
+            (movedOn && status !== "complete"
+              ? photosLast
+                ? "The customer's phone isn't on its photo screen and hasn't sent anything for a few minutes. Ask the customer to reopen SwapUp Check, or check the screen by eye."
+                : "This check (the browser version, or an older app) doesn't show the photo screen, so the camera can't check the display. Check it by eye."
+              : null) ??
+            // Not g.cameraLocked: the server's sentence describes the one-pass camera ("Photos now
+            // need an override…"), which is wrong for this card — it only guards the screen check.
+            (g.deviceReady
+              ? "The customer's phone is ready. The button appears in a moment."
+              : testing
+                ? "When the tests finish, the phone asks to be laid on the counter, screen up, and this unlocks by itself."
+                : joined
+                  ? "This unlocks by itself once the phone is lying on the counter showing SwapUp Check's photo screen."
+                  : "Connect the customer's phone first (step 2). After its tests it shows a photo screen, and this unlocks by itself.")
+          }
+        />
+        {g.screenProblem ? null : movedOn ? (
+          <Banner tone="warn" title={status === "complete" ? "The customer's phone finished without the screen check" : "The customer's phone has moved on"}>
+            It isn't showing its photo screen, so the camera can't check the display. Check it by eye.
+          </Banner>
+        ) : null}
+        {canOverride ? (
+          <OverrideBox
+            v={v}
+            api={api}
+            onSession={onSession}
+            openTitle="Check the screen anyway"
+            confirmTitle="Unlock the screen check"
+            placeholder="e.g. the phone is on its photo screen but this stays locked"
+            explain={
+              <>
+                Only worth it if the customer's phone IS on its photo screen and SwapUp can't confirm it — otherwise the camera has nothing to check. The display is
+                recorded as <Text style={{ fontWeight: "800" }}>not camera-checked</Text>, and your name and reason go on the case.
+              </>
+            }
+          />
+        ) : null}
+      </View>
+    );
+  } else {
+    body = (
+      <View style={{ gap: 14 }}>
+        {g.override ? (
+          <Banner tone="warn" title="LCD not camera-checked">
+            {`Going ahead without the customer's phone confirmed${overrideWho(g) ? ` (${overrideWho(g)})` : ""}. Check the display by eye too.`}
+          </Banner>
+        ) : null}
+        <GuideAndButton
+          wide={wide}
+          guide={
+            <Numbered
+              items={[
+                "Keep the customer's phone on the counter, screen up, on SwapUp Check's photo screen.",
+                "Hold this tablet's camera over it — the phone shows white, black and colours as the camera asks.",
+                "Hold still until the camera page says “Screen checked”.",
+              ]}
+            />
+          }
+          button={
+            <>
+              <OpenButton title="Check the screen" primary onPress={() => opener.open(g.screenUrl)} />
+              <OpenedNote opened={opener.opened} />
+            </>
+          }
+        />
+        {opener.openErr ? <Banner tone="bad" title="Camera page didn't open">{opener.openErr}</Banner> : null}
+        {g.outOfSync ? <OutOfSync /> : null}
+      </View>
+    );
+  }
+
   return (
-    <Text style={{ color: opened.inChrome ? L.muted : L.warn, fontSize: 14, lineHeight: 20, fontWeight: opened.inChrome ? "400" : "700" }}>
-      {opened.inChrome
-        ? `Camera page opened ${ago(new Date(opened.at).toISOString()) || "just now"}.`
-        : IS_WEB
-          ? "Opened in this browser. Without Chrome on Android there are no torch-lit photos."
-          : "Chrome isn't on this device, so the camera page opened in the default browser — no torch-lit photos."}
-    </Text>
+    <Card style={{ gap: 14 }}>
+      {head}
+      {body}
+    </Card>
   );
 }
 
@@ -394,10 +794,22 @@ function noGradeWhy(g: CameraGrading): { tone: Tone; title: string; text: string
   return null;
 }
 
-export function CameraAiCard({ g }: { g: CameraGrading }) {
+export function CameraAiCard({
+  g,
+  screenDue = false,
+  photosSkipped = false,
+}: {
+  g: CameraGrading;
+  /** Two passes: the screen check (step 4) is still to come, so "no LCD verdict" is not yet a finding. */
+  screenDue?: boolean;
+  /** Two passes: the advisor skipped the photos (step 1). */
+  photosSkipped?: boolean;
+}) {
   const r = g.result;
   if (!r || !r.grade) {
-    const why = noGradeWhy(g);
+    const why =
+      noGradeWhy(g) ??
+      (photosSkipped && !g.photosDone ? { tone: "muted" as Tone, title: "Photos skipped", text: "Check the glass, back and frame by eye." } : null);
     return (
       <Card>
         <H2>Camera AI (GradeIQ)</H2>
@@ -407,7 +819,13 @@ export function CameraAiCard({ g }: { g: CameraGrading }) {
             {why.text}
           </Banner>
         ) : (
-          <Body muted>{g.phase === "absent" ? "Camera grading isn't available on this server. Check the condition by eye." : "The grade appears here after step 3."}</Body>
+          <Body muted>
+            {g.phase === "absent"
+              ? "Camera grading isn't available on this server. Check the condition by eye."
+              : g.twoPass
+                ? "The grade appears here after the photos (step 1)."
+                : "The grade appears here after step 3."}
+          </Body>
         )}
         {g.lcdNotChecked && g.override ? <KV label="Display (LCD)" value="Not camera-checked" tone="warn" /> : null}
         <Disagreements g={g} />
@@ -515,7 +933,7 @@ export function CameraAiCard({ g }: { g: CameraGrading }) {
 
       {/* LCD, parts, identity */}
       <View>
-        <LcdRow g={g} r={r} quiet={r.flags.length > 0} />
+        <LcdRow g={g} r={r} quiet={r.flags.length > 0} screenDue={screenDue} />
         {r.oem?.verdict === "suspect_aftermarket" ? (
           <KV label="Original parts" value={`Possibly not original${r.oem.confidence !== null ? ` (${pct(r.oem.confidence)})` : ""}`} tone="warn" />
         ) : null}
@@ -575,8 +993,10 @@ function FaultRow({ f, tone }: { f: CameraFault; tone: Tone }) {
   );
 }
 
-function LcdRow({ g, r, quiet }: { g: CameraGrading; r: CameraResult; quiet: boolean }) {
+function LcdRow({ g, r, quiet, screenDue }: { g: CameraGrading; r: CameraResult; quiet: boolean; screenDue: boolean }) {
   const d = r.display;
+  // Photos first, screen last: until step 4 runs there is simply no LCD verdict yet — not "not checked".
+  if (screenDue && !g.override && (!d || d.verdict === "unknown")) return <KV label="Display (LCD)" value="Checked at step 4" tone="muted" />;
   if (g.lcdNotChecked) {
     return (
       <View>

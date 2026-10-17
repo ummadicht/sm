@@ -2,7 +2,8 @@
 //   Get ready (the permission dialogs, then straight on)
 //   → Automatic steps (one progress bar, ticks itself)
 //   → Actions (swipe the grid, plug in the charger)
-//   → Photos (lay it on the counter; the store photographs it; GradeIQ grades the glass and the LCD)
+//   → Screen check (lay it on the counter; the store's camera checks the screen — the
+//     outside was photographed before the phone joined; GradeIQ grades the glass and the LCD)
 //   → Done ("Show this to the advisor").
 // Tests come first so the customer never waits for the store's camera.
 // The browser build keeps the interactive flow in ./screens.tsx and never loads
@@ -244,7 +245,7 @@ function NativeDone({
       <ClearDataGuide applied={applied} />
       {photos === "skipped" || photos === "unavailable" ? (
         <View style={{ marginTop: 12 }}>
-          <Note tone="warn">No photos were taken, so the advisor checks the screen and the body by eye.</Note>
+          <Note tone="warn">The camera didn't check the screen, so the advisor checks it by eye.</Note>
         </View>
       ) : null}
       {blockedPerms.length && !applied ? (
