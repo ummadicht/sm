@@ -1,21 +1,27 @@
-// Native SwapUp Check, LAST step (after the tests): "Lay it on the counter,
-// screen up — the advisor's tablet checks the screen." The store device runs GradeIQ's camera page
-// (/v2/cam) and asks this screen for patterns (white, black, stripes, colours…)
-// through SwapUp's /api/device/screen; this phone draws each one full-screen
-// and echoes what it is ACTUALLY drawing. Mirrors GradeIQ's own primary phone
-// (giq/app/components/V2Flow.tsx 236-275, 794-808). Pure decisions: ../diagnostics/auto/pairing.ts.
+// SwapUp Check, Scan — the step after Identify since the phone-led flow (swapup
+// docs/PHONE-LED-FLOW.md §3, app ≥ 0.6.0; before that it was the last step). The
+// phone shows a big QR of GradeIQ's camera link (GET /api/device/camera-link —
+// GradeIQ v2's own await2nd screen, V2Flow.tsx 810-837); the advisor's tablet
+// scans it and opens GradeIQ's camera page, which photographs this phone and
+// asks this screen for patterns (white, black, stripes, colours…) through
+// SwapUp's /api/device/screen. This phone draws each one full-screen and echoes
+// what it is ACTUALLY drawing (V2Flow.tsx 236-275, 794-808). At the end the
+// camera may want a photo of Settings › About phone — this screen asks the
+// customer to open it. Pure decisions: ../diagnostics/auto/pairing.ts.
 //
-// Since 2026-10-17 the store photographs the phone's outside FIRST, before this app
-// even joins (swapup docs/TWO-PASS-CAMERA.md), so what is left for this screen is
-// the screen check. An older store app still does both here in one pass.
+// Runs in the browser build too: a web page can't set the brightness (it says
+// so) and keeps the screen on with the Wake Lock API where there is one.
 //
-// The permissions the tests need were asked for before the tests (GetReady), so
-// no permission dialog can cover a pattern mid-sweep here.
+// It comes before the permission dialogs (GetReady runs after it), so no dialog
+// can cover a pattern mid-sweep.
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Platform, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as Brightness from "expo-brightness";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { T } from "../shared/theme";
+import { IS_WEB } from "../shared/config";
+import { QR } from "../shared/QR";
 import { Big, Say } from "../diagnostics/parts";
 import {
   PATTERN_FILLS,
@@ -25,14 +31,19 @@ import {
   freshNews,
   needsEcho,
   newTracker,
+  parseCameraLink,
   parseScreen,
+  settingsPrompt,
   skipOffer,
   trackPoll,
   trackRefusal,
   type ScreenPoll,
   type Tracker,
 } from "../diagnostics/auto/pairing";
+import { StepRail } from "./StepRail";
+import { Note } from "./screens";
 import type { CheckEngine } from "./engine";
+import { onIphone } from "./onIphone";
 import type { CheckState, PairingRec } from "./core";
 
 type Props = {
@@ -43,6 +54,11 @@ type Props = {
   onBleed: (on: boolean) => void;
 };
 
+const KEEP_AWAKE = "swapup-check-scan";
+
+/** ready = a QR to show; none = no QR (an older server, or not a link we can draw) — the advisor opens the camera from the tablet. */
+type LinkState = { kind: "loading" } | { kind: "ready"; url: string } | { kind: "none" };
+
 export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
   const [ready, setReady] = useState(false);
   const [drawing, setDrawing] = useState("idle");
@@ -50,12 +66,18 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
   /** offline = no network answer; busy = the server answered 5xx/429 (e.g. it can't reach GradeIQ just now). */
   const [trouble, setTrouble] = useState<null | "offline" | "busy">(null);
   const [offer, setOffer] = useState<ReturnType<typeof skipOffer>>(null);
+  const [link, setLink] = useState<LinkState>({ kind: "loading" });
+  /** The camera has finished the sweep and is waiting for a photo of Settings. */
+  const [askSettings, setAskSettings] = useState(false);
+  const [settingsNote, setSettingsNote] = useState<string | null>(null);
   const tracker = useRef<Tracker>(newTracker(Date.now()));
   const drawingRef = useRef("idle");
   const lastEcho = useRef<{ shown: string; at: number } | null>(null);
   const left = useRef(false);
   const cbs = useRef({ onDone, onBleed });
   cbs.current = { onDone, onBleed };
+  const { width } = useWindowDimensions();
+  const [ios] = useState(onIphone);
 
   const leave = useCallback((rec: Omit<PairingRec, "at">) => {
     if (left.current) return;
@@ -65,18 +87,31 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
   }, []);
 
   // Max brightness for the camera; the phone's own setting comes back afterwards.
+  // (A browser can't do this — the idle screen asks the customer instead.)
   useEffect(() => {
     let prev: number | null = null;
-    Brightness.getBrightnessAsync()
-      .then((b) => {
-        prev = b;
-        return Brightness.setBrightnessAsync(1);
-      })
-      .catch(() => {});
+    if (!IS_WEB) {
+      Brightness.getBrightnessAsync()
+        .then((b) => {
+          prev = b;
+          return Brightness.setBrightnessAsync(1);
+        })
+        .catch(() => {});
+    }
     return () => {
-      if (Platform.OS === "android") Brightness.restoreSystemBrightnessAsync().catch(() => {});
-      else if (prev != null) Brightness.setBrightnessAsync(prev).catch(() => {});
+      if (!IS_WEB) {
+        if (Platform.OS === "android") Brightness.restoreSystemBrightnessAsync().catch(() => {});
+        else if (prev != null) Brightness.setBrightnessAsync(prev).catch(() => {});
+      }
       cbs.current.onBleed(false);
+    };
+  }, []);
+
+  // The screen must not sleep while the advisor is walking over (browser: Wake Lock, where there is one).
+  useEffect(() => {
+    activateKeepAwakeAsync(KEEP_AWAKE).catch(() => {});
+    return () => {
+      deactivateKeepAwake(KEEP_AWAKE).catch(() => {});
     };
   }, []);
 
@@ -84,6 +119,34 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
     tracker.current = newTracker(Date.now());
     setReady(true);
   }, []);
+
+  // The QR: GradeIQ's camera link. 409 = GradeIQ's session isn't ready yet, so
+  // ask again shortly; a network or server hiccup the same, more slowly; 404 = a
+  // server without the route (older) — no QR, the advisor uses the tablet's button.
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const ask = async () => {
+      const r = await engine.cameraLink();
+      if (!alive) return;
+      if (r.ok) {
+        const url = parseCameraLink(r.body);
+        setLink(url ? { kind: "ready", url } : { kind: "none" });
+        return;
+      }
+      const again = r.status === 409 || r.status === 0 || r.status === 401 || r.status === 403 || r.status === 429 || r.status >= 500;
+      if (!again) {
+        setLink({ kind: "none" });
+        return;
+      }
+      timer = setTimeout(ask, r.status === 409 ? 2500 : 5000);
+    };
+    void ask();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [engine]);
 
   const echo = useCallback(
     (shown: string) => {
@@ -129,6 +192,7 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
           const want = displayablePattern(p.pattern);
           if (want !== drawingRef.current) setDrawing(want);
           else if (needsEcho(p, want) && (!lastEcho.current || now - lastEcho.current.at > 1500)) echo(want);
+          setAskSettings(settingsPrompt(t.tracker, p, now));
         }
       } else if (r.status === 0) {
         setTrouble("offline");
@@ -138,7 +202,7 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
         // The server said no (no camera grading for this check, or an older server without the route).
         const t = trackRefusal(tracker.current, now);
         tracker.current = t.tracker;
-        if (t.unavailable) return leave({ outcome: "unavailable", reason: r.message || `the store's system refused the photo check (${r.status})` });
+        if (t.unavailable) return leave({ outcome: "unavailable", reason: r.message || `the store's system refused the camera check (${r.status})` });
       }
       setOffer(skipOffer(tracker.current, now, drawingRef.current !== "idle"));
       timer = setTimeout(tick, Math.max(0, POLL_MS - (Date.now() - started)));
@@ -150,6 +214,25 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
     };
   }, [ready, engine, echo, leave]);
 
+  const skip = (why: "never-connected" | "stalled") =>
+    leave({
+      outcome: "skipped",
+      reason: why === "never-connected" ? "the store's camera page did not open within 90 seconds" : "the camera check stopped part-way",
+    });
+
+  const openAbout = async () => {
+    setSettingsNote(null);
+    try {
+      await Linking.sendIntent("android.settings.DEVICE_INFO_SETTINGS");
+    } catch {
+      try {
+        await Linking.sendIntent("android.settings.SETTINGS");
+      } catch {
+        setSettingsNote("Couldn't open Settings — open it from your home screen.");
+      }
+    }
+  };
+
   // A pattern fills the screen — but never traps the customer: if the camera has
   // gone quiet (stalled), the way out is drawn over the pattern too.
   if (ready && drawing !== "idle")
@@ -157,58 +240,83 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
       <Pattern name={drawing}>
         {offer ? (
           <View style={s.overOffer}>
-            <Big title="Finish without the screen check" kind="secondary" onPress={() => leave({ outcome: "skipped", reason: "the screen check stopped part-way" })} />
+            <Big title="Skip the camera check" kind="secondary" onPress={() => skip("stalled")} />
           </View>
         ) : null}
       </Pattern>
     );
 
   const connected = tracker.current.connectedAt != null;
-  // Only what the camera said since this screen mounted: the photos taken before the
-  // phone joined (pass 1) leave cosmeticDone + "ok" behind, which say nothing about now.
+  // Only what the camera said since this screen mounted: photos taken before the
+  // phone joined (an older store flow) leave cosmeticDone + "ok" behind, which say nothing about now.
   const news = poll ? freshNews(tracker.current, poll) : null;
   const retake = news?.capture?.verdict === "retake" || news?.capture?.verdict === "retaking";
   const statusLine = (() => {
     if (!ready) return "One moment…";
     if (trouble === "offline") return "Waiting for Wi‑Fi…";
     if (trouble === "busy") return "The store's system is busy — this carries on by itself.";
-    if (poll?.state === "pending") return "Getting the screen check ready…";
-    if (news?.cosmeticDone) return "Photos accepted — finishing the screen check…";
+    if (poll?.state === "pending") return "Getting the camera check ready…";
+    if (askSettings) return "The camera is waiting for the Settings photo.";
+    if (news?.cosmeticDone) return "Photos accepted — finishing the camera check…";
     if (retake) return "The advisor is retaking the photos.";
-    if (connected) return "Connected — the advisor's camera is checking it. Keep the phone still.";
-    return "Waiting for the advisor's camera…";
+    if (connected) return "Connected — keep this screen facing the camera.";
+    return "Waiting for the advisor's tablet…";
   })();
+  const qrSize = Math.max(180, Math.min(280, width - 44 - 32));
 
   return (
-    <View style={s.root}>
-      <Text style={s.kicker}>{state.session.storeName}</Text>
-      <Text style={s.title}>Tests done — lay it on the counter, screen up</Text>
-      <Say>Last step: the advisor's tablet checks the screen.</Say>
-      <View style={s.phone}>
-        <View style={s.phoneScreen} />
-      </View>
-      <View style={[s.status, { borderColor: connected ? T.pass : T.border }]}>
-        <View style={[s.dot, { backgroundColor: trouble ? T.warn : connected ? T.pass : T.muted }]} />
-        <Text style={s.statusText}>{statusLine}</Text>
-      </View>
-      <Text style={s.privacy}>Your test results are already with the store.</Text>
-      <View style={{ flex: 1 }} />
-      {offer ? (
-        <>
-          <Big
-            title="Finish without the screen check"
-            kind="secondary"
-            onPress={() =>
-              leave({
-                outcome: "skipped",
-                reason: offer === "never-connected" ? "the store's camera page did not open within 90 seconds of the tests finishing" : "the screen check stopped part-way",
-              })
-            }
-          />
-          <Text style={s.small}>The advisor then checks the screen by eye.</Text>
-        </>
-      ) : null}
-      <Text style={s.small}>Trade-in {state.session.caseRef}</Text>
+    <View style={{ flex: 1, backgroundColor: T.bg }}>
+      <StepRail at="scan" />
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={s.body}>
+        <Text style={s.kicker}>{state.session.storeName}</Text>
+        {askSettings ? (
+          <>
+            <Text style={s.title}>{ios ? "Open Settings › General › About" : "Open Settings › About phone"}</Text>
+            <Say>So the advisor&apos;s camera can read the model and IMEI. Then come back to this {IS_WEB ? "page" : "app"}.</Say>
+            {Platform.OS === "android" ? (
+              <View style={{ marginTop: 18 }}>
+                <Big title="Open Settings" onPress={() => void openAbout()} />
+              </View>
+            ) : null}
+            {settingsNote ? (
+              <View style={{ marginTop: 12 }}>
+                <Note tone="warn">{settingsNote}</Note>
+              </View>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <Text style={s.title}>Show this to the advisor</Text>
+            <Say>Their tablet scans it, photographs your phone and checks its screen (about 2 minutes).</Say>
+            <View style={s.qrArea}>
+              {link.kind === "ready" ? (
+                <View style={s.qrBox}>
+                  <QR value={link.url} size={qrSize} fallback="The QR code couldn't be drawn — the advisor can open the camera from their tablet." />
+                </View>
+              ) : link.kind === "loading" ? (
+                <View style={[s.qrBox, { width: qrSize + 32, height: qrSize + 32, alignItems: "center", justifyContent: "center", backgroundColor: T.surface }]}>
+                  <ActivityIndicator color={T.accent} size="large" />
+                  <Text style={[s.small, { marginTop: 12 }]}>Getting the scan code…</Text>
+                </View>
+              ) : (
+                <Note>The advisor opens the camera from their tablet — keep this screen facing it.</Note>
+              )}
+            </View>
+            {IS_WEB ? <Note tone="warn">Turn your brightness all the way up — this page can&apos;t do it for you.</Note> : null}
+          </>
+        )}
+        <View style={[s.status, { borderColor: connected ? T.pass : T.border }]}>
+          <View style={[s.dot, { backgroundColor: trouble ? T.warn : connected ? T.pass : T.muted }]} />
+          <Text style={s.statusText}>{statusLine}</Text>
+        </View>
+        {offer ? (
+          <View style={{ marginTop: 18 }}>
+            <Big title="Skip the camera check" kind="secondary" onPress={() => skip(offer)} />
+            <Text style={s.small}>The advisor then checks the screen by eye.</Text>
+          </View>
+        ) : null}
+        <Text style={s.small}>Trade-in {state.session.caseRef}</Text>
+      </ScrollView>
     </View>
   );
 }
@@ -238,15 +346,15 @@ function Pattern({ name, children }: { name: string; children?: React.ReactNode 
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: T.bg, padding: 22, paddingTop: 30 },
+  body: { padding: 22, paddingTop: 18, paddingBottom: 36 },
   kicker: { color: T.accent, fontSize: 14, fontWeight: "800", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 },
   title: { color: T.text, fontSize: 30, fontWeight: "800", lineHeight: 36, marginBottom: 10 },
-  phone: { alignSelf: "center", width: 92, height: 150, borderRadius: 18, borderWidth: 3, borderColor: T.border, padding: 6, marginVertical: 22, transform: [{ perspective: 400 }, { rotateX: "45deg" }] },
-  phoneScreen: { flex: 1, borderRadius: 12, backgroundColor: T.surface2 },
-  status: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: T.radius, borderWidth: 1, backgroundColor: T.surface },
+  qrArea: { alignItems: "center", marginVertical: 20 },
+  // White all round: a quiet zone the tablet's camera needs, on a dark screen.
+  qrBox: { padding: 16, borderRadius: 18, backgroundColor: "#fff" },
+  status: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: T.radius, borderWidth: 1, backgroundColor: T.surface, marginTop: 16 },
   dot: { width: 12, height: 12, borderRadius: 6 },
   statusText: { flex: 1, color: T.text, fontSize: 17, lineHeight: 24, fontWeight: "600" },
-  privacy: { color: T.muted, fontSize: 14, lineHeight: 20, marginTop: 14 },
   small: { color: T.muted, fontSize: 14, textAlign: "center", marginTop: 8 },
   stripes: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, flexDirection: "row", overflow: "hidden" },
   overOffer: { position: "absolute", top: 48, left: 24, right: 24 },

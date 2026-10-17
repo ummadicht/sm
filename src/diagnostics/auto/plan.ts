@@ -2,7 +2,8 @@
 //   auto      — run by themselves, one progress bar, no questions
 //   actions   — the only two things the customer does: swipe the grid, plug in the charger
 //   notInRun  — recorded as skip "not in the automatic run" (multitouch, buttons)
-//   server    — not posted by the phone (display: GradeIQ's camera LCD sweep decides)
+//   server    — not posted by the phone (display: GradeIQ's camera LCD sweep decides;
+//               battery_health: the server records what GradeIQ read off the screenshot)
 //   unknown   — ids this app version doesn't know → "unsupported", never silently missing
 // No runtime imports — node --test runs it.
 
@@ -13,7 +14,7 @@
 export const AUTO_ORDER = ["battery", "sensors", "motion", "connectivity", "vibration", "speaker", "mic", "voice", "flash", "camera", "faceid", "bluetooth", "nfc"] as const;
 export const ACTION_ORDER = ["touch", "charging"] as const;
 export const NOT_IN_AUTO_RUN = ["multitouch", "buttons"] as const;
-export const SERVER_DECIDES = ["display"] as const;
+export const SERVER_DECIDES = ["display", "battery_health"] as const;
 
 export const NOT_IN_RUN_REASON = "not in the automatic run";
 
@@ -39,20 +40,39 @@ export function partitionPlan(planIds: string[]): NativePlan {
   };
 }
 
-export type NativeStep = "pairing" | "auto" | "actions" | "done";
+export type NativeStep = "identify" | "scan" | "battery" | "auto" | "actions" | "done";
+
+/** What the phone has already finished before its own tests (each is kept on disk, so a restart resumes). */
+export type NativeProgress = {
+  /** The Identify step is done (or the check began before it existed). */
+  identified: boolean;
+  /** The Scan screen has ended: the camera finished, the customer skipped it, or it was unavailable. */
+  scanned: boolean;
+  /** The battery screenshot step has ended — or this check has none. */
+  battery: boolean;
+};
 
 /**
- * Where a (resumed) native check is. The tests come FIRST, so the customer never
- * waits for the store: by the time they finish, the advisor has had a couple of
- * minutes to open the camera, and the photos are the last step. `display` is never
- * waited for — the server decides it from the photos.
+ * Where a (resumed) native check is — GradeIQ v2's order, the phone leading
+ * (swapup docs/PHONE-LED-FLOW.md): Identify → Scan (the store's camera, vision
+ * first) → battery screenshot → the automatic tests → the two actions → done.
+ * The customer now waits on the Scan screen for the advisor; that wait is capped
+ * by the 90 s "Skip the camera check" (./pairing). `display` and
+ * `battery_health` are never waited for — the server decides them.
  */
-export function nativeStep(pairingDone: boolean, results: Record<string, unknown>, plan: NativePlan): NativeStep {
+export function nativeStep(p: NativeProgress, results: Record<string, unknown>, plan: NativePlan): NativeStep {
+  if (!p.identified) return "identify";
+  if (!p.scanned) return "scan";
+  if (!p.battery) return "battery";
   const missing = (ids: string[]) => ids.some((id) => !results[id]);
   if (missing(plan.auto) || missing(plan.notInRun) || missing(plan.unknown)) return "auto";
   if (missing(plan.actions)) return "actions";
-  if (!pairingDone) return "pairing";
   return "done";
+}
+
+/** The phone has reached its own tests (or finished them): Identify, Scan and the battery step are behind it. */
+export function testsStarted(step: NativeStep): boolean {
+  return step === "auto" || step === "actions" || step === "done";
 }
 
 /**

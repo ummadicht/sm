@@ -1,25 +1,27 @@
-// Pure logic of the pairing screen — the LAST step, after the tests
-// (docs/AUTO-TESTS.md "Order" step 5): the
-// customer's phone lies on the counter, screen up, and shows whatever pattern
-// GradeIQ's camera page (on the STORE device) asks for, echoing what it shows.
-// Mirrors GradeIQ's own primary-phone loop (giq/app/components/V2Flow.tsx
-// 236-275 and 794-808): poll ~700 ms, leave on handoffDone, or 30 s after
-// cosmeticDone when the camera never says it is finished.
+// Pure logic of the Scan screen — the FIRST step after Identify since the
+// phone-led flow (swapup docs/PHONE-LED-FLOW.md, app ≥ 0.6.0): the customer's
+// phone shows a QR of GradeIQ's camera link; the advisor's tablet scans it and
+// opens GradeIQ's camera page, which photographs this phone, then asks it to
+// show patterns for the screen sweep (and may ask for a photo of Settings), and
+// this phone echoes what it shows. Mirrors GradeIQ's own primary-phone loop
+// (giq/app/components/V2Flow.tsx 236-275 and 794-808): poll ~700 ms, leave on
+// handoffDone, or 30 s after cosmeticDone when the camera never says it is
+// finished.
 //
-// Two camera passes (swapup docs/TWO-PASS-CAMERA.md, 2026-10-17): the store
-// photographs the phone FIRST, before it joins (pass 1, no app needed), and
-// checks its screen LAST, here (pass 2). So when this screen mounts, /screen may
-// already say cosmeticDone with a capture verdict — pass 1's leftovers. They are
+// A store app that photographs the phone before it joins (swapup
+// docs/TWO-PASS-CAMERA.md, still served to older flows) can leave cosmeticDone
+// and a capture verdict on /screen before this screen mounts. They are
 // baselined like connectedAt: only ones that appear or change after mount count.
 //
 // Contract: SwapUp's ticket-authenticated GET/POST /api/device/screen
 // (swapup docs/MOBILE-API.md §4 "Photo check"), a proxy of GradeIQ's
 // /api/sessions/{id}/screen: { state, pattern, shown, cosmeticDone, handoffDone,
-// capture, connectedAt }. state disabled/failed → no photo check, go to Done;
+// capture, connectedAt }. state disabled/failed → no camera check, move on;
 // pending → wait; ready → show the pattern. 503 → keep polling. "The store's
 // camera is there" = a NEW connectedAt (a camera page loaded after this screen
-// mounted; relayed since 2026-10-17), or it asked for a pattern, or judged a
-// capture. No runtime imports — node --test runs it.
+// mounted), or it asked for a pattern, or judged a capture. The QR itself comes
+// from GET /api/device/camera-link → { url } (409 until GradeIQ is ready).
+// No runtime imports — node --test runs it.
 
 /** Solid fills, exactly GradeIQ V2Flow's FILLS. "stripes" is drawn separately; anything else is "idle". */
 export const PATTERN_FILLS: Readonly<Record<string, string>> = {
@@ -36,13 +38,13 @@ export const STRIPE_PX = 6;
 export const POLL_MS = 700;
 export const GRACE_AFTER_COSMETIC_MS = 30_000;
 /**
- * "Finish without the screen check" appears when the store's camera page has not
- * opened in this long. The store's "Check the screen" (and the older one-pass
- * "Take photos") only unlocks when this screen first echoes, so the clock and the
- * advisor start together; the advisor then has to open the camera page — which
- * counts as connected the moment it loads (SwapUp relays GradeIQ's connectedAt
- * since 2026-10-17), not only when it asks for a pattern. Pass 1's cosmeticDone,
- * already there at mount, does not count. Once connected, only STALL_MS applies.
+ * "Skip the camera check" appears when the store's camera page has not opened in
+ * this long. The store's camera only unlocks when this screen first echoes (and
+ * the QR only shows here), so the clock and the advisor start together; the
+ * advisor then has to scan the QR or tap Take photos — the camera page counts as
+ * connected the moment it loads (SwapUp relays GradeIQ's connectedAt), not only
+ * when it asks for a pattern. A cosmeticDone already there at mount does not
+ * count. Once connected, only STALL_MS applies.
  */
 export const NO_CONNECT_MS = 90_000;
 /**
@@ -129,6 +131,16 @@ export type Tracker = {
    * before the screen check (pass 2) has run.
    */
   sawPattern?: boolean;
+  /**
+   * The camera has run its SCREEN SWEEP on this screen: it drew a colour only the
+   * sweep uses (stripes, red, green, blue). White and black don't count — GradeIQ's
+   * single pass also shows white when the photos start and black for the front-glass
+   * shot, then idles through the back and sides. Only after the sweep does an idle
+   * screen mean "now photograph Settings".
+   */
+  sawSweep?: boolean;
+  /** Since when the camera has asked for "idle" (nothing drawn); null while a pattern is up. */
+  idleSince?: number | null;
   /** Last time anything in the screen state changed. */
   lastChangeAt: number;
   lastSig: string;
@@ -180,6 +192,8 @@ export function trackPoll(tr: Tracker, poll: ScreenPoll, now: number): { tracker
     lastPollOkAt: now,
     cosmeticSince: news.cosmeticDone ? tr.cosmeticSince ?? now : null,
     sawPattern: !!tr.sawPattern || displayablePattern(poll.pattern) !== "idle",
+    sawSweep: !!tr.sawSweep || ["stripes", "red", "green", "blue"].includes(displayablePattern(poll.pattern)),
+    idleSince: displayablePattern(poll.pattern) === "idle" ? tr.idleSince ?? now : null,
   };
   if (poll.state === "disabled" || poll.state === "failed") return { tracker: next, leave: poll.state };
   if (poll.handoffDone) return { tracker: next, leave: "handoff" };
@@ -204,7 +218,7 @@ export function trackRefusal(tr: Tracker, now: number): { tracker: Tracker; unav
  */
 export const PATTERN_STALL_MS = 90_000;
 
-/** Why "Finish without the screen check" is offered right now, or null if it isn't. `patternUp`: a pattern fills the screen. */
+/** Why "Skip the camera check" is offered right now, or null if it isn't. `patternUp`: a pattern fills the screen. */
 export function skipOffer(tr: Tracker, now: number, patternUp = false): "never-connected" | "stalled" | null {
   if (patternUp && now - tr.lastChangeAt >= PATTERN_STALL_MS) return "stalled";
   if (tr.connectedAt == null) return now - tr.startedAt >= NO_CONNECT_MS ? "never-connected" : null;
@@ -214,4 +228,41 @@ export function skipOffer(tr: Tracker, now: number, patternUp = false): "never-c
 /** The echo needs re-sending when the server's `shown` isn't what this screen is drawing (a lost POST). */
 export function needsEcho(poll: ScreenPoll | null, drawing: string): boolean {
   return !poll || poll.shown !== drawing;
+}
+
+/**
+ * GradeIQ's camera page ends its single pass with a photo of the phone's
+ * Settings (V2Cam settingsScan: "Open Settings ▸ General ▸ About on the other
+ * phone and take a photo"). It tells this phone nothing about it: after the
+ * colour sweep it sets the pattern back to "idle" and waits for the advisor's
+ * photo, and only then sends handoffDone. So "the sweep has run, the screen is back to
+ * idle, and the camera hasn't finished" is when the customer is asked to open
+ * Settings › About phone. It waits a moment first, so the second or two between
+ * the last colour and the camera finishing (a journey without the Settings
+ * photo) doesn't flash the prompt.
+ */
+export const SETTINGS_PROMPT_AFTER_MS = 2500;
+
+export function settingsPrompt(tr: Tracker, poll: ScreenPoll | null, now: number): boolean {
+  if (!poll || !tr.sawSweep || tr.idleSince == null) return false;
+  if (displayablePattern(poll.pattern) !== "idle" || poll.handoffDone) return false;
+  // Photos sent back for a retake: the advisor is photographing the outside again.
+  // (cosmeticDone is no reason to hold back: a journey that grades straight away
+  // sets it BEFORE the sweep, so it is already there while Settings is asked for.)
+  const verdict = freshNews(tr, poll).capture?.verdict;
+  if (verdict === "retake" || verdict === "retaking") return false;
+  return now - tr.idleSince >= SETTINGS_PROMPT_AFTER_MS;
+}
+
+/**
+ * GET /api/device/camera-link → { url }: GradeIQ's camera page for this check,
+ * shown here as a QR for the advisor's tablet (the owner chose GradeIQ v2's own
+ * link, PHONE-LED-FLOW.md decision 1). Only an http(s) URL is drawn; anything
+ * else → null (no QR — the advisor opens the camera from the tablet instead).
+ */
+export function parseCameraLink(raw: unknown): string | null {
+  const url = raw && typeof raw === "object" ? (raw as Record<string, unknown>).url : null;
+  if (typeof url !== "string") return null;
+  const t = url.trim();
+  return /^https?:\/\/[^\s/]+\/\S*$/i.test(t) && t.length <= 2000 ? t : null;
 }

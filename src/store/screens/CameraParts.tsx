@@ -9,10 +9,17 @@
 //                    the colours the camera asks for, so it stays locked until the phone
 //                    is on its photo screen (screenUrl — fail closed, override with a reason).
 // CameraStepCard is the one-pass card an older server gets (cameraUrl does both).
+//
+// The phone-led flow (docs/PHONE-LED-FLOW.md, SwapUp Check 0.6.0+):
+//   ScanStepCard   — step 3: the customer's phone shows GradeIQ's camera link as a QR;
+//                    this tablet's camera app scans it, and the camera page photographs
+//                    the phone and checks its screen in one pass. "Take photos" opens the
+//                    same page from here (cameraUrl — the same fail-closed gate and override).
 import React, { useRef, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { L } from "../../shared/theme";
 import { CameraFault, CameraFinding, CameraGrading, CameraResult, GRADE_MEANING, disagreementLine, findingLine, pct, photosStep } from "../grading";
+import type { Layout, PhonePhase, ScanStage } from "../phoneLed";
 import { openCameraPage, openInDefaultBrowser } from "../openCamera";
 import { StaffClient, errText } from "../staffClient";
 import type { TestSessionView } from "../types";
@@ -733,6 +740,225 @@ export function ScreenStepCard({
   );
 }
 
+// ── phone-led: Step 3 · Scan the customer's phone ────────────────────────────
+
+const SCAN_HINT = "Scan the code on the customer's phone — this ticks when the camera page opens.";
+
+export function ScanStepCard({
+  v,
+  g,
+  api,
+  wide,
+  phase,
+  stage,
+  onSession,
+}: {
+  v: TestSessionView;
+  g: CameraGrading;
+  api: StaffClient;
+  wide: boolean;
+  phase: PhonePhase | null;
+  /** ../phoneLed.ts scanStage(), worked out once by the Session screen. */
+  stage: ScanStage;
+  onSession: (r: unknown) => void;
+}) {
+  const retry = useRetry(api, v, onSession);
+  const opener = useOpener();
+  // When the phone reached this stage, on THIS device's clock: a phone on its Scan
+  // step that SwapUp hasn't seen echo yet is usually still drawing its code, so an
+  // override is held back for half a minute (as the photos-last gate does).
+  const since = useRef<{ key: string; at: number }>({ key: "", at: Date.now() });
+  const key = `${stage}|${phase}`;
+  if (since.current.key !== key) since.current = { key, at: Date.now() };
+  const joined = v.status === "joined" || v.status === "testing" || v.status === "complete";
+  const needRetake = g.capture.verdict === "retake" || !!g.result?.obstruction?.present;
+  const unlocked = !!g.cameraUrl && (g.deviceReady || !!g.override);
+  const stuck = stage === "now" && !g.deviceReady && Date.now() - since.current.at >= OVERRIDE_GRACE_MS;
+  // The server says when an override is allowed; we offer it only when the camera can't
+  // get in the normal way: the phone moved on unscanned, or SwapUp can't see it echo.
+  const canOverride = (g.canOverride ?? true) && joined && !g.deviceReady && !g.override && (stage === "skipped" || !!g.screenProblem || stuck);
+  // A retake needs the phone still on its scan code, or it photographs the outside only.
+  const onScan = phase === "scan" || (phase === null && g.deviceReady);
+
+  const chip =
+    stage === "now" ? (
+      (gradeChip(g) ?? <Chip text={g.capture.connected ? "Scanning" : "Scan now"} tone="fix" />)
+    ) : stage === "done" ? (
+      (gradeChip(g) ?? <Chip text="Scanned" tone="up" />)
+    ) : stage === "skipped" ? (
+      (gradeChip(g) ?? <Chip text="Not scanned" tone="warn" />)
+    ) : null;
+  const head = <StepHead label="Step 3 · advisor" title="Scan the customer's phone" chip={chip} />;
+
+  const override = canOverride ? (
+    <OverrideBox
+      v={v}
+      api={api}
+      onSession={onSession}
+      openTitle="Take photos anyway"
+      confirmTitle="Take photos without the screen check"
+      placeholder={stage === "skipped" ? "e.g. customer skipped the scan, phone is on the counter" : "e.g. the phone shows its code but this stays locked"}
+      explain={
+        <>
+          Without the customer's phone showing its scan screen, the display is <Text style={{ fontWeight: "800" }}>not camera-checked</Text>. The photos still grade
+          the glass, back and frame. Your name and reason go on the case.
+        </>
+      }
+    />
+  ) : null;
+
+  const takePhotos = (primary: boolean, title = needRetake ? "Retake photos" : "Take photos") => (
+    <>
+      <OpenButton title={title} primary={primary} onPress={() => opener.open(g.cameraUrl)} />
+      <OpenedNote opened={opener.opened} onPlain={(u) => opener.open(u, true)} />
+    </>
+  );
+  const openErr = opener.openErr ? <Banner tone="bad" title="Camera page didn't open">{opener.openErr}</Banner> : null;
+  const overrideNote = g.override ? (
+    <Banner tone="warn" title="LCD not camera-checked">
+      {`Unlocked without the customer's phone on its scan screen${overrideWho(g) ? ` (${overrideWho(g)})` : ""}. Check the display by eye.`}
+    </Banner>
+  ) : null;
+
+  let body: React.ReactNode;
+  if (stage === "off") {
+    body = (
+      <>
+        <NoCamera v={v} g={g} retry={retry} />
+        {phase === "scan" ? (
+          <Body muted>The customer's phone may still be waiting on its scan code: ask them to tap “Skip the camera check”, then check the screen by eye too.</Body>
+        ) : null}
+      </>
+    );
+  } else if (stage === "setup") {
+    body = (
+      <Banner tone="muted" title="Setting up camera grading…">
+        {g.message || "This takes a few seconds. The customer's phone shows its scan code as soon as it's ready."}
+      </Banner>
+    );
+  } else if (stage === "waiting") {
+    body = (
+      <View style={{ gap: 12 }}>
+        <Locked
+          title={joined ? "The customer's phone is identifying itself" : "Waiting for the customer's phone"}
+          text={
+            joined
+              ? "Next it shows a QR code. Scan that with this tablet's camera app — it opens the camera page, which photographs the phone and checks its screen."
+              : "Connect the customer's phone first (step 1). After it identifies itself, it shows a QR code for this tablet to scan."
+          }
+        />
+        <Body muted>Meanwhile: take the case off the customer's phone and wipe the screen and the back.</Body>
+      </View>
+    );
+  } else if (stage === "now") {
+    body = (
+      <View style={{ gap: 14 }}>
+        {overrideNote}
+        {g.screenProblem && !g.override ? (
+          <Banner tone="warn" title="Can't confirm the customer's phone is ready">
+            {g.screenProblem}
+          </Banner>
+        ) : g.capture.connected ? (
+          <Banner tone="fix" title="Camera connected — keep both still">
+            The camera page is photographing the customer's phone, then its screen shows the colours for the screen check.
+          </Banner>
+        ) : (
+          <Banner tone="fix" title="The customer's phone is showing its scan code">
+            Scan it with this tablet's camera app and tap the link. The camera page opens and the phone follows it.
+          </Banner>
+        )}
+        <GuideAndButton
+          wide={wide}
+          guide={
+            <Numbered
+              items={[
+                "Take the case off the customer's phone. Wipe the screen and the back.",
+                "Open this tablet's camera app, point it at the QR code on the customer's phone, and tap the link.",
+                "Follow the camera page: it photographs each side, checks the screen while the phone shows colours, then photographs the phone's About phone page.",
+                "Hold still until the camera page says it's done. This card ticks along.",
+              ]}
+            />
+          }
+          button={
+            unlocked ? (
+              <>
+                <Text style={{ color: L.muted, fontSize: 14, lineHeight: 20 }}>Camera app won't read the code? This opens the same camera page from here.</Text>
+                {takePhotos(false)}
+              </>
+            ) : (
+              // Our own sentence, not g.cameraLocked: here the lock only means SwapUp hasn't seen the
+              // phone's scan screen yet, and the QR route doesn't wait for SwapUp at all.
+              <Body muted>“Take photos” appears here once SwapUp sees the phone's scan code. The QR code on the phone works already.</Body>
+            )
+          }
+        />
+        {openErr}
+        <Progress g={g} connectHint={SCAN_HINT} />
+        {g.outOfSync ? <OutOfSync /> : null}
+        {override}
+      </View>
+    );
+  } else if (stage === "done") {
+    body = (
+      <View style={{ gap: 12 }}>
+        <Body>
+          {g.screenDone
+            ? "Scanned — the photos and the screen check are done. The grade shows here and in Camera AI below."
+            : "Photos taken, but the customer's phone moved on before its screen was checked. Check the screen by eye."}
+        </Body>
+        {g.override ? <Body muted>{`Unlocked by override${overrideWho(g) ? ` (${overrideWho(g)})` : ""} — the LCD is recorded as not camera-checked.`}</Body> : null}
+        <Progress g={g} connectHint={SCAN_HINT} />
+        {g.outOfSync ? <OutOfSync /> : null}
+        {unlocked && (needRetake || onScan) ? (
+          <View style={{ gap: 6, alignSelf: "flex-start" }}>
+            {!onScan ? <Body muted>The customer's phone has moved on, so a retake photographs the outside only.</Body> : null}
+            {takePhotos(needRetake, "Retake photos")}
+          </View>
+        ) : null}
+        {openErr}
+      </View>
+    );
+  } else if (g.override && unlocked) {
+    // Skipped, then unlocked by override: photos of the outside, no screen check.
+    body = (
+      <View style={{ gap: 14 }}>
+        {overrideNote}
+        <GuideAndButton
+          wide={wide}
+          guide={
+            <Numbered
+              items={[
+                "Take the case off the customer's phone. Wipe the screen and the back.",
+                "Follow the camera page — it asks for each side in turn — until it says it's done.",
+              ]}
+            />
+          }
+          button={takePhotos(true)}
+        />
+        {openErr}
+        <Progress g={g} />
+        {g.outOfSync ? <OutOfSync /> : null}
+      </View>
+    );
+  } else {
+    body = (
+      <View style={{ gap: 12 }}>
+        <Banner tone="warn" title={v.status === "complete" ? "The customer's phone finished without the scan" : "The customer skipped the camera check"}>
+          Their phone moved on without being scanned, so the camera didn't photograph it or check its screen. Check the condition and the screen by eye.
+        </Banner>
+        {override}
+      </View>
+    );
+  }
+
+  return (
+    <Card style={{ gap: 14 }}>
+      {head}
+      {body}
+    </Card>
+  );
+}
+
 /** camera connected → photos uploaded → capture ok / retake → grading… → graded. */
 type Step = { label: string; state: "done" | "now" | "todo" | "bad"; detail?: string };
 
@@ -750,14 +976,14 @@ function gradeStep(g: CameraGrading): Step {
   return { label: "Grade", state: "todo" };
 }
 
-function Progress({ g }: { g: CameraGrading }) {
+function Progress({ g, connectHint = "Tap “Take photos” — this ticks when the camera page opens." }: { g: CameraGrading; connectHint?: string }) {
   const c = g.capture;
   const r = g.result;
   const uploaded = c.cosmeticDone || !!c.verdict || !!r?.grade;
   const steps: Step[] = [
     c.connected
       ? { label: "Camera connected", state: "done", detail: c.connectedAt ? ago(c.connectedAt) || undefined : undefined }
-      : { label: "Camera not connected yet", state: "now", detail: "Tap “Take photos” — this ticks when the camera page opens." },
+      : { label: "Camera not connected yet", state: "now", detail: connectHint },
     { label: "Photos uploaded", state: uploaded ? "done" : c.connected ? "now" : "todo" },
     c.verdict === "retake"
       ? { label: "Photos rejected — retake", state: "bad", detail: c.reasons.length ? c.reasons.join(" · ") : "The camera page says what to retake." }
@@ -804,18 +1030,26 @@ export function CameraAiCard({
   g,
   screenDue = false,
   photosSkipped = false,
+  flow = "onePass",
 }: {
   g: CameraGrading;
-  /** Two passes: the screen check (step 4) is still to come, so "no LCD verdict" is not yet a finding. */
+  /** The screen check (two passes: step 4; phone-led: the scan) is still to come, so "no LCD verdict" is not yet a finding. */
   screenDue?: boolean;
-  /** Two passes: the advisor skipped the photos (step 1). */
+  /** Two passes: the advisor skipped the photos (step 1). Phone-led: the customer's phone moved on unscanned. */
   photosSkipped?: boolean;
+  /** Which session layout this card sits in (../phoneLed.ts sessionLayout) — only the wording changes. */
+  flow?: Layout;
 }) {
   const r = g.result;
+  const phoneLed = flow === "scanFirst";
   if (!r || !r.grade) {
     const why =
       noGradeWhy(g) ??
-      (photosSkipped && !g.photosDone ? { tone: "muted" as Tone, title: "Photos skipped", text: "Check the glass, back and frame by eye." } : null);
+      (photosSkipped && !g.photosDone
+        ? phoneLed
+          ? { tone: "warn" as Tone, title: "Not scanned", text: "The customer's phone moved on without the camera. Check the glass, back, frame and screen by eye." }
+          : { tone: "muted" as Tone, title: "Photos skipped", text: "Check the glass, back and frame by eye." }
+        : null);
     return (
       <Card>
         <H2>Camera AI (GradeIQ)</H2>
@@ -828,9 +1062,11 @@ export function CameraAiCard({
           <Body muted>
             {g.phase === "absent"
               ? "Camera grading isn't available on this server. Check the condition by eye."
-              : g.twoPass
-                ? "The grade appears here after the photos (step 1)."
-                : "The grade appears here after step 3."}
+              : phoneLed
+                ? "The grade appears here after the scan (step 3)."
+                : g.twoPass
+                  ? "The grade appears here after the photos (step 1)."
+                  : "The grade appears here after step 3."}
           </Body>
         )}
         {g.lcdNotChecked && g.override ? <KV label="Display (LCD)" value="Not camera-checked" tone="warn" /> : null}
@@ -939,7 +1175,7 @@ export function CameraAiCard({
 
       {/* LCD, parts, identity */}
       <View>
-        <LcdRow g={g} r={r} quiet={r.flags.length > 0} screenDue={screenDue} />
+        <LcdRow g={g} r={r} quiet={r.flags.length > 0} screenDue={screenDue} dueAt={phoneLed ? "Checked at the scan (step 3)" : "Checked at step 4"} />
         {r.oem?.verdict === "suspect_aftermarket" ? (
           <KV label="Original parts" value={`Possibly not original${r.oem.confidence !== null ? ` (${pct(r.oem.confidence)})` : ""}`} tone="warn" />
         ) : null}
@@ -999,10 +1235,11 @@ function FaultRow({ f, tone }: { f: CameraFault; tone: Tone }) {
   );
 }
 
-function LcdRow({ g, r, quiet, screenDue }: { g: CameraGrading; r: CameraResult; quiet: boolean; screenDue: boolean }) {
+function LcdRow({ g, r, quiet, screenDue, dueAt }: { g: CameraGrading; r: CameraResult; quiet: boolean; screenDue: boolean; dueAt: string }) {
   const d = r.display;
-  // Photos first, screen last: until step 4 runs there is simply no LCD verdict yet — not "not checked".
-  if (screenDue && !g.override && (!d || d.verdict === "unknown")) return <KV label="Display (LCD)" value="Checked at step 4" tone="muted" />;
+  // Photos first, screen last (or the scan still running): until the screen check runs there is
+  // simply no LCD verdict yet — not "not checked".
+  if (screenDue && !g.override && (!d || d.verdict === "unknown")) return <KV label="Display (LCD)" value={dueAt} tone="muted" />;
   if (g.lcdNotChecked) {
     return (
       <View>

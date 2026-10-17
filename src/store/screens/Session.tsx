@@ -9,6 +9,13 @@
 //   (screenUrl, after the tests) → 5 Apply to case → Continue pricing.
 // An older server (no photosUrl) keeps the one-pass layout: QR codes, then step 3
 // "Photograph the phone" with the single cameraUrl.
+//
+// The phone-led flow (docs/PHONE-LED-FLOW.md, SwapUp Check 0.6.0+ — ../phoneLed.ts
+// decides when it applies) follows the customer's phone instead:
+//   1 Connect the customer's phone (Wi‑Fi + test QR) → 2 Identify the phone (what the
+//   customer confirmed or picked, IMEI 1/2) → 3 Scan the customer's phone (its QR,
+//   with this tablet's camera app — or Take photos) → 4 The phone tests itself
+//   (+ battery health) → 5 Apply to case → Continue pricing.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AppState, KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
@@ -18,9 +25,24 @@ import { StaffClient, absolute, errText } from "../staffClient";
 import type { SessionLinks, StaffUser, TestSessionView, WifiResponse } from "../types";
 import { TERMINAL, unwrapSession } from "../types";
 import { Banner, Body, Btn, Card, Chip, Columns, Label, STATUS, TopBar, Tone, ago, useLayout } from "../ui";
-import { ConnectHead, DeclaredCard, DeviceCard, Stepper, SummaryCard, TestQrCard, TestsCard, TestsStepCard, WifiCard, WifiInfo, nowLine } from "./SessionParts";
-import { CameraAiCard, CameraStepCard, PhotosStepCard, ScreenStepCard } from "./CameraParts";
+import {
+  ConnectHead,
+  DeclaredCard,
+  DeviceCard,
+  IdentifyStepCard,
+  ScanFirstStepper,
+  Stepper,
+  SummaryCard,
+  TestQrCard,
+  TestsCard,
+  TestsStepCard,
+  WifiCard,
+  WifiInfo,
+  nowLine,
+} from "./SessionParts";
+import { CameraAiCard, CameraStepCard, PhotosStepCard, ScanStepCard, ScreenStepCard } from "./CameraParts";
 import { CameraGrading, PhotosStep, photosStep, readGrading } from "../grading";
+import { Layout, readPhonePhase, scanFirstNow, scanStage, sessionLayout } from "../phoneLed";
 
 const POLL_MS = 2_000;
 const KEEP_AWAKE_TAG = "swapup-store-session";
@@ -331,9 +353,21 @@ export function SessionScreen({
 
   const st = STATUS[v.status] ?? { label: v.status, tone: "muted" as Tone };
   const grading = readGrading(v);
-  const twoPass = grading.twoPass;
+  const layout = sessionLayout(v, grading);
+  const twoPass = layout === "twoPass";
+  const phoneLed = layout === "scanFirst";
+  const phase = readPhonePhase(v).phase;
+  const stage = scanStage({
+    grading: grading.phase,
+    phase,
+    status: v.status,
+    deviceReady: grading.deviceReady,
+    photosDone: grading.photosDone,
+    screenDone: grading.screenDone,
+  });
   const photos = photosStep(grading, skipped);
-  const now = (twoPass && !terminal ? advisorNext(v, grading, photos) : null) ?? nowLine(v);
+  const now =
+    (phoneLed && !terminal ? scanFirstNow(v, phase, stage) : null) ?? (twoPass && !terminal ? advisorNext(v, grading, photos) : null) ?? nowLine(v);
   const joinUrl = joinUrlFor(v, links, api.base);
   const early = v.status === "waiting" || v.status === "opened";
   const live = v.status === "joined" || v.status === "testing" || v.status === "complete";
@@ -357,16 +391,27 @@ export function SessionScreen({
         qrSize={qrSize}
         onSaved={(w) => setWifi(w)}
         onRetry={loadWifi}
-        {...(twoPass ? { label: "A · optional", next: "the test code" } : null)}
+        {...(twoPass || phoneLed ? { label: "A · optional", next: "the test code" } : null)}
       />
-      <TestQrCard joinUrl={joinUrl} code={v.code} expiresAt={v.expiresAt} status={v.status} qrSize={qrSize} {...(twoPass ? { label: "B" } : null)} />
+      <TestQrCard joinUrl={joinUrl} code={v.code} expiresAt={v.expiresAt} status={v.status} qrSize={qrSize} {...(twoPass || phoneLed ? { label: "B" } : null)} />
     </Columns>
   );
 
-  const cameraStep = !terminal && !twoPass ? <CameraStepCard v={v} g={grading} api={api} wide={wide} onSession={takeOverride} /> : null;
+  const cameraStep = !terminal && layout === "onePass" ? <CameraStepCard v={v} g={grading} api={api} wide={wide} onSession={takeOverride} /> : null;
   // Step 2 is the advisor's job once the photos are out of the way: taken, skipped, or impossible here.
   const connectNow = photos === "done" || photos === "skipped" || photos === "none";
-  const screenDue = twoPass && !terminal && !grading.screenDone;
+  // No LCD verdict yet is not a finding while the screen check is still to come.
+  const screenDue = !terminal && (phoneLed ? stage === "setup" || stage === "waiting" || stage === "now" : twoPass && !grading.screenDone);
+  const cameraAi = <CameraAiCard g={grading} screenDue={screenDue} photosSkipped={phoneLed ? stage === "skipped" : skipped} flow={layout} />;
+  // Phone-led: the damage questions are the browser check's only; the IMEIs live in "Identify the phone".
+  const declaredCard =
+    !phoneLed ? (
+      <DeclaredCard v={v} />
+    ) : v.declared && [v.declared.screenCracked, v.declared.backCracked, v.declared.liquid].some((x) => x !== null && x !== undefined) ? (
+      <DeclaredCard v={v} withImei={false} />
+    ) : null;
+  // Once the session has ended the steps go, but what the phone said it was stays in view.
+  const identityCard = phoneLed && terminal && v.device ? <IdentifyStepCard v={v} api={api} phase={phase} label="Customer's phone" /> : null;
 
   const freshness =
     terminal ? null : pollFails >= 2 && pollErr ? null : lastOk ? `Live · updated ${ago(new Date(lastOk).toISOString()) || "just now"}` : "Connecting…";
@@ -387,7 +432,7 @@ export function SessionScreen({
               <Chip text={st.label} tone={st.tone} />
               {freshness ? <Text style={{ color: L.muted, fontSize: 14 }}>{freshness}</Text> : null}
             </View>
-            <Stepper v={v} wide={wide} />
+            {phoneLed ? <ScanFirstStepper v={v} phase={phase} wide={wide} /> : <Stepper v={v} wide={wide} />}
             <Text style={{ fontSize: wide ? 20 : 18, fontWeight: "700", lineHeight: wide ? 28 : 25, color: now.tone === "muted" ? L.ink : toneFg(now.tone) }}>{now.text}</Text>
             {pollFails >= 2 && pollErr && !terminal ? (
               <Banner tone="warn" title="Lost contact with SwapUp — retrying every 2 seconds">
@@ -401,7 +446,18 @@ export function SessionScreen({
             ) : null}
           </Card>
 
-          {twoPass && !terminal ? (
+          {phoneLed && !terminal ? (
+            <>
+              {/* 1 → 5, top to bottom, in the order the customer's phone goes */}
+              <ConnectHead step="Step 1" phoneLed focus live={live} showQr={showQr} onToggleQr={() => setShowQr((x) => !x)} />
+              {qrVisible ? qrCards : null}
+              <IdentifyStepCard v={v} api={api} phase={phase} />
+              <ScanStepCard v={v} g={grading} api={api} wide={wide} phase={phase} stage={stage} onSession={takeOverride} />
+              <TestsStepCard v={v} label="Step 4 · customer's phone" phoneLed phase={phase} />
+              <Actions v={v} busy={busy} onApply={confirmApply} onContinue={continuePricing} onReissue={reissue} onBack={onBack} layout={layout} />
+              {actionErr ? <Banner tone="bad" title={actionErr.title}>{actionErr.text}</Banner> : null}
+            </>
+          ) : twoPass && !terminal ? (
             <>
               {/* 1 → 2 → 3 → 4 → 5, top to bottom, in the order the counter works */}
               <PhotosStepCard v={v} g={grading} api={api} wide={wide} skipped={skipped} onSkip={skipPhotos} onSession={takeOverride} />
@@ -416,7 +472,7 @@ export function SessionScreen({
                 onContinue={continuePricing}
                 onReissue={reissue}
                 onBack={onBack}
-                twoPass
+                layout={layout}
               />
               {actionErr ? <Banner tone="bad" title={actionErr.title}>{actionErr.text}</Banner> : null}
             </>
@@ -430,7 +486,7 @@ export function SessionScreen({
                 onContinue={continuePricing}
                 onReissue={reissue}
                 onBack={onBack}
-                twoPass={twoPass}
+                layout={layout}
               />
               {actionErr ? <Banner tone="bad" title={actionErr.title}>{actionErr.text}</Banner> : null}
 
@@ -457,19 +513,21 @@ export function SessionScreen({
               <Columns wide>
                 <View style={{ gap: 16 }}>
                   <SummaryCard v={v} />
-                  <CameraAiCard g={grading} screenDue={screenDue} photosSkipped={skipped} />
+                  {cameraAi}
+                  {identityCard}
                   <DeviceCard v={v} />
-                  <DeclaredCard v={v} />
+                  {declaredCard}
                 </View>
                 <TestsCard v={v} />
               </Columns>
             ) : (
               <View style={{ gap: 16 }}>
                 <SummaryCard v={v} />
-                <CameraAiCard g={grading} screenDue={screenDue} photosSkipped={skipped} />
+                {cameraAi}
+                {identityCard}
                 <DeviceCard v={v} />
                 <TestsCard v={v} />
-                <DeclaredCard v={v} />
+                {declaredCard}
               </View>
             )
           ) : null}
@@ -490,7 +548,7 @@ function Actions({
   onContinue,
   onReissue,
   onBack,
-  twoPass,
+  layout,
 }: {
   v: TestSessionView;
   busy: Busy;
@@ -498,10 +556,14 @@ function Actions({
   onContinue: () => void;
   onReissue: () => void;
   onBack: () => void;
-  /** Two passes: this card is step 5, and Apply may be waiting on the screen check (step 4). */
-  twoPass: boolean;
+  /**
+   * Two passes: this card is step 5, and Apply may be waiting on the screen check (step 4).
+   * Phone-led: step 5 too, and the camera grade is usually final before the tests finish.
+   */
+  layout: Layout;
 }) {
   const other = !!busy;
+  const twoPass = layout === "twoPass";
   switch (v.status) {
     case "complete": {
       // The screen check is the phone's last step: the camera's verdict usually lands 8–30 s after it says "complete".
@@ -509,7 +571,7 @@ function Actions({
       const waiting = g.gradePending;
       return (
         <Card style={{ gap: 12 }}>
-          {twoPass ? <Label>Step 5 · advisor</Label> : null}
+          {layout !== "onePass" ? <Label>Step 5 · advisor</Label> : null}
           <Body>
             {waiting
               ? twoPass && !g.screenDone

@@ -72,8 +72,9 @@ test("pairing: a retake clears cosmeticDone, so the grace clock restarts", () =>
   assert.equal(r.tracker.cosmeticSince, 40_000);
 });
 
-// Two camera passes (swapup docs/TWO-PASS-CAMERA.md): the photos are taken before the
-// phone joins, so this screen can mount with pass 1's cosmeticDone + "ok" already on /screen.
+// Two camera passes (swapup docs/TWO-PASS-CAMERA.md, still served to older store flows): the
+// photos are taken before the phone joins, so this screen can mount with pass 1's
+// cosmeticDone + "ok" already on /screen.
 const PASS1 = { cosmeticDone: true, capture: { verdict: "ok", reasons: [] }, connectedAt: "2026-10-17T09:00:00Z" };
 
 test("pairing: pass 1's cosmeticDone already there at mount — not connected, no grace, the 90 s offer still comes", () => {
@@ -175,6 +176,58 @@ test("pairing: refused for 15 s straight → unavailable; a good poll resets it"
   assert.equal(P.trackRefusal(tr, 20_700).unavailable, false);
 });
 
+// The phone-led flow (swapup docs/PHONE-LED-FLOW.md): Scan comes first and runs GradeIQ's
+// single pass — photos (white on this screen), the colour sweep, then a photo of Settings
+// (pattern back to idle, nothing said to this phone), then cosmeticDone + handoffDone.
+test("scan: the Settings photo is asked for once the sweep is over and the screen is idle", () => {
+  let r = P.trackPoll(P.newTracker(0), poll(), 500);
+  // Idle at mount, before any sweep: that is the QR screen, not the Settings step.
+  assert.equal(P.settingsPrompt(r.tracker, poll(), 500 + P.SETTINGS_PROMPT_AFTER_MS + 10_000), false);
+  r = P.trackPoll(r.tracker, poll({ connectedAt: "x", pattern: "white" }), 20_000);
+  assert.equal(r.tracker.idleSince, null);
+  assert.equal(P.settingsPrompt(r.tracker, poll({ connectedAt: "x", pattern: "white" }), 20_000), false, "never over a pattern");
+  for (const [i, p] of ["black", "red", "green", "blue", "stripes"].entries()) r = P.trackPoll(r.tracker, poll({ connectedAt: "x", pattern: p }), 30_000 + i * 2000);
+  // The sweep ends: idle again, and the camera waits for the advisor's Settings photo.
+  r = P.trackPoll(r.tracker, poll({ connectedAt: "x" }), 50_000);
+  assert.equal(r.tracker.idleSince, 50_000);
+  assert.equal(P.settingsPrompt(r.tracker, poll({ connectedAt: "x" }), 50_000 + P.SETTINGS_PROMPT_AFTER_MS - 1), false, "not for the second or two before the camera finishes");
+  r = P.trackPoll(r.tracker, poll({ connectedAt: "x" }), 50_000 + P.SETTINGS_PROMPT_AFTER_MS);
+  assert.equal(P.settingsPrompt(r.tracker, poll({ connectedAt: "x" }), 50_000 + P.SETTINGS_PROMPT_AFTER_MS), true);
+  // A journey that grades straight away already has cosmeticDone here — still asked.
+  assert.equal(P.settingsPrompt(r.tracker, poll({ connectedAt: "x", cosmeticDone: true }), 60_000), true);
+  // A retake sends the advisor back to photographing the outside: no Settings prompt.
+  assert.equal(P.settingsPrompt(r.tracker, poll({ connectedAt: "x", capture: { verdict: "retaking", reasons: [] } }), 60_000), false);
+  // The camera finishes: handoffDone — leave, and no prompt.
+  assert.equal(P.settingsPrompt(r.tracker, poll({ connectedAt: "x", handoffDone: true }), 61_000), false);
+  assert.equal(P.trackPoll(r.tracker, poll({ connectedAt: "x", cosmeticDone: true, handoffDone: true }), 61_000).leave, "handoff");
+});
+
+test("scan: NO Settings prompt during the photos — white at the start, black for the front glass, idle for the sides", () => {
+  // GradeIQ's single pass as it really runs: white when the photos start, black for the
+  // front-glass shot, then idle while the back and four sides are photographed.
+  let r = P.trackPoll(P.newTracker(0), poll(), 500);
+  r = P.trackPoll(r.tracker, poll({ connectedAt: "x", pattern: "white" }), 10_000);
+  r = P.trackPoll(r.tracker, poll({ connectedAt: "x", pattern: "black" }), 12_000);
+  r = P.trackPoll(r.tracker, poll({ connectedAt: "x" }), 14_000);
+  assert.equal(r.tracker.sawSweep, false);
+  assert.equal(P.settingsPrompt(r.tracker, poll({ connectedAt: "x" }), 14_000 + 60_000), false, "the sides are being photographed — not Settings yet");
+  // Only once the sweep's own colours have shown does an idle screen mean Settings.
+  r = P.trackPoll(r.tracker, poll({ connectedAt: "x", pattern: "red" }), 80_000);
+  r = P.trackPoll(r.tracker, poll({ connectedAt: "x" }), 90_000);
+  assert.equal(P.settingsPrompt(r.tracker, poll({ connectedAt: "x" }), 90_000 + P.SETTINGS_PROMPT_AFTER_MS), true);
+});
+
+test("scan: the camera link is drawn only when it is a real http(s) URL", () => {
+  assert.equal(P.parseCameraLink({ url: "https://swapmore.com/apps/gradeiq/v2/cam/9f1c" }), "https://swapmore.com/apps/gradeiq/v2/cam/9f1c");
+  assert.equal(P.parseCameraLink({ url: "  http://localhost:3700/v2/cam/abc  " }), "http://localhost:3700/v2/cam/abc");
+  assert.equal(P.parseCameraLink({ url: "javascript:alert(1)" }), null);
+  assert.equal(P.parseCameraLink({ url: "https://" }), null);
+  assert.equal(P.parseCameraLink({ url: "https://host/a b" }), null);
+  assert.equal(P.parseCameraLink({ link: "https://host/x" }), null);
+  assert.equal(P.parseCameraLink(null), null);
+  assert.equal(P.parseCameraLink({ url: "https://h/" + "x".repeat(2100) }), null);
+});
+
 test("pairing: re-echo when the server's `shown` differs from what is drawn", () => {
   assert.equal(P.needsEcho(null, "idle"), true);
   assert.equal(P.needsEcho(poll({ shown: "white" }), "white"), false);
@@ -193,26 +246,45 @@ test("plan: the 18 ids split into auto / actions / not-in-run / server", () => {
   assert.deepEqual(Plan.partitionPlan([...FULL, "thermal"]).unknown, ["thermal"]);
 });
 
+test("plan: battery_health is the server's (the screenshot step), never 'unsupported' on the phone", () => {
+  const p = Plan.partitionPlan([...FULL, "battery_health"]);
+  assert.deepEqual(p.server, ["display", "battery_health"]);
+  assert.deepEqual(p.unknown, []);
+  assert.ok(!p.auto.includes("battery_health"));
+});
+
 test("plan: speaker + mic are one loopback step", () => {
   assert.deepEqual(Plan.autoSteps(["mic", "battery", "speaker", "voice"]), ["battery", "loopback", "voice"]);
   assert.deepEqual(Plan.autoSteps(["mic"]), ["loopback"]);
 });
 
-test("plan: native step — tests first (auto, actions), photos last, then done; display is never waited for", () => {
-  const p = Plan.partitionPlan(FULL);
-  // A fresh check starts testing at once — it never waits for the store's camera.
-  assert.equal(Plan.nativeStep(false, {}, p), "auto");
-  assert.equal(Plan.nativeStep(true, {}, p), "auto");
+test("plan: native step — Identify, Scan, battery, then the tests (auto, actions), then done", () => {
+  const p = Plan.partitionPlan([...FULL, "battery_health"]);
+  const at = (identified: boolean, scanned: boolean, battery: boolean) => ({ identified, scanned, battery });
+  // A fresh check: the phone identifies itself first…
+  assert.equal(Plan.nativeStep(at(false, false, false), {}, p), "identify");
+  // …then shows its scan code (vision first)…
+  assert.equal(Plan.nativeStep(at(true, false, false), {}, p), "scan");
+  // …then the battery screenshot…
+  assert.equal(Plan.nativeStep(at(true, true, false), {}, p), "battery");
+  // …then tests itself.
+  assert.equal(Plan.nativeStep(at(true, true, true), {}, p), "auto");
   const r: Record<string, { outcome: string }> = {};
   for (const id of [...p.auto, ...p.notInRun]) r[id] = { outcome: "pass" };
-  assert.equal(Plan.nativeStep(false, r, p), "actions");
+  assert.equal(Plan.nativeStep(at(true, true, true), r, p), "actions");
   r.touch = { outcome: "pass" };
   r.charging = { outcome: "skip" };
-  // Every test done: the photos are the last step…
-  assert.equal(Plan.nativeStep(false, r, p), "pairing");
-  // …and once they're done (or skipped), the check is done.
-  assert.equal(Plan.nativeStep(true, r, p), "done");
+  // display and battery_health are never waited for: the server decides them.
+  assert.equal(Plan.nativeStep(at(true, true, true), r, p), "done");
   assert.deepEqual(Plan.rerunnable(p, { ...r, mic: { outcome: "fail" }, multitouch: { outcome: "skip" } }), ["mic", "charging"]);
+  // Resume-safe: every earlier step's record stands, whatever the results say.
+  assert.equal(Plan.nativeStep(at(false, true, true), r, p), "identify");
+  assert.equal(Plan.nativeStep(at(true, false, true), r, p), "scan");
+});
+
+test("plan: the runner may linger on its last tick only once the tests have started", () => {
+  for (const s of ["auto", "actions", "done"] as const) assert.equal(Plan.testsStarted(s), true);
+  for (const s of ["identify", "scan", "battery"] as const) assert.equal(Plan.testsStarted(s), false);
 });
 
 test("touch: clearing every square passes", () => {

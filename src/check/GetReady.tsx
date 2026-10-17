@@ -1,5 +1,6 @@
-// Native SwapUp Check, first screen after joining: ask for the permissions the
-// automatic tests need (camera, microphone, location) and move straight on.
+// Native SwapUp Check, the first Test screen (after Identify, Scan and the battery
+// step): ask for the permissions the automatic tests need (camera, microphone,
+// location) and move straight on.
 // No buttons to press — each system dialog only appears if the customer hasn't
 // answered it before, and the tests start the moment the dialogs are done.
 // The tests only READ these permissions (src/diagnostics/auto/*), so they must

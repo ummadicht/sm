@@ -1,16 +1,20 @@
 // SwapUp Check — the customer's app. Opened by the store's QR (deep link
-// swapupcheck://join?code=…&server=…), it joins the store's session and
-// streams every result to the store through the persistent outbox in ./engine.
+// swapupcheck://join?code=…&server=…) or the store's counter code, it joins the
+// store's session and streams every result to the store through the persistent
+// outbox in ./engine.
 //
-// Native (the APK): no questions at all — the store photographs the phone while
-// it shows the patterns GradeIQ's camera asks for, then every test runs by
-// itself (./NativeCheck.tsx, docs/AUTO-TESTS.md).
+// The phone leads, in GradeIQ v2's order (swapup docs/PHONE-LED-FLOW.md):
+// Identify › Scan › Test › Result.
+// Native (the APK): Identify, then the Scan QR for the advisor's tablet (the
+// camera photographs the phone and sweeps its screen), the battery screenshot,
+// then every test runs by itself (./NativeCheck.tsx, docs/AUTO-TESTS.md).
 //
 // The same code runs in a browser at /app/check/ (the join page's "Test in this
-// browser" link, and the only way to test an iPhone) with the interactive flow
-// (welcome, damage questions, guided tests — ./screens.tsx): there the code comes from
-// ?code= in the page URL, progress lives in localStorage (./files.web.ts) and
-// the device facts come from the browser (./deviceInfo.web.ts).
+// browser" link, and the only way to test an iPhone): welcome, then the same
+// Identify, Scan (no brightness control there) and battery steps, then the
+// interactive flow — damage questions, guided tests (./screens.tsx). There the
+// code comes from ?code= in the page URL, progress lives in localStorage
+// (./files.web.ts) and the device facts come from the browser (./deviceInfo.web.ts).
 import "../shared/platform"; // browser shims (Alert, BackHandler) — a no-op on native
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, AppState, BackHandler, Linking, Text, View } from "react-native";
@@ -22,9 +26,13 @@ import { DEFAULT_SERVER, CLIENT_VERSION, IS_WEB } from "../shared/config";
 import { APPLIED_MESSAGE, CheckEngine, joinErrorMessage } from "./engine";
 import { fileStore, storageIsPersistent } from "./files";
 import { contractDevice } from "./deviceInfo";
-import { parseJoinTarget, resumeStep } from "./core";
+import { parseJoinTarget, phaseFor, resumeStep, type BatteryRec, type PairingRec } from "./core";
 import { DoneScreen, EndedScreen, JoinScreen, QuestionsScreen, RunnerScreen, WelcomeScreen, supportedPlan } from "./screens";
 import { NativeCheck } from "./NativeCheck";
+import { IdentifyScreen } from "./IdentifyScreen";
+import { PairingScreen } from "./PairingScreen";
+import { BatteryScreen } from "./BatteryScreen";
+import { Railed } from "./StepRail";
 
 const EDGES = ["top", "left", "right", "bottom"] as const;
 
@@ -36,7 +44,8 @@ export function CheckApp() {
     <SafeAreaProvider>
       <StatusBar style="light" hidden={bleed} />
       <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }} edges={bleed ? [] : EDGES}>
-        {IS_WEB && !storageIsPersistent() ? <NoStorageBar /> : null}
+        {/* Not over a screen-check pattern: the camera needs the whole screen lit. */}
+        {IS_WEB && !bleed && !storageIsPersistent() ? <NoStorageBar /> : null}
         <Root onBleed={setBleed} />
       </SafeAreaView>
     </SafeAreaProvider>
@@ -207,16 +216,23 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
   const plan = state?.session.plan ?? [];
   const { runnable, unsupported } = useMemo(() => supportedPlan(plan), [plan]);
 
-  // Tests the app cannot run here are reported as such — never silently missing.
-  // (Browser flow; the native flow does its own bookkeeping in NativeCheck.)
-  useEffect(() => {
-    if (!IS_WEB || !state || state.ended || !state.consentAt) return;
-    for (const p of unsupported) if (!state.results[p.id]) void engine.record(p.id, "unsupported", { reason: "not available in this app" });
-  }, [engine, state, unsupported]);
-
   // The browser flow's step. Native has its own (NativeCheck): null here keeps the
   // effects below (keep-awake, finish, status polling, back button) browser-only.
   const step = IS_WEB && state && !state.ended ? (rerun ? "runner" : resumeStep(state, runnable.map((p) => p.id))) : null;
+
+  // Tests the app cannot run here are reported as such — never silently missing.
+  // Only once the tests are reached (Identify, Scan and the battery step come
+  // first). Browser flow; the native flow does its own bookkeeping in NativeCheck.
+  const testing = step === "questions" || step === "runner" || step === "done";
+  useEffect(() => {
+    if (!IS_WEB || !state || state.ended || !state.consentAt || !testing) return;
+    for (const p of unsupported) if (!state.results[p.id]) void engine.record(p.id, "unsupported", { reason: "not available in this app" });
+  }, [engine, state, unsupported, testing]);
+
+  // Where the phone is, for the store's tablet (browser flow; native reports its own).
+  useEffect(() => {
+    if (step && !paused) engine.reportPhase(phaseFor(step));
+  }, [engine, step, paused]);
 
   // Keep the screen on while testing.
   useEffect(() => {
@@ -307,30 +323,66 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
 
   switch (step) {
     case "welcome":
-      return <WelcomeScreen state={state} onConsent={() => void engine.consent()} onLeave={() => void engine.forget()} />;
+      return (
+        <Railed at="identify">
+          <WelcomeScreen state={state} onConsent={() => void engine.consent()} onLeave={() => void engine.forget()} />
+        </Railed>
+      );
+    case "identify":
+      return (
+        <Railed at="identify">
+          <IdentifyScreen engine={engine} state={state} onDone={(a) => void engine.identify(a)} onWrongCode={() => void engine.forget()} />
+        </Railed>
+      );
+    case "scan":
+      // A browser shows the camera's patterns too; skipped or not, the display
+      // test below still runs here, so nothing is recorded for it on a skip.
+      return (
+        <PairingScreen
+          key={state.session.id}
+          engine={engine}
+          state={state}
+          onBleed={onBleed}
+          onDone={(r: Omit<PairingRec, "at">) => void engine.setPairing({ ...r, at: new Date().toISOString() })}
+        />
+      );
+    case "battery":
+      return (
+        <Railed at="test">
+          <BatteryScreen engine={engine} state={state} onDone={(b: Omit<BatteryRec, "at">) => void engine.setBattery({ ...b, at: new Date().toISOString() })} />
+        </Railed>
+      );
     case "questions":
-      return <QuestionsScreen initial={state.declared} onDone={(d) => void engine.declare(d)} />;
+      return (
+        <Railed at="test">
+          <QuestionsScreen initial={state.declared} askImei={!state.identifiedAt} onDone={(d) => void engine.declare(d)} />
+        </Railed>
+      );
     case "runner":
       return (
-        <RunnerScreen
-          snap={snap}
-          only={rerun}
-          onResult={(id, outcome, detail) => void engine.record(id, outcome, detail)}
-          onAllDone={finish}
-          onQuit={() => setPaused(true)}
-        />
+        <Railed at="test">
+          <RunnerScreen
+            snap={snap}
+            only={rerun}
+            onResult={(id, outcome, detail) => void engine.record(id, outcome, detail)}
+            onAllDone={finish}
+            onQuit={() => setPaused(true)}
+          />
+        </Railed>
       );
     case "done":
     default:
       return (
-        <DoneScreen
-          snap={snap}
-          onRerun={(ids) => setRerun(ids)}
-          onNewCheck={() => {
-            setRerun(null);
-            void engine.forget();
-          }}
-        />
+        <Railed at="result">
+          <DoneScreen
+            snap={snap}
+            onRerun={(ids) => setRerun(ids)}
+            onNewCheck={() => {
+              setRerun(null);
+              void engine.forget();
+            }}
+          />
+        </Railed>
       );
   }
 }

@@ -74,9 +74,36 @@ export type TestSessionView = {
   device: SessionDevice | null;
   plan: { id: string; name: string; critical: boolean }[];
   results: Record<string, { outcome: Outcome; detail: Record<string, unknown> | null; at: string }>;
-  declared: { screenCracked: boolean | null; backCracked: boolean | null; liquid: boolean | null; imei: string | null } | null;
+  /**
+   * What the customer told their phone. The phone-led flow (Check 0.6.0+, docs/PHONE-LED-FLOW.md)
+   * adds the identity answers; an older server or app leaves them out. Read them only through
+   * ./phoneLed.ts readIdentity().
+   */
+  declared:
+    | ({ screenCracked: boolean | null; backCracked: boolean | null; liquid: boolean | null; imei: string | null } & {
+        imei2?: string | null;
+        identityConfirmed?: boolean | null;
+        /** The model the customer chose in the picker — a claim; the server adds `label` from its own list. */
+        picked?: { modelId: string; variant: string | null; label?: string | null } | null;
+        customerName?: string | null;
+        customerPhone?: string | null;
+      })
+    | null;
   progress: { done: number; total: number };
   summary: DiagnosticSummary | null;
+  /**
+   * Where the customer's phone is in the phone-led flow (POST /api/device/phase). A server
+   * that knows the flow always sends the key (null until the phone posts one); an older
+   * server leaves it out. Read it only through ./phoneLed.ts readPhonePhase().
+   */
+  phonePhase?: string | null;
+  phonePhaseAt?: string | null;
+  /** The server's own scanFirstApp(device): the phone leads. Absent from an older server. */
+  scanFirst?: boolean;
+  /** The customer started this trade-in alone, from the store's counter QR. */
+  customerStarted?: boolean;
+  /** The IMEI(s) the phone gave against the case's — staff only. Read through ./phoneLed.ts readImeiAgreement(). */
+  imeiAgreement?: "match" | "differs" | "unknown" | null;
   /** GradeIQ camera step (MOBILE-API.md, "grading"). Read it only through ./grading.ts readGrading(). */
   grading?: unknown;
 };

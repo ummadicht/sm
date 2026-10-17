@@ -1,8 +1,10 @@
 // Who is signed in, to which store, on which server — and the way out.
 // A store manager can also set the store Wi‑Fi here, before a customer is waiting,
 // and make this device the store tablet (or manage the store's tablets).
-// Everyone can set the PIN that unlocks the store tablet.
+// Everyone can set the PIN that unlocks the store tablet, and see the store's
+// counter QR (a manager prints it and can replace it).
 import { InviteStaff } from "./InviteStaff";
+import { CounterQrCard } from "./CounterQr";
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, KeyboardAvoidingView, ScrollView, Text, View } from "react-native";
 import { APP_VERSION, DEFAULT_SERVER, IS_WEB } from "../../shared/config";
@@ -204,6 +206,9 @@ export function Settings({
             </View>
             <View style={{ gap: 16 }}>
               {storeCard}
+              {user.role === "store_manager" || user.role === "advisor" ? (
+                <CounterQrCard api={api} storeName={store.name} canManage={user.role === "store_manager"} />
+              ) : null}
               {user.role === "store_manager" ? (
                 <StoreTabletCard api={api} storeName={store.name} thisDevice={tablet} onUseAsTablet={onUseAsTablet} onStopThisDevice={onStopTablet} />
               ) : null}

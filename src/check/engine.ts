@@ -11,6 +11,8 @@
 // runs under Node for the scratch tests. RN bindings live in check/files.ts.
 import { ApiError, createClient, Client } from "../shared/api";
 import {
+  BATTERY_HEALTH_ID,
+  BatteryRec,
   CheckState,
   ContractDevice,
   Declared,
@@ -18,13 +20,23 @@ import {
   JoinResponse,
   Outcome,
   PairingRec,
+  PhonePhase,
   RemoteStatus,
+  SessionInfo,
   completePending,
   declarePending,
   nextAt,
+  parseIdentity,
   pendingResultIds,
+  startedByCustomer,
   unsentCount,
 } from "./core";
+
+/** What the Identify step adds to the declaration (swapup docs/PHONE-LED-FLOW.md). */
+export type IdentifyAnswers = Pick<Declared, "imei" | "imei2" | "identityConfirmed" | "picked" | "customerName" | "customerPhone">;
+
+/** A device-side call's answer, without throwing: the screens decide what each status means. */
+export type DeviceCallResult<T> = { ok: true; body: T } | { ok: false; status: number; message: string };
 
 export type Store = {
   load(): Promise<CheckState | null>;
@@ -152,6 +164,8 @@ export class CheckEngine {
     this.timer = setInterval(() => {
       const st = this.snap.state;
       if (!st || st.ended) return;
+      // The store's tablet shows where the phone is; a phase that didn't get through is re-sent now and then.
+      if (this.phase?.state === "pending" && Date.now() - this.phase.triedAt > 8000) void this.sendPhase();
       if (!(unsentCount(st) > 0 || completePending(st))) return;
       // Back off gently after repeated failures (4 s → 8 s → 15 s max). A refusal
       // (the server answered "no") is retried slowly — repeating it every few
@@ -174,7 +188,8 @@ export class CheckEngine {
   }
 
   // ------------------------------------------------------------ join
-  async join(code: string, server: string): Promise<JoinResult> {
+  /** `resume`: the app re-joining by itself — the server then only hands back this phone's OWN open check, never a new one. */
+  async join(code: string, server: string, opts: { resume?: boolean } = {}): Promise<JoinResult> {
     const installId = this.snap.installId ?? (await this.store.loadInstallId());
     let device: ContractDevice;
     try {
@@ -189,6 +204,7 @@ export class CheckEngine {
         device,
         appVersion: this.opts.appVersion,
         installId,
+        ...(opts.resume ? { resume: true } : {}),
       });
     } catch (e) {
       const err = e instanceof ApiError ? e : new ApiError(0, "Can't reach SwapUp — check the Wi‑Fi or mobile data.");
@@ -197,18 +213,26 @@ export class CheckEngine {
     if (!res?.ticket || !res.session?.id) {
       return { ok: false, status: 502, message: "The store's system sent an answer this app doesn't understand. Tell the advisor (the app may need updating)." };
     }
-    const session = {
+    const raw = res.session as unknown as Record<string, unknown>;
+    const session: SessionInfo = {
       id: res.session.id,
       caseRef: res.session.caseRef ?? "",
       storeName: res.session.storeName ?? "the store",
       plan: Array.isArray(res.session.plan) ? res.session.plan.filter((p) => p && typeof p.id === "string") : [],
       server: res.session.server ?? server,
+      // Phone-led flow (PHONE-LED-FLOW.md): what the server matched from the model
+      // code, and whether the customer started this from the counter code.
+      identity: parseIdentity(raw.identity),
+      customerStarted: startedByCustomer(raw),
     };
+    // What this phone called itself — the Identify card's "Your phone calls itself …".
+    // The code only: a browser on an iPhone has none, and "iPhone" is not one.
+    const reported = { brand: device.brand, modelCode: device.modelCode };
     const cur = this.snap.state;
     const same = !!cur && cur.session.id === session.id;
     if (same && cur) {
       // Re-join of the same session (restart / ticket refresh): results are kept on the server and here.
-      await this.commit({ ...cur, ticket: res.ticket, session, code, server, ended: null });
+      await this.commit({ ...cur, ticket: res.ticket, session, code, server, ended: null, reported });
     } else {
       const now = new Date().toISOString();
       await this.commit({
@@ -228,7 +252,11 @@ export class CheckEngine {
         completeSentAt: null,
         ended: null,
         pairing: null,
+        identifiedAt: null,
+        battery: null,
+        reported,
       });
+      this.phase = null; // a new session: its first phase must be sent even if it matches the last one's
       this.patch({ remote: null });
     }
     this.failStreak = 0;
@@ -241,7 +269,7 @@ export class CheckEngine {
   private async rejoin(): Promise<"ok" | "offline" | "ended"> {
     const st = this.snap.state;
     if (!st) return "ended";
-    const r = await this.join(st.code, st.server);
+    const r = await this.join(st.code, st.server, { resume: true });
     if (r.ok) return "ok";
     if (r.status === 0 || r.status >= 500 || r.status === 429) return "offline";
     // Refused. If the store applied the results (mid-run, or while this page was
@@ -263,16 +291,35 @@ export class CheckEngine {
     return "ended";
   }
 
-  /** Re-join quietly on app start / resume. Never throws; offline just means "use the ticket we have". */
+  /**
+   * On app start / resume. The ticket we have is checked FIRST and kept while it
+   * works — re-joining rotates it, and a resume is often just the photo picker
+   * returning mid-upload (the battery screenshot). Only a refused ticket re-joins.
+   * Never throws; offline just means "use the ticket we have".
+   */
   async refreshTicket(): Promise<void> {
     const st = this.snap.state;
     if (!st || st.ended) return;
+    if (st.ticket) {
+      try {
+        const s = await this.client(st).get<RemoteStatus>("/api/device/status");
+        if (s?.status === "applied") {
+          this.patch({ remote: s });
+          await this.update((x) => ({ ...x, ended: APPLIED_MESSAGE }));
+          this.setSync("ended", APPLIED_MESSAGE);
+        }
+        return; // the ticket still works
+      } catch (e) {
+        if (!(e instanceof ApiError) || !AUTH_LIKE.has(e.status)) return; // offline / busy: keep it
+      }
+    }
     const r = await this.rejoin();
     if (r === "ended") this.setSync("ended", this.snap.state?.ended ?? null);
   }
 
   /** Forget the current check (to join a different code). The installId stays. */
   async forget(): Promise<void> {
+    this.phase = null;
     this.patch({ remote: null });
     await this.commit(null);
     this.setSync("idle");
@@ -303,25 +350,60 @@ export class CheckEngine {
     void this.flush();
   }
 
-  /** Native: the pairing screen is over (kept on disk so a restart doesn't pair again). */
+  /**
+   * The Identify step is finished: its answers join the declaration (sent with
+   * the outbox, like the browser's damage questions) and the step is marked done
+   * in the same write, so a restart never asks twice or loses the answers.
+   */
+  async identify(a: IdentifyAnswers): Promise<void> {
+    await this.update((s) => {
+      const base: Declared = s.declared ?? { screenCracked: null, backCracked: null, liquid: null, imei: null };
+      return {
+        ...s,
+        declared: { ...base, ...a },
+        declaredAt: nextAt(s.declaredAt),
+        declareError: null,
+        identifiedAt: s.identifiedAt ?? new Date().toISOString(),
+      };
+    });
+    void this.flush();
+  }
+
+  /** The Scan screen is over (kept on disk so a restart doesn't pair again). */
   setPairing(p: PairingRec): Promise<void> {
     return this.update((s) => ({ ...s, pairing: p }));
   }
 
-  // ------------------------------------------------------------ pairing (photo check)
+  /**
+   * The battery screenshot step is over (kept on disk). A screenshot that was
+   * sent has its result on the server already — read or unreadable. One that
+   * never was (Skip) is said so on battery_health, so it is "not tested" with a
+   * reason rather than missing.
+   */
+  async setBattery(b: BatteryRec): Promise<void> {
+    await this.update((s) => ({ ...s, battery: b }));
+    const st = this.snap.state;
+    if (b.outcome === "skipped" && st && st.session.plan.some((p) => p.id === BATTERY_HEALTH_ID) && !st.results[BATTERY_HEALTH_ID]) {
+      await this.record(BATTERY_HEALTH_ID, "skip", { method: "battery screenshot", reason: "the customer skipped the battery screenshot" });
+    }
+  }
+
+  // ------------------------------------------------------------ device calls outside the outbox
   //
-  // GET/POST /api/device/screen (ticket) — SwapUp's proxy of GradeIQ's /screen.
-  // Called every ~700 ms, so it deliberately does NOT go through withTicket():
-  // a 404 there means "re-join", and a server without this route (or a check
-  // without camera grading) would re-join twice a second. Only 401/403 refresh
-  // the ticket here, at most every 20 s.
+  // The Scan screen (GET/POST /api/device/screen — SwapUp's proxy of GradeIQ's
+  // /screen, every ~700 ms), the camera link, the model picker, the battery
+  // screenshot and the phase. They deliberately do NOT go through withTicket():
+  // a 404 there means "re-join", and a server without one of these routes (an
+  // older server, or a check without camera grading) would re-join twice a
+  // second. Only 401/403 refresh the ticket here, at most every 20 s. Each
+  // screen reads the status itself (404 = this server hasn't got it).
   private lastScreenRefresh = 0;
 
-  private async screenCall<T>(fn: (c: Client) => Promise<T>): Promise<{ ok: true; body: T } | { ok: false; status: number; message: string }> {
+  private async deviceCall<T>(fn: (c: Client) => Promise<T>, timeoutMs = 8000): Promise<DeviceCallResult<T>> {
     const st = this.snap.state;
     if (!st || st.ended || !st.ticket) return { ok: false, status: 0, message: "not connected" };
     try {
-      return { ok: true, body: await fn(createClient(st.server, { kind: "ticket", token: st.ticket }, 8000)) };
+      return { ok: true, body: await fn(createClient(st.server, { kind: "ticket", token: st.ticket }, timeoutMs)) };
     } catch (e) {
       const err = e instanceof ApiError ? e : new ApiError(0, "Can't reach SwapUp.");
       if ((err.status === 401 || err.status === 403) && Date.now() - this.lastScreenRefresh > 20_000) {
@@ -334,12 +416,54 @@ export class CheckEngine {
 
   /** What the store's camera wants this screen to show. */
   screenPoll() {
-    return this.screenCall((c) => c.get<unknown>("/api/device/screen"));
+    return this.deviceCall((c) => c.get<unknown>("/api/device/screen"));
   }
 
   /** Tell the camera which pattern this screen is ACTUALLY showing now. */
   screenShown(shown: string) {
-    return this.screenCall((c) => c.post<unknown>("/api/device/screen", { shown }));
+    return this.deviceCall((c) => c.post<unknown>("/api/device/screen", { shown }));
+  }
+
+  /** GET /api/device/camera-link → { url } for the Scan screen's QR. 409 = GradeIQ not ready yet (ask again). */
+  cameraLink() {
+    return this.deviceCall((c) => c.get<unknown>("/api/device/camera-link"));
+  }
+
+  /** The Identify picker: no brand → { brands }, a brand → { models }. No prices. */
+  deviceModels(brand?: string) {
+    return this.deviceCall((c) => c.get<unknown>("/api/device/models" + (brand ? `?brand=${encodeURIComponent(brand)}` : "")), 12_000);
+  }
+
+  /**
+   * POST /api/device/battery { image } — the server forwards the screenshot to
+   * GradeIQ's reader (a vision model), so this waits much longer than a poll.
+   */
+  sendBattery(image: string) {
+    return this.deviceCall((c) => c.post<unknown>("/api/device/battery", { image }), 45_000);
+  }
+
+  // ------------------------------------------------------------ phase (where the phone is, for the store's tablet)
+  private phase: { want: PhonePhase; state: "pending" | "sent" | "refused"; triedAt: number } | null = null;
+
+  /**
+   * POST /api/device/phase { phase } on each step change. Fire-and-forget: a
+   * phase that doesn't get through is re-sent by the retry loop; an older server
+   * without the route (a 4xx) is not asked again for that phase.
+   */
+  reportPhase(phase: PhonePhase): void {
+    if (this.phase?.want === phase) return;
+    this.phase = { want: phase, state: "pending", triedAt: 0 };
+    void this.sendPhase();
+  }
+
+  private async sendPhase(): Promise<void> {
+    const p = this.phase;
+    if (!p || p.state !== "pending") return;
+    p.triedAt = Date.now();
+    const r = await this.deviceCall((c) => c.post<unknown>("/api/device/phase", { phase: p.want }));
+    if (this.phase !== p) return; // a newer phase took over meanwhile
+    if (r.ok) p.state = "sent";
+    else if (r.status >= 400 && r.status < 500 && r.status !== 401 && r.status !== 403 && r.status !== 429) p.state = "refused";
   }
 
   // ------------------------------------------------------------ outbox
@@ -380,6 +504,12 @@ export class CheckEngine {
               backCracked: d.backCracked,
               liquid: d.liquid,
               ...(d.imei ? { imei: d.imei } : {}),
+              // The Identify step's answers (an older server ignores them).
+              ...(d.imei2 ? { imei2: d.imei2 } : {}),
+              ...(d.identityConfirmed !== undefined ? { identityConfirmed: d.identityConfirmed } : {}),
+              ...(d.picked !== undefined ? { picked: d.picked } : {}),
+              ...(d.customerName ? { customerName: d.customerName } : {}),
+              ...(d.customerPhone ? { customerPhone: d.customerPhone } : {}),
             });
             await this.update((s) => ({ ...s, declaredSentAt: at }));
           } catch (e) {

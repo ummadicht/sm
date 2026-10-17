@@ -3,7 +3,10 @@
 // With a two-pass server (docs/TWO-PASS-CAMERA.md) the QR cards sit under
 // step 2 "Connect the customer's phone" (ConnectHead) and step 3 shows the
 // phone testing itself (TestsStepCard); the camera steps are in ./CameraParts.
-import React, { useState } from "react";
+// The phone-led flow (docs/PHONE-LED-FLOW.md, Check 0.6.0+) reuses them as
+// step 1 (connect) and step 4 (tests), with step 2 "Identify the phone"
+// (IdentifyStepCard) in between and the scan (step 3) in ./CameraParts.
+import React, { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { L } from "../../shared/theme";
 import { fmtBytes } from "../../shared/ui";
@@ -11,6 +14,22 @@ import { QR } from "../QR";
 import { StaffClient, errText } from "../staffClient";
 import type { DiagnosticSummary, Outcome, SessionStatus, TestSessionView, WifiResponse, WifiSecurity } from "../types";
 import { Banner, Body, Btn, Card, Chip, Field, H2, KV, Label, Segmented, Toggle, Tone, toneColor, until } from "../ui";
+import {
+  BATTERY_HEALTH_MIN,
+  PhonePhase,
+  SCAN_FIRST_STEPS,
+  batteryHealth,
+  batteryLine,
+  customerSays,
+  customerStarted,
+  imeiCheck,
+  imeiMismatch,
+  modelLabels,
+  readCaseImeis,
+  readIdentity,
+  readImeiAgreement,
+  scanFirstReached,
+} from "../phoneLed";
 
 export type WifiInfo = { ssid: string; qr: string; password?: string; security?: WifiSecurity; hidden?: boolean };
 
@@ -272,12 +291,28 @@ export function TestQrCard({
  * the photos on screen, and is emphasised once they are done or skipped; the codes
  * stay visible either way, so a customer who is ready early can still scan.
  */
-export function ConnectHead({ focus, live, showQr, onToggleQr }: { focus: boolean; live: boolean; showQr: boolean; onToggleQr: () => void }) {
+export function ConnectHead({
+  focus,
+  live,
+  showQr,
+  onToggleQr,
+  step = "Step 2",
+  phoneLed = false,
+}: {
+  focus: boolean;
+  live: boolean;
+  showQr: boolean;
+  onToggleQr: () => void;
+  /** "Step 2" with photos first; "Step 1" when the phone leads (it is the first thing that happens). */
+  step?: string;
+  /** The phone-led flow: say what the phone does next, in its order. */
+  phoneLed?: boolean;
+}) {
   const now = focus && !live;
   return (
     <Card style={now ? { borderColor: L.fix, borderWidth: 2 } : undefined}>
       <View style={{ gap: 4 }}>
-        <Label style={now ? { color: L.fix } : undefined}>{now ? "Step 2 · now" : "Step 2 · customer's phone"}</Label>
+        <Label style={now ? { color: L.fix } : undefined}>{now ? `${step} · now` : `${step} · customer's phone`}</Label>
         <H2>Connect the customer's phone</H2>
       </View>
       {live ? (
@@ -285,6 +320,11 @@ export function ConnectHead({ focus, live, showQr, onToggleQr }: { focus: boolea
           <Body>SwapUp Check is open on the customer's phone.</Body>
           <Btn title={showQr ? "Hide the QR codes" : "Show the QR codes again"} kind="ghost" onPress={onToggleQr} style={{ alignSelf: "flex-start", paddingHorizontal: 0 }} />
         </>
+      ) : phoneLed ? (
+        <Body>
+          Turn the tablet to the customer: the Wi‑Fi code if they need it, then the test code. From there their phone leads: it identifies itself, shows a code for
+          you to scan, then tests itself.
+        </Body>
       ) : focus ? (
         <Body>Turn the tablet to the customer: the Wi‑Fi code if they need it, then the test code. SwapUp Check downloads, opens and tests the phone by itself.</Body>
       ) : (
@@ -294,17 +334,35 @@ export function ConnectHead({ focus, live, showQr, onToggleQr }: { focus: boolea
   );
 }
 
-/** Step 3 "The phone tests itself" — today's live progress, in one place. */
-export function TestsStepCard({ v }: { v: TestSessionView }) {
+/**
+ * Step 3 "The phone tests itself" — today's live progress, in one place. In the
+ * phone-led flow it is step 4, starts after the scan, and opens with the battery
+ * health screenshot (`phase` says where the phone is).
+ */
+export function TestsStepCard({
+  v,
+  label = "Step 3 · customer's phone",
+  phoneLed = false,
+  phase = null,
+}: {
+  v: TestSessionView;
+  label?: string;
+  phoneLed?: boolean;
+  phase?: PhonePhase | null;
+}) {
   const done = v.progress?.done ?? Object.keys(v.results ?? {}).length;
   const total = v.progress?.total ?? v.plan?.length ?? 0;
-  const running = v.status === "joined" || v.status === "testing";
+  // Phone-led: the phone is "joined" while it identifies itself and waits for the scan — not testing yet.
+  const beforeTests = phoneLed && (phase === "identify" || phase === "scan" || (phase === null && v.status === "joined"));
+  const running = (v.status === "joined" || v.status === "testing") && !beforeTests;
   const finished = v.status === "complete" || v.status === "applied";
+  const battery = batteryHealth(v.results);
+  const bl = battery ? batteryLine(battery) : null;
   return (
     <Card>
       <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
         <View style={{ gap: 4, flexShrink: 1, minWidth: 0 }}>
-          <Label>Step 3 · customer's phone</Label>
+          <Label>{label}</Label>
           <H2>The phone tests itself</H2>
         </View>
         {finished ? <Chip text="Tests done" tone="up" /> : running && total ? <Chip text={`${done} of ${total}`} tone="fix" /> : null}
@@ -317,17 +375,205 @@ export function TestsStepCard({ v }: { v: TestSessionView }) {
       <Body muted={!running}>
         {finished
           ? `The customer's phone has finished — ${done} of ${total} tests in. Each result is below.`
-          : running
-            ? `${done} of ${total} tests done. Each result appears below as it lands. The customer only swipes the screen and plugs in the charger when asked.`
-            : v.status === "expired" || v.status === "cancelled"
-              ? "The phone didn't finish testing."
-              : "Starts by itself once SwapUp Check opens on the customer's phone — no questions."}
+          : phoneLed && phase === "battery"
+            ? "First the battery health: the customer screenshots the phone's battery page and chooses the screenshot. Then the tests start by themselves."
+            : running
+              ? `${done} of ${total} tests done. Each result appears below as it lands. The customer only swipes the screen and plugs in the charger when asked.`
+              : v.status === "expired" || v.status === "cancelled"
+                ? "The phone didn't finish testing."
+                : phoneLed
+                  ? "Starts by itself after the scan (step 3): first the battery health, then the tests — the customer only swipes the screen and plugs in the charger when asked."
+                  : "Starts by itself once SwapUp Check opens on the customer's phone — no questions."}
       </Body>
+      {bl ? <KV label="Battery health" value={bl.text} tone={bl.tone} /> : null}
+    </Card>
+  );
+}
+
+// ── the phone-led flow: Step 2 · Identify the phone ──────────────────────────
+
+/**
+ * The IMEI(s) already on the case (GET /api/cases/<id>), to set against what the
+ * customer typed. Fetched only once something was typed, and again when it changes
+ * or the session moves on (Apply fills an empty case IMEI). A failure just means
+ * no comparison is shown — it never blocks the screen.
+ */
+function useCaseImeis(api: StaffClient, caseId: string, typed: string, status: string) {
+  const [rec, setRec] = useState<{ imei: string | null; imei2: string | null } | null>(null);
+  useEffect(() => {
+    if (!typed) {
+      setRec(null);
+      return;
+    }
+    let alive = true;
+    api
+      .get<unknown>(`/api/cases/${encodeURIComponent(caseId)}`)
+      .then((r) => {
+        if (alive) setRec(readCaseImeis(r));
+      })
+      .catch(() => {
+        /* no comparison — the IMEIs still show */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [api, caseId, typed, status]);
+  return rec;
+}
+
+/** Trade-in model names by id (GET /api/catalog/models), fetched once per server and only when a pick needs a name. */
+const catalogs = new Map<string, Promise<Record<string, string>>>();
+function usePickedLabel(api: StaffClient, modelId: string | null, own: string | null): string | null {
+  const [label, setLabel] = useState<string | null>(own);
+  useEffect(() => {
+    if (!modelId || own) {
+      setLabel(own);
+      return;
+    }
+    let alive = true;
+    let names = catalogs.get(api.base);
+    if (!names) {
+      names = api.get<unknown>("/api/catalog/models").then(modelLabels);
+      catalogs.set(api.base, names);
+      names.catch(() => catalogs.delete(api.base)); // try again next time
+    }
+    names.then((m) => alive && setLabel(m[modelId] ?? null)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [api, modelId, own]);
+  return label;
+}
+
+function ImeiRow({ label, value, check }: { label: string; value: string; check: "ok" | "bad" | null }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: L.border }}>
+      <Text style={{ color: L.muted, fontSize: 16, minWidth: 64 }}>{label}</Text>
+      <Text style={{ color: L.ink, fontSize: 19, fontWeight: "800", letterSpacing: 1, fontVariant: ["tabular-nums"], flexGrow: 1 }} selectable>
+        {value}
+      </Text>
+      {check ? <Chip text={check === "ok" ? "✓ Check digit OK" : "✕ Check digit wrong"} tone={check === "ok" ? "up" : "bad"} /> : null}
+    </View>
+  );
+}
+
+const MOBILE = /^(\d{5})(\d{5})$/;
+
+/**
+ * Step 2 "Identify the phone": what the phone says it is, what the customer answered
+ * on "Is this your phone?", and the IMEI(s) they typed from *#06# — set against the
+ * case's. A picked model is the customer's CLAIM: shown, never a match.
+ */
+export function IdentifyStepCard({ v, api, phase, label = "Step 2 · customer's phone" }: { v: TestSessionView; api: StaffClient; phase: PhonePhase | null; label?: string }) {
+  const id = readIdentity(v.declared);
+  const typed = [id.imei, id.imei2].filter(Boolean).join("|");
+  const recorded = useCaseImeis(api, v.caseId, typed, v.status);
+  const pickedLabel = usePickedLabel(api, id.picked?.modelId ?? null, id.picked?.label ?? null);
+  // The server's verdict when it gives one (it reads the case directly); our own comparison
+  // for an older server. The case fetch still supplies the numbers to show.
+  const agreement = readImeiAgreement(v);
+  const local = imeiMismatch(id, recorded);
+  const mismatch = agreement === "differs" ? (local ?? { recorded: [] }) : agreement === null ? local : null;
+  const agrees = agreement === "match" || (agreement === null && !!recorded && !!typed && !local && !!(recorded.imei || recorded.imei2));
+  const d = v.device;
+  const sm = v.summary?.model;
+  const answered = id.identityConfirmed !== null || !!id.picked;
+  const asking = !answered && (phase === "identify" || (phase === null && v.status === "joined"));
+  const says = customerSays(id, pickedLabel, asking);
+  const match = sm ? (MATCH[sm.match] ?? MATCH.none) : null;
+  const reported = d ? [cap(d.brand || d.manufacturer), d.modelName].filter(Boolean).join(" ") : "";
+
+  const chip = mismatch ? (
+    <Chip text="IMEI differs" tone="bad" />
+  ) : id.picked ? (
+    <Chip text="Customer picked" tone="warn" />
+  ) : id.identityConfirmed === true ? (
+    <Chip text="Confirmed by the customer" tone="up" />
+  ) : id.identityConfirmed === false ? (
+    <Chip text="Not confirmed" tone="warn" />
+  ) : asking ? (
+    <Chip text="Answering now" tone="fix" />
+  ) : null;
+
+  return (
+    <Card>
+      <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <View style={{ gap: 4, flexShrink: 1, minWidth: 0 }}>
+          <Label>{label}</Label>
+          <H2>Identify the phone</H2>
+        </View>
+        {chip}
+      </View>
+      {!d ? (
+        <Body muted>When SwapUp Check opens, the customer's phone says what it is, the customer confirms it, and types its IMEI. It all appears here.</Body>
+      ) : (
+        <>
+          <View style={{ gap: 4 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <Text style={{ fontSize: 22, fontWeight: "800", color: L.ink }}>
+                {sm?.label ? `${sm.label}${sm.variant ? ` · ${sm.variant}` : ""}` : "Not identified"}
+              </Text>
+              {match ? <Chip text={match.label} tone={match.tone} /> : null}
+            </View>
+            {reported ? (
+              <Body muted>
+                The phone calls itself {reported}
+                {d.modelCode && d.modelCode !== d.modelName ? ` (${d.modelCode})` : ""}
+              </Body>
+            ) : null}
+          </View>
+          <View>
+            <KV label="Customer says" value={says.text} tone={says.tone} />
+            {customerStarted(v) ? <KV label="Started by" value="The customer, from the counter QR" /> : null}
+            {id.customerName || id.customerPhone ? (
+              <KV
+                label="Customer (typed on their phone)"
+                value={[id.customerName, id.customerPhone ? id.customerPhone.replace(MOBILE, "$1 $2") : null].filter(Boolean).join(" · ")}
+              />
+            ) : null}
+          </View>
+          {id.picked ? (
+            <Body muted>
+              {sm?.match === "none" || !sm
+                ? "The phone's own model code isn't in the catalogue, so if the case has no model yet, Apply uses this pick — labelled “customer picked”. Check it against Settings › About phone."
+                : "A pick is only the customer's word. The phone's own model code wins — check Settings › About phone if they disagree."}
+            </Body>
+          ) : null}
+
+          <View style={{ gap: 2 }}>
+            <Label>IMEI (dialled *#06#)</Label>
+            {id.imei ? <ImeiRow label="IMEI 1" value={id.imei} check={imeiCheck(id.imei)} /> : null}
+            {id.imei2 ? <ImeiRow label="IMEI 2" value={id.imei2} check={imeiCheck(id.imei2)} /> : null}
+            {!id.imei && !id.imei2 ? (
+              <Body muted>{asking ? "Not typed yet." : "Not given — the customer skipped it. Dial *#06# on the phone, or read the box."}</Body>
+            ) : null}
+          </View>
+          {mismatch ? (
+            <Banner tone="bad" title="IMEI differs from the one recorded">
+              {`${mismatch.recorded.length ? `The case has ${mismatch.recorded.join(" / ")}. ` : ""}The case keeps its IMEI — dial *#06# on the phone and check before you lock the trade-in.`}
+            </Banner>
+          ) : agrees && v.status !== "applied" ? (
+            // Not after Apply: an empty case IMEI is filled from the phone then, so "matches" would prove nothing.
+            <Text style={{ color: L.up, fontSize: 15, fontWeight: "700" }}>Matches the IMEI recorded on the case.</Text>
+          ) : null}
+        </>
+      )}
     </Card>
   );
 }
 
 // ── live status ──────────────────────────────────────────────────────────────
+
+/** The phone-led flow's stepper — the customer's phone shows the same rail (Identify · Scan · Test · Result). */
+export function ScanFirstStepper({ v, phase, wide }: { v: TestSessionView; phase: PhonePhase | null; wide: boolean }) {
+  const reached = scanFirstReached(v.status, phase, !!v.device || !!v.joinedAt);
+  const done = v.progress?.done ?? 0;
+  const total = v.progress?.total ?? v.plan?.length ?? 0;
+  const labels = SCAN_FIRST_STEPS.map((l, i) =>
+    i === 0 && v.status === "opened" ? "Page opened" : i === 3 && reached >= 3 && total ? `Test (${done} of ${total})` : l
+  );
+  return <StepRail labels={labels} reached={reached} stopped={v.status === "expired" || v.status === "cancelled"} wide={wide} />;
+}
 
 export function Stepper({ v, wide }: { v: TestSessionView; wide: boolean }) {
   const reached =
@@ -354,10 +600,16 @@ export function Stepper({ v, wide }: { v: TestSessionView; wide: boolean }) {
   const done = v.progress?.done ?? 0;
   const total = v.progress?.total ?? v.plan?.length ?? 0;
   const labels = ["Waiting", "Page opened", "App connected", reached >= 3 && total ? `Testing (${done} of ${total})` : "Testing", "Done"];
+  return <StepRail labels={labels} reached={reached} stopped={stopped} wide={wide} />;
+}
+
+/** Numbered circles joined by a line; `reached` = the current step, and the last step reached means all done. */
+function StepRail({ labels, reached, stopped, wide }: { labels: string[]; reached: number; stopped: boolean; wide: boolean }) {
+  const last = labels.length - 1;
   return (
     <View style={{ flexDirection: "row", gap: wide ? 8 : 4 }}>
       {labels.map((label, i) => {
-        const isDone = i < reached || (i === 4 && reached === 4);
+        const isDone = i < reached || (i === last && reached === last);
         const current = i === reached && !isDone && !stopped;
         const color = stopped && i === reached ? L.warn : isDone ? L.up : current ? L.fix : L.border;
         return (
@@ -378,7 +630,7 @@ export function Stepper({ v, wide }: { v: TestSessionView; wide: boolean }) {
               >
                 <Text style={{ color: isDone ? "#fff" : color, fontWeight: "900", fontSize: wide ? 16 : 13 }}>{isDone ? "✓" : i + 1}</Text>
               </View>
-              <View style={{ flex: 1, height: 3, backgroundColor: i === 4 ? "transparent" : i < reached ? L.up : L.border }} />
+              <View style={{ flex: 1, height: 3, backgroundColor: i === last ? "transparent" : i < reached ? L.up : L.border }} />
             </View>
             <Text
               style={{ fontSize: wide ? 15 : 12, fontWeight: current || isDone ? "800" : "600", color: current ? L.fix : isDone ? L.ink : L.muted, textAlign: "center" }}
@@ -470,6 +722,12 @@ const OUTCOME: Record<Outcome | "pending" | "notrun", { icon: string; label: str
 function detailLine(d: Record<string, unknown> | null | undefined): string | null {
   if (!d || typeof d !== "object") return null;
   const parts: string[] = [];
+  // Battery health (phone-led flow): the % GradeIQ read off the customer's screenshot, and how.
+  // `method` only here — the automatic tests carry one too ("touch grid", "timeout") that was never shown.
+  if (typeof d.healthPct === "number" && d.healthPct > 0) {
+    parts.push(`${Math.round(d.healthPct)}% health${d.healthPct < BATTERY_HEALTH_MIN ? ` — below ${BATTERY_HEALTH_MIN}%` : ""}`);
+    if (typeof d.method === "string" && d.method.trim()) parts.push(d.method.trim());
+  }
   const side = d.side;
   if (typeof side === "string" && side) parts.push(side === "both" ? "Front and rear" : `${cap(side)} camera`);
   for (const k of ["reason", "note", "message"]) {
@@ -541,7 +799,8 @@ function yesNo(b: boolean | null | undefined): { text: string; tone?: Tone } {
   return { text: "Not answered", tone: "muted" };
 }
 
-export function DeclaredCard({ v }: { v: TestSessionView }) {
+/** `withImei` false: the phone-led layout shows the IMEIs in "Identify the phone" instead. */
+export function DeclaredCard({ v, withImei = true }: { v: TestSessionView; withImei?: boolean }) {
   const d = v.declared;
   return (
     <Card>
@@ -559,7 +818,8 @@ export function DeclaredCard({ v }: { v: TestSessionView }) {
             const x = yesNo(val);
             return <KV key={label} label={label} value={x.text} tone={x.tone} />;
           })}
-          <KV label="IMEI (from *#06#)" value={d.imei || "Not given"} tone={d.imei ? undefined : "muted"} />
+          {withImei ? <KV label="IMEI (from *#06#)" value={d.imei || "Not given"} tone={d.imei ? undefined : "muted"} /> : null}
+          {withImei && d.imei2 ? <KV label="IMEI 2" value={d.imei2} /> : null}
         </View>
       ) : (
         <Body muted>Not answered yet.</Body>
@@ -605,6 +865,8 @@ export function SummaryCard({ v }: { v: TestSessionView }) {
         { title: "Some tests failed", tone: "warn" as Tone, body: "Nothing from them goes on the case by itself — see the notes below and check those parts by hand." }
       : (VERDICT[sm.verdict] ?? VERDICT.incomplete);
   const match = MATCH[sm.model.match] ?? MATCH.none;
+  const bh = batteryHealth(results);
+  const battery = bh ? batteryLine(bh) : null;
   const criticalUntested = untested.filter((u) => u.critical);
   const otherUntested = untested.filter((u) => !u.critical);
   return (
@@ -624,6 +886,13 @@ export function SummaryCard({ v }: { v: TestSessionView }) {
         </View>
         {sm.model.why ? <Body muted>{sm.model.why}</Body> : null}
       </View>
+
+      {battery ? (
+        <View style={{ gap: 6 }}>
+          <Label>Battery health</Label>
+          <Text style={{ fontSize: 19, fontWeight: "800", color: battery.tone === "muted" ? L.muted : toneColor(battery.tone) }}>{battery.text}</Text>
+        </View>
+      ) : null}
 
       <View style={{ gap: 6 }}>
         <Label>{inProgress ? "Faults found so far" : "Faults found"}</Label>

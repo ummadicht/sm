@@ -1,27 +1,39 @@
-// The NATIVE SwapUp Check after joining (docs/AUTO-TESTS.md) — no questions:
-//   Get ready (the permission dialogs, then straight on)
+// The NATIVE SwapUp Check after joining — GradeIQ v2's order, the phone leading
+// (swapup docs/PHONE-LED-FLOW.md, app ≥ 0.6.0), with a step rail on every
+// screen: Identify · Scan · Test · Result.
+//   Identify  (is this your phone? / choose it; the IMEI from *#06#)
+//   → Scan    (a QR of GradeIQ's camera link; the advisor's tablet photographs the
+//              phone and sweeps its screen — vision first; GradeIQ grades the
+//              glass, body and LCD while the tests below run)
+//   → Battery (a screenshot of the battery-health page, read by GradeIQ)
+//   → Get ready (the permission dialogs, then straight on)
 //   → Automatic steps (one progress bar, ticks itself)
 //   → Actions (swipe the grid, plug in the charger)
-//   → Screen check (lay it on the counter; the store's camera checks the screen — the
-//     outside was photographed before the phone joined; GradeIQ grades the glass and the LCD)
-//   → Done ("Show this to the advisor").
-// Tests come first so the customer never waits for the store's camera.
-// The browser build keeps the interactive flow in ./screens.tsx and never loads
-// this file (Metro picks ./NativeCheck.web.tsx there).
+//   → Result ("Checks complete — the advisor will confirm your price").
+// Each step is kept on disk (identifiedAt, pairing, battery, results), so a
+// restart lands where it left off; each step change is reported to the store
+// (POST /api/device/phase). The customer now waits on Scan for the advisor —
+// capped by the 90 s "Skip the camera check".
+// The browser build runs the same steps where it can from ../CheckApp.tsx and
+// never loads this file (Metro picks ./NativeCheck.web.tsx there).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BackHandler, Linking, Text, View } from "react-native";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { T } from "../shared/theme";
 import { Big, BigEmoji, Fact, Say } from "../diagnostics/parts";
 import { testById } from "../diagnostics/catalog";
-import { NOT_IN_RUN_REASON, nativeStep, partitionPlan, rerunnable } from "../diagnostics/auto/plan";
+import { NOT_IN_RUN_REASON, nativeStep, partitionPlan, rerunnable, testsStarted } from "../diagnostics/auto/plan";
 import { AutoRunner } from "../diagnostics/auto/AutoRunner";
 import { ChargingAction, TouchAction } from "../diagnostics/auto/Actions";
 import { PairingScreen } from "./PairingScreen";
+import { IdentifyScreen } from "./IdentifyScreen";
+import { BatteryScreen } from "./BatteryScreen";
+import { Railed } from "./StepRail";
 import { GetReady, askTestPermissions } from "./GetReady";
 import { Screen, SyncBadge, Title, Note } from "./screens";
-import { countResults, type Detail, type Outcome, type PairingRec } from "./core";
-import type { CheckEngine, Snapshot } from "./engine";
+import { BATTERY_HEALTH_ID, countResults, phaseFor, startedBeforeIdentify, type BatteryRec, type Detail, type Outcome, type PairingRec } from "./core";
+import { batteryResultText } from "./battery";
+import type { CheckEngine, IdentifyAnswers, Snapshot } from "./engine";
 import { ClearDataGuide } from "./ClearDataGuide";
 
 const KEEP_AWAKE = "swapup-check-native";
@@ -62,19 +74,34 @@ export function NativeCheck({
     if (!st.consentAt) void engine.consent();
   }, [engine, st.consentAt]);
 
-  const base = nativeStep(!!st.pairing, st.results, plan);
+  const base = nativeStep(
+    {
+      // A check begun by an older app (no Identify step) carries on with its tests.
+      identified: !!st.identifiedAt || startedBeforeIdentify(st),
+      scanned: !!st.pairing,
+      // Only where the server asked for it (an older server has no screenshot reader).
+      battery: !!st.battery || !plan.server.includes(BATTERY_HEALTH_ID),
+    },
+    st.results,
+    plan
+  );
   // Stay on the automatic list until the runner says it is finished (its last
   // tick stays visible), rather than jumping the moment the last result lands.
   const [autoActive, setAutoActive] = useState(false);
   useEffect(() => {
     if (base === "auto" && !rerun) setAutoActive(true);
   }, [base, rerun]);
-  const step = rerun ? rerun.stage : autoActive && base !== "pairing" ? "auto" : base;
+  const step = rerun ? rerun.stage : autoActive && testsStarted(base) ? "auto" : base;
   const busy = step !== "done";
+
+  // Where the phone is, for the store's tablet ("identifying itself", "showing its scan code"…).
+  useEffect(() => {
+    engine.reportPhase(phaseFor(step));
+  }, [engine, step]);
 
   // Tests the automatic run leaves out are reported as such — never silently missing.
   useEffect(() => {
-    if (step === "pairing") return;
+    if (!testsStarted(step)) return;
     for (const id of plan.notInRun) if (!st.results[id]) record(id, "skip", { method: "not run", reason: NOT_IN_RUN_REASON });
     for (const id of plan.unknown) if (!st.results[id]) record(id, "unsupported", { method: "not run", reason: "not available in this app" });
   }, [step, plan, st.results, record]);
@@ -123,40 +150,62 @@ export function NativeCheck({
     [engine, plan]
   );
 
-  if (step === "pairing") {
+  if (step === "identify") {
+    return (
+      <Railed at="identify">
+        <IdentifyScreen engine={engine} state={st} onDone={(a: IdentifyAnswers) => void engine.identify(a)} onWrongCode={onWrongCode} />
+      </Railed>
+    );
+  }
+
+  if (step === "scan") {
     return <PairingScreen engine={engine} state={st} onDone={(r) => void pairingDone(r)} onBleed={onBleed} />;
   }
 
-  if (step === "auto" && !rerun && !permsAsked) {
-    return <GetReady state={st} onReady={() => setPermsAsked(true)} onWrongCode={onWrongCode} />;
-  }
-
-  if (step === "auto") {
-    const all = rerun ? rerun.auto : plan.auto;
-    const todo = rerun ? rerun.auto : plan.auto.filter((id) => !st.results[id]);
+  if (step === "battery") {
     return (
-      <AutoRunner
-        key={rerun ? `rerun-${rerun.n}` : "main"}
-        all={all}
-        todo={todo}
-        names={names}
-        existing={st.results}
-        onResult={record}
-        onDone={() => {
-          if (rerun) {
-            if (rerun.actions.length) {
-              setRerunAction(0);
-              setRerun({ ...rerun, stage: "actions" });
-            } else setRerun(null);
-            return;
-          }
-          // Every test the runner was given reports something; this only guards against a silent gap.
-          const now = engine.getSnapshot().state;
-          for (const id of plan.auto) if (now && !now.results[id]) record(id, "skip", { method: "error", reason: "the check did not report a result" });
-          setAutoActive(false);
-        }}
-        status={<SyncBadge snap={snap} />}
-      />
+      <Railed at="test">
+          <BatteryScreen engine={engine} state={st} onDone={(b: Omit<BatteryRec, "at">) => void engine.setBattery({ ...b, at: new Date().toISOString() })} />
+        </Railed>
+      );
+    }
+
+    if (step === "auto" && !rerun && !permsAsked) {
+      return (
+        <Railed at="test">
+          <GetReady state={st} onReady={() => setPermsAsked(true)} onWrongCode={onWrongCode} />
+        </Railed>
+      );
+    }
+
+    if (step === "auto") {
+      const all = rerun ? rerun.auto : plan.auto;
+      const todo = rerun ? rerun.auto : plan.auto.filter((id) => !st.results[id]);
+      return (
+        <Railed at="test">
+        <AutoRunner
+          key={rerun ? `rerun-${rerun.n}` : "main"}
+          all={all}
+          todo={todo}
+          names={names}
+          existing={st.results}
+          onResult={record}
+          onDone={() => {
+            if (rerun) {
+              if (rerun.actions.length) {
+                setRerunAction(0);
+                setRerun({ ...rerun, stage: "actions" });
+              } else setRerun(null);
+              return;
+            }
+            // Every test the runner was given reports something; this only guards against a silent gap.
+            const now = engine.getSnapshot().state;
+            for (const id of plan.auto) if (now && !now.results[id]) record(id, "skip", { method: "error", reason: "the check did not report a result" });
+            setAutoActive(false);
+          }}
+          status={<SyncBadge snap={snap} />}
+        />
+      </Railed>
     );
   }
 
@@ -173,29 +222,35 @@ export function NativeCheck({
     };
     const key = `${id}-${rerun ? rerun.n : "main"}`;
     const n = { step: idx + 1, steps: list.length };
-    return id === "touch" ? <TouchAction key={key} onResult={onResult} {...n} /> : <ChargingAction key={key} onResult={onResult} {...n} />;
+    return (
+      <Railed at="test">
+        {id === "touch" ? <TouchAction key={key} onResult={onResult} {...n} /> : <ChargingAction key={key} onResult={onResult} {...n} />}
+      </Railed>
+    );
   }
 
   return (
-    <NativeDone
-      snap={snap}
-      planIds={plan}
-      blockedPerms={blockedPerms}
-      onRerun={(ids) => {
-        if (rerunStarting.current) return;
-        rerunStarting.current = true;
-        // A test skipped for a refused permission can only pass if it is asked for again.
-        void askTestPermissions(ids)
-          .then((blocked) => setBlockedPerms(blocked))
-          .catch(() => setBlockedPerms([]))
-          .finally(() => {
-            rerunStarting.current = false;
-            setRerun({ auto: plan.auto.filter((i) => ids.includes(i)), actions: plan.actions.filter((i) => ids.includes(i)), stage: plan.auto.some((i) => ids.includes(i)) ? "auto" : "actions", n: Date.now() });
-            setRerunAction(0);
-          });
-      }}
-      onNewCheck={onNewCheck}
-    />
+    <Railed at="result">
+      <NativeDone
+        snap={snap}
+        planIds={plan}
+        blockedPerms={blockedPerms}
+        onRerun={(ids) => {
+          if (rerunStarting.current) return;
+          rerunStarting.current = true;
+          // A test skipped for a refused permission can only pass if it is asked for again.
+          void askTestPermissions(ids)
+            .then((blocked) => setBlockedPerms(blocked))
+            .catch(() => setBlockedPerms([]))
+            .finally(() => {
+              rerunStarting.current = false;
+              setRerun({ auto: plan.auto.filter((i) => ids.includes(i)), actions: plan.actions.filter((i) => ids.includes(i)), stage: plan.auto.some((i) => ids.includes(i)) ? "auto" : "actions", n: Date.now() });
+              setRerunAction(0);
+            });
+        }}
+        onNewCheck={onNewCheck}
+      />
+    </Railed>
   );
 }
 
@@ -217,10 +272,12 @@ function NativeDone({
   const applied = snap.remote?.status === "applied";
   const redo = rerunnable(planIds, s.results);
   const photos = s.pairing?.outcome;
+  const byCamera = photos === "handoff" || photos === "grace";
   return (
     <Screen>
       <BigEmoji>{applied ? "✅" : "📱"}</BigEmoji>
-      <Title>{applied ? "The store has your results" : "All done — show this to the advisor"}</Title>
+      {/* Never a price or a grade letter here: the price comes from the store and can still change. */}
+      <Title>{applied ? "The store has your results" : "Checks complete — the advisor will confirm your price."}</Title>
       <Text style={{ color: T.text, fontSize: 22, fontWeight: "800", textAlign: "center", marginBottom: 4 }}>{s.session.caseRef}</Text>
       <Say muted center>
         {s.session.storeName}
@@ -231,13 +288,10 @@ function NativeDone({
         <Fact label="Failed" value={String(c.failed)} tone={c.failed ? "fail" : undefined} />
         <Fact label="Not tested" value={String(c.skipped)} tone={c.skipped ? "warn" : undefined} />
         {c.unsupported ? <Fact label="Not on this phone" value={String(c.unsupported)} tone="skip" /> : null}
-        {planIds.server.length ? (
-          <Fact
-            label="Screen and glass"
-            value={photos === "handoff" || photos === "grace" ? "photographed by the advisor" : "checked by the advisor"}
-            tone="skip"
-          />
+        {planIds.server.includes("display") ? (
+          <Fact label="Screen and glass" value={byCamera ? "checked by the store's camera" : "checked by eye"} tone="skip" />
         ) : null}
+        {planIds.server.includes(BATTERY_HEALTH_ID) ? <Fact label="Battery health" value={batteryResultText(s.battery)} tone="skip" /> : null}
       </View>
       <View style={{ height: 12 }} />
       <SyncBadge snap={snap} />

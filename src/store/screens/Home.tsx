@@ -4,7 +4,8 @@ import { L } from "../../shared/theme";
 import { StaffClient, absolute, errText } from "../staffClient";
 import type { CreditState, CreditSummary, StaffUser, TestSessionView } from "../types";
 import { unwrapSession } from "../types";
-import { photosNeeded } from "../grading";
+import { photosNeeded, readGrading } from "../grading";
+import { customerStarted, readPhonePhase, scanFlag, scanStage, sessionLayout } from "../phoneLed";
 import { firstName } from "../pin";
 import { Banner, Body, Btn, Card, Chip, Columns, H1, H2, Label, STATUS, Tone, ago, inr, toneColor, until, useLayout } from "../ui";
 
@@ -253,8 +254,17 @@ function CreditBody({
 
 function SessionRow({ s: x, onPress }: { s: TestSessionView; onPress: () => void }) {
   const st = STATUS[x.status] ?? { label: x.status, tone: "muted" as Tone };
-  // Photos still to take (camera grading on, no grade yet): step 1 with a two-pass server, step 3 with an older one.
-  const needPhotos = photosNeeded(x, x.status === "joined" || x.status === "testing" || x.status === "complete");
+  // What the advisor is needed for. Phone-led (Check 0.6.0+): the phone is showing its scan code.
+  // Otherwise photos still to take (camera grading on, no grade yet): step 1 with a two-pass server, step 3 with an older one.
+  const g = readGrading(x);
+  const flag =
+    sessionLayout(x, g) === "scanFirst"
+      ? scanFlag(
+          scanStage({ grading: g.phase, phase: readPhonePhase(x).phase, status: x.status, deviceReady: g.deviceReady, photosDone: g.photosDone, screenDone: g.screenDone })
+        )
+      : photosNeeded(x, x.status === "joined" || x.status === "testing" || x.status === "complete")
+        ? { text: "Photos needed", tone: "warn" as Tone }
+        : null;
   const model = x.summary?.model.label || [x.device?.brand, x.device?.modelName].filter(Boolean).join(" ") || null;
   const when =
     x.status === "waiting" || x.status === "opened"
@@ -289,7 +299,8 @@ function SessionRow({ s: x, onPress }: { s: TestSessionView; onPress: () => void
       </View>
       <View style={{ alignItems: "flex-end", gap: 6 }}>
         <Chip text={st.label} tone={st.tone} />
-        {needPhotos ? <Chip text="Photos needed" tone="warn" /> : null}
+        {flag ? <Chip text={flag.text} tone={flag.tone} /> : null}
+        {customerStarted(x) ? <Chip text="Started by the customer" tone="muted" /> : null}
       </View>
       <Text style={{ fontSize: 24, color: L.muted }}>›</Text>
     </Pressable>

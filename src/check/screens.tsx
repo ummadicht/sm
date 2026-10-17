@@ -11,7 +11,8 @@ import { TEST_COMPONENTS } from "../diagnostics/tests";
 import { testById, type FunctionalTest } from "../diagnostics/catalog";
 import type { CheckEngine, Snapshot } from "./engine";
 import { ClearDataGuide } from "./ClearDataGuide";
-import { checkImei, cleanCode, countResults, isValidCode, parseJoinTarget, type CheckState, type Declared, type Outcome, type PlanItem } from "./core";
+import { BATTERY_HEALTH_ID, checkImei, cleanCode, countResults, isValidCode, parseJoinTarget, type CheckState, type Declared, type Outcome, type PlanItem } from "./core";
+import { batteryResultText } from "./battery";
 
 /* ─────────────────────────── shared bits ─────────────────────────── */
 
@@ -171,14 +172,14 @@ export function JoinScreen({
 /* ─────────────────────────── 2. welcome ─────────────────────────── */
 
 export function WelcomeScreen({ state, onConsent, onLeave }: { state: CheckState; onConsent: () => void; onLeave: () => void }) {
-  const n = state.session.plan.length;
+  const n = supportedPlan(state.session.plan).runnable.length;
   return (
     <Screen>
       <Kicker>{state.session.storeName}</Kicker>
       <Title>Let's check your phone</Title>
       <Say>
-        About 5 minutes. {n} quick tests — touch, screen, sound, cameras, charging and more. Each result goes straight to the advisor, so they can price
-        your trade-in and any repair.
+        About 5 minutes: say which phone it is, let the advisor's tablet photograph it, then {n} quick tests — touch, screen, sound, cameras, charging
+        and more. Each result goes straight to the advisor, so they can price your trade-in and any repair.
       </Say>
       <View style={{ height: 18 }} />
       <Note tone="ok">
@@ -210,14 +211,19 @@ function YesNo({ label, value, onChange }: { label: string; value: boolean | nul
   );
 }
 
-export function QuestionsScreen({ initial, onDone }: { initial: Declared | null; onDone: (d: Declared) => void }) {
+/**
+ * The browser's damage questions. `askImei`: false once the Identify step has
+ * asked for it — its answers (IMEI, the phone confirmed or picked, contact) are
+ * kept and sent again with these, since the server keeps one declaration.
+ */
+export function QuestionsScreen({ initial, askImei = true, onDone }: { initial: Declared | null; askImei?: boolean; onDone: (d: Declared) => void }) {
   const [screen, setScreen] = useState<boolean | null>(initial?.screenCracked ?? null);
   const [back, setBack] = useState<boolean | null>(initial?.backCracked ?? null);
   const [liquid, setLiquid] = useState<boolean | null>(initial?.liquid ?? null);
   const [imei, setImei] = useState(initial?.imei ?? "");
   const ic = checkImei(imei);
   const answered = screen !== null && back !== null && liquid !== null;
-  const imeiOk = ic.ok !== false;
+  const imeiOk = !askImei || ic.ok !== false;
   return (
     <Screen>
       <Kicker>A few questions</Kicker>
@@ -225,22 +231,34 @@ export function QuestionsScreen({ initial, onDone }: { initial: Declared | null;
       <YesNo label="Is the screen glass cracked?" value={screen} onChange={setScreen} />
       <YesNo label="Is the back glass cracked?" value={back} onChange={setBack} />
       <YesNo label="Has the phone been in water or other liquid?" value={liquid} onChange={setLiquid} />
-      <Text style={st.label}>IMEI (optional)</Text>
-      <Say muted>Dial *#06# — the phone shows its IMEI. Type the 15 digits, or leave it for the advisor.</Say>
-      <TextInput
-        value={imei}
-        onChangeText={(t) => setImei(t.replace(/\D/g, "").slice(0, 15))}
-        keyboardType="number-pad"
-        placeholder="15 digits"
-        placeholderTextColor={T.skip}
-        style={[st.codeInput, { fontSize: 22, letterSpacing: 2 }]}
-      />
-      {ic.ok === false ? <Text style={[st.noteText, { color: T.fail, marginTop: 8 }]}>{ic.message}</Text> : null}
+      {askImei ? (
+        <>
+          <Text style={st.label}>IMEI (optional)</Text>
+          <Say muted>Dial *#06# — the phone shows its IMEI. Type the 15 digits, or leave it for the advisor.</Say>
+          <TextInput
+            value={imei}
+            onChangeText={(t) => setImei(t.replace(/\D/g, "").slice(0, 15))}
+            keyboardType="number-pad"
+            placeholder="15 digits"
+            placeholderTextColor={T.skip}
+            style={[st.codeInput, { fontSize: 22, letterSpacing: 2 }]}
+          />
+          {ic.ok === false ? <Text style={[st.noteText, { color: T.fail, marginTop: 8 }]}>{ic.message}</Text> : null}
+        </>
+      ) : null}
       <View style={{ height: 20 }} />
       <Big
         title="Continue to the tests"
         disabled={!answered || !imeiOk}
-        onPress={() => onDone({ screenCracked: screen, backCracked: back, liquid, imei: ic.ok === true ? ic.imei : null })}
+        onPress={() =>
+          onDone({
+            ...initial,
+            screenCracked: screen,
+            backCracked: back,
+            liquid,
+            imei: askImei ? (ic.ok === true ? ic.imei : null) : initial?.imei ?? null,
+          })
+        }
       />
       {!answered ? <Text style={[st.ref, { marginTop: 10 }]}>Answer the three questions to continue.</Text> : null}
     </Screen>
@@ -249,10 +267,18 @@ export function QuestionsScreen({ initial, onDone }: { initial: Declared | null;
 
 /* ─────────────────────────── 4. runner ─────────────────────────── */
 
+/**
+ * The plan's tests this browser can run, and the ones it can't (reported as
+ * such). battery_health is neither: it is the battery screenshot step, whose
+ * result the server records itself.
+ */
 export function supportedPlan(plan: PlanItem[]): { runnable: PlanItem[]; unsupported: PlanItem[] } {
   const runnable: PlanItem[] = [];
   const unsupported: PlanItem[] = [];
-  for (const p of plan) (TEST_COMPONENTS[p.id] && testById(p.id) ? runnable : unsupported).push(p);
+  for (const p of plan) {
+    if (p.id === BATTERY_HEALTH_ID) continue;
+    (TEST_COMPONENTS[p.id] && testById(p.id) ? runnable : unsupported).push(p);
+  }
   return { runnable, unsupported };
 }
 
@@ -347,10 +373,12 @@ export function DoneScreen({
     const o = s.results[p.id]?.outcome;
     return (o === "fail" || o === "skip") && TEST_COMPONENTS[p.id];
   });
+  const photos = s.pairing?.outcome;
   return (
     <Screen>
       <BigEmoji>{applied ? "✅" : "📱"}</BigEmoji>
-      <Title>{applied ? "The store has your results" : "All done — show this to the advisor"}</Title>
+      {/* Never a price or a grade letter here: the price comes from the store and can still change. */}
+      <Title>{applied ? "The store has your results" : "Checks complete — the advisor will confirm your price."}</Title>
       <Text style={st.bigRef}>{s.session.caseRef}</Text>
       <Say muted center>
         {s.session.storeName}
@@ -361,6 +389,10 @@ export function DoneScreen({
         <Fact label="Failed" value={String(c.failed)} tone={c.failed ? "fail" : undefined} />
         <Fact label="Skipped" value={String(c.skipped)} tone={c.skipped ? "warn" : undefined} />
         {c.unsupported ? <Fact label={IS_WEB ? "Can't test in this browser" : "Can't run on this phone"} value={String(c.unsupported)} tone="skip" /> : null}
+        {photos ? (
+          <Fact label="Screen and glass" value={photos === "handoff" || photos === "grace" ? "checked by the store's camera" : "checked by eye"} tone="skip" />
+        ) : null}
+        {s.battery ? <Fact label="Battery health" value={batteryResultText(s.battery)} tone="skip" /> : null}
       </View>
       <View style={{ height: 12 }} />
       <SyncBadge snap={snap} />
