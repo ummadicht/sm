@@ -135,7 +135,7 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
         tracker.current = t.tracker;
         if (t.unavailable) return leave({ outcome: "unavailable", reason: r.message || `the store's system refused the photo check (${r.status})` });
       }
-      setOffer(skipOffer(tracker.current, now));
+      setOffer(skipOffer(tracker.current, now, drawingRef.current !== "idle"));
       timer = setTimeout(tick, Math.max(0, POLL_MS - (Date.now() - started)));
     };
     void tick();

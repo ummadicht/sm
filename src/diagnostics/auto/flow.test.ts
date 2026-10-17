@@ -75,11 +75,21 @@ test("pairing: 'Finish without photos' only after 90 s with no store camera page
   tr = P.trackPoll(tr, poll(), 1000).tracker;
   assert.equal(P.skipOffer(tr, 89_999), null);
   assert.equal(P.skipOffer(tr, 90_000), "never-connected");
-  // The camera page opening (GradeIQ connectedAt, relayed) counts as connected: no early offer.
-  const opened = P.trackPoll(P.newTracker(0), poll({ connectedAt: "2026-10-17T00:00:00Z" }), 1000).tracker;
+  // A camera page opening while this screen is up (a NEW GradeIQ connectedAt) counts as connected…
+  const before = P.trackPoll(P.newTracker(0), poll({ connectedAt: null }), 500).tracker;
+  const opened = P.trackPoll(before, poll({ connectedAt: "2026-10-17T00:00:00Z" }), 1000).tracker;
   assert.equal(P.skipOffer(opened, 120_000), null);
-  // Connected: no offer at 3 min…
-  const c = P.trackPoll(P.newTracker(0), poll({ connectedAt: "x" }), 1000).tracker;
+  // …but a connectedAt already there when the screen mounted (a page opened earlier) does not.
+  const stale = P.trackPoll(P.newTracker(0), poll({ connectedAt: "2026-10-16T23:00:00Z" }), 1000).tracker;
+  assert.equal(stale.connectedAt, null);
+  assert.equal(P.skipOffer(stale, 90_000), "never-connected");
+  // A pattern left on screen for 90 s with nothing changing: the way out appears over it.
+  const up = P.trackPoll(P.newTracker(0), poll({ pattern: "white" }), 1000).tracker;
+  assert.equal(P.skipOffer(up, 1000 + P.PATTERN_STALL_MS - 1, true), null);
+  assert.equal(P.skipOffer(up, 1000 + P.PATTERN_STALL_MS, true), "stalled");
+  // Connected (a camera page opened after this screen mounted): no offer at 3 min…
+  const c0 = P.trackPoll(P.newTracker(0), poll(), 500).tracker;
+  const c = P.trackPoll(c0, poll({ connectedAt: "x" }), 1000).tracker;
   assert.equal(P.skipOffer(c, 200_000), null);
   // …only when nothing has changed for the long stall window.
   assert.equal(P.skipOffer(c, 1000 + P.STALL_MS), "stalled");

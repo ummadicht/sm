@@ -34,7 +34,7 @@ GradeIQ integration: `~/projects/swapup/docs/GRADEIQ-INTEGRATION.md`. The automa
      `POST /api/device/screen {shown}`. The first echo is what unlocks the store's camera button.
      It leaves when the camera says it is finished (`handoffDone`, or 30 s after `cosmeticDone`),
      at once when camera grading is off or failed for this check, and offers **Finish without
-     photos** only if the store's camera never connects within 1 min (or stalls for 6 min) — the
+     photos** only if the store's camera never opens within 90 s (or stalls for 6 min; 90 s if a pattern is stuck on screen) — the
      phone then records `display` as skipped ("not camera-checked: …").
    - **Automatic steps** — one progress bar, steps tick by themselves: battery, sensors, motion,
      connectivity, vibration (felt by the accelerometer), speaker + microphone (a tone played and

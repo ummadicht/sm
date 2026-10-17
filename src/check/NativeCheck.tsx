@@ -7,8 +7,8 @@
 // Tests come first so the customer never waits for the store's camera.
 // The browser build keeps the interactive flow in ./screens.tsx and never loads
 // this file (Metro picks ./NativeCheck.web.tsx there).
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { BackHandler, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BackHandler, Linking, Text, View } from "react-native";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { T } from "../shared/theme";
 import { Big, BigEmoji, Fact, Say } from "../diagnostics/parts";
@@ -50,6 +50,9 @@ export function NativeCheck({
   const [rerun, setRerun] = useState<Rerun | null>(null);
   /** The test permissions were asked for in this run of the app (GetReady). */
   const [permsAsked, setPermsAsked] = useState(false);
+  /** Permissions a re-run needed that Android will no longer ask for — only Settings can turn them on. */
+  const [blockedPerms, setBlockedPerms] = useState<string[]>([]);
+  const rerunStarting = useRef(false);
   const [rerunAction, setRerunAction] = useState(0);
   const record = useCallback((id: string, o: Outcome, d: Detail | null) => void engine.record(id, o, d), [engine]);
 
@@ -176,12 +179,19 @@ export function NativeCheck({
     <NativeDone
       snap={snap}
       planIds={plan}
+      blockedPerms={blockedPerms}
       onRerun={(ids) => {
+        if (rerunStarting.current) return;
+        rerunStarting.current = true;
         // A test skipped for a refused permission can only pass if it is asked for again.
-        void askTestPermissions().finally(() => {
-          setRerun({ auto: plan.auto.filter((i) => ids.includes(i)), actions: plan.actions.filter((i) => ids.includes(i)), stage: plan.auto.some((i) => ids.includes(i)) ? "auto" : "actions", n: Date.now() });
-          setRerunAction(0);
-        });
+        void askTestPermissions(ids)
+          .then((blocked) => setBlockedPerms(blocked))
+          .catch(() => setBlockedPerms([]))
+          .finally(() => {
+            rerunStarting.current = false;
+            setRerun({ auto: plan.auto.filter((i) => ids.includes(i)), actions: plan.actions.filter((i) => ids.includes(i)), stage: plan.auto.some((i) => ids.includes(i)) ? "auto" : "actions", n: Date.now() });
+            setRerunAction(0);
+          });
       }}
       onNewCheck={onNewCheck}
     />
@@ -191,11 +201,13 @@ export function NativeCheck({
 function NativeDone({
   snap,
   planIds,
+  blockedPerms,
   onRerun,
   onNewCheck,
 }: {
   snap: Snapshot;
   planIds: ReturnType<typeof partitionPlan>;
+  blockedPerms: string[];
   onRerun: (ids: string[]) => void;
   onNewCheck: () => void;
 }) {
@@ -233,6 +245,12 @@ function NativeDone({
       {photos === "skipped" || photos === "unavailable" ? (
         <View style={{ marginTop: 12 }}>
           <Note tone="warn">No photos were taken, so the advisor checks the screen and the body by eye.</Note>
+        </View>
+      ) : null}
+      {blockedPerms.length && !applied ? (
+        <View style={{ marginTop: 14, gap: 10 }}>
+          <Note tone="warn">{`The ${blockedPerms.join(" and ")} ${blockedPerms.length === 1 ? "is" : "are"} turned off for SwapUp Check, so those tests can't run. Turn ${blockedPerms.length === 1 ? "it" : "them"} on in Settings, then test again.`}</Note>
+          <Big title="Open Settings" kind="secondary" onPress={() => void Linking.openSettings().catch(() => {})} />
         </View>
       ) : null}
       {redo.length && !applied ? (

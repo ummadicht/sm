@@ -1,4 +1,5 @@
-// Pure logic of the pairing screen (docs/AUTO-TESTS.md "Order" step 2): the
+// Pure logic of the pairing screen — the LAST step, after the tests
+// (docs/AUTO-TESTS.md "Order" step 5): the
 // customer's phone lies on the counter, screen up, and shows whatever pattern
 // GradeIQ's camera page (on the STORE device) asks for, echoing what it shows.
 // Mirrors GradeIQ's own primary-phone loop (giq/app/components/V2Flow.tsx
@@ -8,10 +9,11 @@
 // Contract: SwapUp's ticket-authenticated GET/POST /api/device/screen
 // (swapup docs/MOBILE-API.md §4 "Photo check"), a proxy of GradeIQ's
 // /api/sessions/{id}/screen: { state, pattern, shown, cosmeticDone, handoffDone,
-// capture }. state disabled/failed → no photo check, run the tests; pending →
-// wait; ready → show the pattern. 503 → keep polling. GradeIQ's `connectedAt`
-// is not relayed, so "the store's camera is there" = it asked for a pattern or
-// judged a capture. No runtime imports — node --test runs it.
+// capture, connectedAt }. state disabled/failed → no photo check, go to Done;
+// pending → wait; ready → show the pattern. 503 → keep polling. "The store's
+// camera is there" = a NEW connectedAt (a camera page loaded after this screen
+// mounted; relayed since 2026-10-17), or it asked for a pattern, or judged a
+// capture. No runtime imports — node --test runs it.
 
 /** Solid fills, exactly GradeIQ V2Flow's FILLS. "stripes" is drawn separately; anything else is "idle". */
 export const PATTERN_FILLS: Readonly<Record<string, string>> = {
@@ -92,6 +94,13 @@ export function parseScreen(raw: unknown): ScreenPoll | null {
 
 export type Tracker = {
   startedAt: number;
+  /**
+   * GradeIQ's connectedAt as first seen on this screen. GradeIQ stamps it each time
+   * a camera page loads and never clears it, so an OLD value (a camera opened
+   * earlier, e.g. by an override during the tests) proves nothing; a NEW value does.
+   * undefined = no poll yet.
+   */
+  firstConnectedAt?: string | null;
   /** When this phone first saw evidence of the store's camera (connectedAt, a pattern, a capture verdict…). */
   connectedAt: number | null;
   cosmeticSince: number | null;
@@ -112,11 +121,14 @@ export type Leave = "handoff" | "grace" | "disabled" | "failed";
 
 /** Fold one successful poll into the tracker; says when to leave the pairing screen. */
 export function trackPoll(tr: Tracker, poll: ScreenPoll, now: number): { tracker: Tracker; leave: Leave | null } {
+  const firstConnectedAt = tr.firstConnectedAt === undefined ? poll.connectedAt : tr.firstConnectedAt;
+  const freshCameraPage = !!poll.connectedAt && poll.connectedAt !== firstConnectedAt;
   const connected =
-    !!poll.connectedAt || displayablePattern(poll.pattern) !== "idle" || poll.cosmeticDone || poll.handoffDone || !!poll.capture;
+    freshCameraPage || displayablePattern(poll.pattern) !== "idle" || poll.cosmeticDone || poll.handoffDone || !!poll.capture;
   const sig = [poll.pattern, poll.cosmeticDone, poll.handoffDone, poll.connectedAt, poll.capture?.verdict ?? ""].join("|");
   const next: Tracker = {
     ...tr,
+    firstConnectedAt,
     connectedAt: tr.connectedAt ?? (connected ? now : null),
     lastChangeAt: sig !== tr.lastSig ? now : tr.lastChangeAt,
     lastSig: sig,
@@ -141,8 +153,16 @@ export function trackRefusal(tr: Tracker, now: number): { tracker: Tracker; unav
   };
 }
 
-/** Why "Continue without photos" is offered right now, or null if it isn't. */
-export function skipOffer(tr: Tracker, now: number): "never-connected" | "stalled" | null {
+/**
+ * GradeIQ's camera page never holds one pattern this long (its sweep waits 4 s
+ * for an echo and moves on colour by colour), so a pattern unchanged for this
+ * long means the camera page is gone — offer the way out over the pattern.
+ */
+export const PATTERN_STALL_MS = 90_000;
+
+/** Why "Finish without photos" is offered right now, or null if it isn't. `patternUp`: a pattern fills the screen. */
+export function skipOffer(tr: Tracker, now: number, patternUp = false): "never-connected" | "stalled" | null {
+  if (patternUp && now - tr.lastChangeAt >= PATTERN_STALL_MS) return "stalled";
   if (tr.connectedAt == null) return now - tr.startedAt >= NO_CONNECT_MS ? "never-connected" : null;
   return now - tr.lastChangeAt >= STALL_MS ? "stalled" : null;
 }

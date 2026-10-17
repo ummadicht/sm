@@ -515,7 +515,10 @@ export function SummaryCard({ v }: { v: TestSessionView }) {
         tone: "fix" as Tone,
         body: `${v.progress?.done ?? 0} of ${v.progress?.total ?? v.plan?.length ?? 0} tests in. The verdict is final when the customer finishes.`,
       }
-    : (VERDICT[sm.verdict] ?? VERDICT.incomplete);
+    : sm.verdict === "faults_found" && sm.faults.length === 0
+      ? // Only tests that map to no repair fault failed (motion, flash, sensors…): say so, not "the faults below".
+        { title: "Some tests failed", tone: "warn" as Tone, body: "Nothing from them goes on the case by itself — see the notes below and check those parts by hand." }
+      : (VERDICT[sm.verdict] ?? VERDICT.incomplete);
   const match = MATCH[sm.model.match] ?? MATCH.none;
   const criticalUntested = untested.filter((u) => u.critical);
   const otherUntested = untested.filter((u) => !u.critical);

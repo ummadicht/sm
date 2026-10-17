@@ -444,7 +444,7 @@ function Actions({
               ? "The store camera's grade is still being worked out — usually under 30 seconds. Apply unlocks by itself."
               : `Check the summary below, then put the results on case ${v.caseRef}. The repair quote and trade-in price update from them.`}
           </Body>
-          <Btn title={waiting ? "Waiting for the camera grade…" : "Apply to case"} onPress={() => onApply(false)} busy={busy === "apply" || waiting} disabled={waiting || (other && busy !== "apply")} big />
+          <Btn title={waiting ? "Waiting for the camera grade…" : "Apply to case"} onPress={() => onApply(false)} busy={busy === "apply"} disabled={waiting || (other && busy !== "apply")} big />
         </Card>
       );
     }

@@ -2,7 +2,7 @@
 // with THIS device on GradeIQ's camera page — and the "Camera AI (GradeIQ)"
 // results card. Everything shown comes from session.grading (../grading.ts);
 // nothing here makes up a grade, a verdict or a reason.
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { L } from "../../shared/theme";
 import { CameraFault, CameraFinding, CameraGrading, CameraResult, GRADE_MEANING, disagreementLine, findingLine, pct } from "../grading";
@@ -49,6 +49,11 @@ export function CameraStepCard({
   /** The override answered with a fresh session (or a fresh grading object). */
   onSession: (r: unknown) => void;
 }) {
+  // When the customer's phone last made progress, on THIS device's clock (the
+  // results carry the phone's own clock, which may be minutes off).
+  const activity = useRef<{ sig: string; at: number }>({ sig: "", at: Date.now() });
+  const activitySig = `${v.status}|${v.progress?.done ?? 0}|${Object.keys(v.results ?? {}).length}`;
+  if (activitySig !== activity.current.sig) activity.current = { sig: activitySig, at: Date.now() };
   const [openErr, setOpenErr] = useState<string | null>(null);
   const [opened, setOpened] = useState<{ at: number; inChrome: boolean } | null>(null);
   const [overrideOpen, setOverrideOpen] = useState(false);
@@ -106,9 +111,8 @@ export function CameraStepCard({
   // check and older apps never come back to it: for them, progress means moved on.
   // A phone that has sent nothing for 3 minutes is not "testing" any more either.
   const photosLast = photosLastApp(v.device?.appVersion ?? null);
-  const lastResultAt = Math.max(0, ...Object.values(v.results ?? {}).map((x) => Date.parse(x.at) || 0));
-  const quiet = lastResultAt > 0 && Date.now() - lastResultAt > STALE_TESTING_MS;
   const progressed = (v.progress?.done ?? 0) > 0;
+  const quiet = progressed && Date.now() - activity.current.at > STALE_TESTING_MS;
   const testing = photosLast && joined && !g.deviceReady && status !== "complete" && progressed && !quiet;
   const movedOn = joined && !g.deviceReady && (status === "complete" || (!photosLast && progressed) || (photosLast && quiet));
   // The server says when an override is allowed; we hold it back while the phone is
@@ -193,6 +197,13 @@ export function CameraStepCard({
           }
           text={
             g.screenProblem ??
+            // Moved on before finishing (stopped, or an app that never shows the photo screen): our own words —
+            // the server's sentence may still say the screen is coming.
+            (movedOn && status !== "complete"
+              ? photosLast
+                ? "The customer's phone isn't on the photo screen and hasn't sent anything for a few minutes. Ask the customer to reopen SwapUp Check, or use \"Take photos anyway\" with a reason."
+                : "This check (the browser version, or an older app) doesn't show the photo screen. Use \"Take photos anyway\" with a reason — the display is then checked by eye."
+              : null) ??
             g.cameraLocked ??
             (g.deviceReady
               ? "The customer's phone is ready. The button appears in a moment."

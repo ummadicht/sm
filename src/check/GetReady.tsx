@@ -13,10 +13,26 @@ import { T } from "../shared/theme";
 import { Big, Say } from "../diagnostics/parts";
 import type { CheckState } from "./core";
 
-export async function askTestPermissions(): Promise<void> {
-  await Camera.requestCameraPermissionsAsync().catch(() => null);
-  await requestRecordingPermissionsAsync().catch(() => null);
-  await Location.requestForegroundPermissionsAsync().catch(() => null);
+type Perm = "camera" | "microphone" | "location";
+const NEEDS: Record<string, Perm> = { camera: "camera", flash: "camera", speaker: "microphone", mic: "microphone", voice: "microphone", connectivity: "location" };
+
+/**
+ * Ask for the permissions the tests need (all of them, or only those `testIds`
+ * need). Each dialog appears only if Android can still show it. Returns the
+ * permissions that stay off and can no longer be asked for — those need Settings.
+ */
+export async function askTestPermissions(testIds?: string[]): Promise<Perm[]> {
+  const want = new Set<Perm>(testIds ? testIds.map((id) => NEEDS[id]).filter((p): p is Perm => !!p) : ["camera", "microphone", "location"]);
+  const blocked: Perm[] = [];
+  const ask = async (p: Perm, f: () => Promise<{ granted: boolean; canAskAgain?: boolean }>) => {
+    if (!want.has(p)) return;
+    const r = await f().catch(() => null);
+    if (r && !r.granted && r.canAskAgain === false) blocked.push(p);
+  };
+  await ask("camera", () => Camera.requestCameraPermissionsAsync());
+  await ask("microphone", () => requestRecordingPermissionsAsync());
+  await ask("location", () => Location.requestForegroundPermissionsAsync());
+  return blocked;
 }
 
 export function GetReady({ state, onReady, onWrongCode }: { state: CheckState; onReady: () => void; onWrongCode: () => void }) {
