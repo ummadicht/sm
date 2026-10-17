@@ -24,3 +24,6 @@ export async function openCameraPage(url: string): Promise<OpenResult> {
     return { ok: false, error: `The browser refused to open the camera page${e instanceof Error && e.message ? ` (${e.message})` : ""}.` };
   }
 }
+
+/** Same page, same tab name — the browser build has no Chrome-vs-default distinction. */
+export const openInDefaultBrowser = openCameraPage;

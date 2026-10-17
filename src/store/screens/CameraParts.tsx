@@ -13,7 +13,7 @@ import React, { useRef, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { L } from "../../shared/theme";
 import { CameraFault, CameraFinding, CameraGrading, CameraResult, GRADE_MEANING, disagreementLine, findingLine, pct, photosStep } from "../grading";
-import { openCameraPage } from "../openCamera";
+import { openCameraPage, openInDefaultBrowser } from "../openCamera";
 import { StaffClient, errText } from "../staffClient";
 import type { TestSessionView } from "../types";
 import { faultLabel } from "./SessionParts";
@@ -96,12 +96,12 @@ function useRetry(api: StaffClient, v: TestSessionView, onSession: (r: unknown) 
 /** Open a camera page in Chrome (or a new tab in the browser app) and remember that we did. */
 function useOpener() {
   const [openErr, setOpenErr] = useState<string | null>(null);
-  const [opened, setOpened] = useState<{ at: number; inChrome: boolean } | null>(null);
-  async function open(url: string | null) {
+  const [opened, setOpened] = useState<{ at: number; inChrome: boolean; url: string } | null>(null);
+  async function open(url: string | null, plain = false) {
     if (!url) return;
     setOpenErr(null);
-    const r = await openCameraPage(url);
-    if (r.ok) setOpened({ at: Date.now(), inChrome: r.inChrome });
+    const r = plain ? await openInDefaultBrowser(url) : await openCameraPage(url);
+    if (r.ok) setOpened({ at: Date.now(), inChrome: r.inChrome, url });
     else setOpenErr(r.error);
   }
   return { open, opened, openErr };
@@ -256,16 +256,22 @@ function OpenButton({ title, primary, onPress }: { title: string; primary: boole
   );
 }
 
-function OpenedNote({ opened }: { opened: { at: number; inChrome: boolean } | null }) {
+function OpenedNote({ opened, onPlain }: { opened: { at: number; inChrome: boolean; url: string } | null; onPlain?: (url: string) => void }) {
   if (!opened) return null;
   return (
-    <Text style={{ color: opened.inChrome ? L.muted : L.warn, fontSize: 14, lineHeight: 20, fontWeight: opened.inChrome ? "400" : "700" }}>
-      {opened.inChrome
-        ? `Camera page opened ${ago(new Date(opened.at).toISOString()) || "just now"}.`
-        : IS_WEB
-          ? "Opened in this browser. Without Chrome on Android there are no torch-lit photos."
-          : "Chrome isn't on this device, so the camera page opened in the default browser — no torch-lit photos."}
-    </Text>
+    <View style={{ gap: 6 }}>
+      <Text style={{ color: opened.inChrome ? L.muted : L.warn, fontSize: 14, lineHeight: 20, fontWeight: opened.inChrome ? "400" : "700" }}>
+        {opened.inChrome
+          ? `Camera page opened ${ago(new Date(opened.at).toISOString()) || "just now"}.`
+          : IS_WEB
+            ? "Opened in this browser. Without Chrome on Android there are no torch-lit photos."
+            : "Chrome isn't on this device, so the camera page opened in the default browser — no torch-lit photos."}
+      </Text>
+      {/* If Chrome came up without GradeIQ's camera page, the plain browser hand-off always works. */}
+      {opened.inChrome && !IS_WEB && onPlain ? (
+        <Btn title="Didn't open? Open in the default browser" kind="ghost" onPress={() => onPlain(opened.url)} style={{ alignSelf: "flex-start", paddingHorizontal: 0 }} />
+      ) : null}
+    </View>
   );
 }
 
@@ -399,7 +405,7 @@ export function CameraStepCard({
           button={
             <>
               <OpenButton title={again ? "Retake photos" : "Take photos"} primary={!graded || needRetake} onPress={() => opener.open(g.cameraUrl)} />
-              <OpenedNote opened={opener.opened} />
+              <OpenedNote opened={opener.opened} onPlain={(u) => opener.open(u, true)} />
             </>
           }
         />
@@ -516,7 +522,7 @@ export function PhotosStepCard({
         {g.outOfSync ? <OutOfSync /> : null}
         {both ? <Body muted>The customer's phone is on its photo screen now, so a retake also checks the screen.</Body> : null}
         <Btn title="Retake photos" kind="secondary" onPress={() => opener.open(url)} style={{ alignSelf: "flex-start" }} />
-        <OpenedNote opened={opener.opened} />
+        <OpenedNote opened={opener.opened} onPlain={(u) => opener.open(u, true)} />
         {opener.openErr ? <Banner tone="bad" title="Camera page didn't open">{opener.openErr}</Banner> : null}
       </View>
     );
@@ -554,7 +560,7 @@ export function PhotosStepCard({
           button={
             <>
               <OpenButton title={needRetake ? "Retake photos" : "Take photos"} primary onPress={() => opener.open(url)} />
-              <OpenedNote opened={opener.opened} />
+              <OpenedNote opened={opener.opened} onPlain={(u) => opener.open(u, true)} />
             </>
           }
         />
@@ -709,7 +715,7 @@ export function ScreenStepCard({
           button={
             <>
               <OpenButton title="Check the screen" primary onPress={() => opener.open(g.screenUrl)} />
-              <OpenedNote opened={opener.opened} />
+              <OpenedNote opened={opener.opened} onPlain={(u) => opener.open(u, true)} />
             </>
           }
         />

@@ -9,11 +9,24 @@ import { Linking, Platform } from "react-native";
 
 export type OpenResult = { ok: true; inChrome: boolean } | { ok: false; error: string };
 
+/** Plain hand-off to whatever browser the device uses — the fallback when Chrome didn't show the page. */
+export async function openInDefaultBrowser(url: string): Promise<OpenResult> {
+  try {
+    await Linking.openURL(url);
+    return { ok: true, inChrome: false };
+  } catch (e) {
+    return { ok: false, error: `This tablet couldn't open a browser${e instanceof Error && e.message ? ` (${e.message})` : ""}.` };
+  }
+}
+
 export async function openCameraPage(url: string): Promise<OpenResult> {
   if (!/^https?:\/\//i.test(url)) return { ok: false, error: "The camera link from the server isn't a web address. Ask your manager to check the GradeIQ settings." };
   if (Platform.OS === "android") {
     try {
-      await Linking.openURL(`googlechrome://navigate?url=${encodeURIComponent(url)}`);
+      // The URL goes in AS IS, not encoded: Chrome takes everything after "url="
+      // literally, so an encoded "https%3A%2F%2F…" opened a broken address
+      // instead of the camera page (found on a real tablet, 2026-10-17).
+      await Linking.openURL(`googlechrome://navigate?url=${url}`);
       return { ok: true, inChrome: true };
     } catch {
       /* no Chrome — try the default browser */
