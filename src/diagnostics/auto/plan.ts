@@ -7,8 +7,9 @@
 // No runtime imports — node --test runs it.
 
 /** The order the automatic steps run in. Flash comes before the cameras: the
- * phone is still lying screen-up, so the rear lens faces the counter — a dark
- * scene the torch visibly lights. The cameras then ask for the phone to be held up. */
+ * runner tells the customer to leave the phone on the counter, so the rear lens
+ * faces the counter — a dark scene the torch visibly lights. The cameras then ask
+ * for the phone to be held up. */
 export const AUTO_ORDER = ["battery", "sensors", "motion", "connectivity", "vibration", "speaker", "mic", "voice", "flash", "camera", "faceid", "bluetooth", "nfc"] as const;
 export const ACTION_ORDER = ["touch", "charging"] as const;
 export const NOT_IN_AUTO_RUN = ["multitouch", "buttons"] as const;
@@ -40,12 +41,17 @@ export function partitionPlan(planIds: string[]): NativePlan {
 
 export type NativeStep = "pairing" | "auto" | "actions" | "done";
 
-/** Where a (resumed) native check is. `display` is never waited for — the server decides it. */
+/**
+ * Where a (resumed) native check is. The tests come FIRST, so the customer never
+ * waits for the store: by the time they finish, the advisor has had a couple of
+ * minutes to open the camera, and the photos are the last step. `display` is never
+ * waited for — the server decides it from the photos.
+ */
 export function nativeStep(pairingDone: boolean, results: Record<string, unknown>, plan: NativePlan): NativeStep {
-  if (!pairingDone) return "pairing";
   const missing = (ids: string[]) => ids.some((id) => !results[id]);
   if (missing(plan.auto) || missing(plan.notInRun) || missing(plan.unknown)) return "auto";
   if (missing(plan.actions)) return "actions";
+  if (!pairingDone) return "pairing";
   return "done";
 }
 

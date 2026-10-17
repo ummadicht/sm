@@ -6,10 +6,14 @@ browser to native app testing, all automatically without any questions — simpl
 ## The customer's experience
 
 ```
-Scan the store's QR → SwapUp Check opens → [pairing: "Lay your phone on the counter, screen up"]
+Scan the store's QR → SwapUp Check opens → "Testing your phone" (permission dialogs, then straight on)
 → "Testing your phone…" (one progress bar, steps tick by themselves)
 → two physical ACTIONS only: "Swipe over every square" · "Plug in the charger" (auto-skips after 45 s)
+→ [photos: "Tests done — lay it on the counter, screen up"; "Finish without photos" after 60 s]
 → Done — "Show this to the advisor"
+
+Changed 2026-10-16: the photos used to come FIRST, so a customer could sit on "Waiting for the
+advisor's camera…" for 3 minutes. Tests now start at once and the photos are the last step.
 ```
 
 No yes/no questions, no "did you hear/see/feel it", no Pass/Fail buttons. The damage questions
@@ -49,10 +53,12 @@ server repo).
 
 ## Order
 
-1. Join (deep link / QR / code) → 2. Pairing screen (poll `GET /api/device/screen` ~700 ms, show
-the requested pattern full-screen, post `POST /api/device/screen {shown}`; leave when `handoffDone`
-or 30 s after `cosmeticDone`; "Skip photos" only appears if the store never connects within 3 min)
-→ 3. Automatic steps (keep-awake, one progress bar) → 4. Actions (touch, charger) → 5. Done.
+1. Join (deep link / QR / code) → 2. Get ready (`src/check/GetReady.tsx`: camera, microphone and
+location permission dialogs — the tests only read them) → 3. Automatic steps (keep-awake, one
+progress bar) → 4. Actions (touch, charger) → 5. Pairing / photos (poll `GET /api/device/screen`
+~700 ms, show the requested pattern full-screen, post `POST /api/device/screen {shown}`; leave when
+`handoffDone` or 30 s after `cosmeticDone`; "Finish without photos" after 60 s with no store camera)
+→ 6. Done.
 
 Results go through the existing outbox (`src/check/engine.ts`) to SwapUp, which forwards them to
 GradeIQ (full map, merge:true).
@@ -66,8 +72,8 @@ on a physical phone**, so every threshold below is untuned on hardware.
   the rear lens faces the counter, so the torch makes a visible difference. The camera step then asks
   the customer to hold the phone up if a frame is too dark.
 - **Pairing exits** (`pairing.ts`): `handoffDone`; 30 s after `cosmeticDone`; `state` disabled/failed →
-  at once; 15 s of refused polls (≥ 3) → "camera grading unavailable"; **Continue without photos** after
-  3 min with no sign of the store's camera, or after 6 min with nothing changing once it connected.
+  at once; 15 s of refused polls (≥ 3) → "camera grading unavailable"; **Finish without photos** after
+  1 min with no sign of the store's camera, or after 6 min with nothing changing once it connected.
   "Connected" = the camera asked for a pattern or judged a capture (the server does not relay GradeIQ's
   `connectedAt` to the phone). A 503 keeps polling; only 401/403 refresh the ticket (≤ every 20 s).
 - **`display`** is posted by the phone **only** when no photos were taken: `skip`,

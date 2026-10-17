@@ -1,20 +1,16 @@
-// Native SwapUp Check, step 2: "Lay your phone on the counter, screen up — the
-// advisor will photograph it." The store device runs GradeIQ's camera page
+// Native SwapUp Check, LAST step (after the tests): "Lay your phone on the
+// counter, screen up — the advisor photographs it." The store device runs GradeIQ's camera page
 // (/v2/cam) and asks this screen for patterns (white, black, stripes, colours…)
 // through SwapUp's /api/device/screen; this phone draws each one full-screen
 // and echoes what it is ACTUALLY drawing. Mirrors GradeIQ's own primary phone
 // (giq/app/components/V2Flow.tsx 236-275, 794-808). Pure decisions: ../diagnostics/auto/pairing.ts.
 //
-// The permissions the automatic tests need are asked for here, BEFORE the first
-// echo: the store's camera button stays locked until this phone echoes, so a
-// permission dialog can never cover a pattern mid-sweep.
+// The permissions the tests need were asked for before the tests (GetReady), so
+// no permission dialog can cover a pattern mid-sweep here.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as Brightness from "expo-brightness";
-import { Camera } from "expo-camera";
-import { requestRecordingPermissionsAsync } from "expo-audio";
-import * as Location from "expo-location";
 import { T } from "../shared/theme";
 import { Big, Say } from "../diagnostics/parts";
 import {
@@ -40,17 +36,9 @@ type Props = {
   onDone: (rec: Omit<PairingRec, "at">) => void;
   /** Full-bleed while a pattern is up (the app drops its safe-area padding and hides the status bar). */
   onBleed: (on: boolean) => void;
-  onWrongCode: () => void;
 };
 
-async function askPermissions() {
-  // Each one shows the system dialog only if the customer hasn't answered it before.
-  await Camera.requestCameraPermissionsAsync().catch(() => null);
-  await requestRecordingPermissionsAsync().catch(() => null);
-  await Location.requestForegroundPermissionsAsync().catch(() => null);
-}
-
-export function PairingScreen({ engine, state, onDone, onBleed, onWrongCode }: Props) {
+export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
   const [ready, setReady] = useState(false);
   const [drawing, setDrawing] = useState("idle");
   const [poll, setPoll] = useState<ScreenPoll | null>(null);
@@ -88,15 +76,8 @@ export function PairingScreen({ engine, state, onDone, onBleed, onWrongCode }: P
   }, []);
 
   useEffect(() => {
-    let alive = true;
-    askPermissions().finally(() => {
-      if (!alive) return;
-      tracker.current = newTracker(Date.now());
-      setReady(true);
-    });
-    return () => {
-      alive = false;
-    };
+    tracker.current = newTracker(Date.now());
+    setReady(true);
   }, []);
 
   const echo = useCallback(
@@ -169,7 +150,7 @@ export function PairingScreen({ engine, state, onDone, onBleed, onWrongCode }: P
   const connected = tracker.current.connectedAt != null;
   const retake = poll?.capture?.verdict === "retake" || poll?.capture?.verdict === "retaking";
   const statusLine = (() => {
-    if (!ready) return "One moment — allow the camera, microphone and location when asked, so the tests can run by themselves.";
+    if (!ready) return "One moment…";
     if (trouble === "offline") return "Waiting for Wi‑Fi…";
     if (trouble === "busy") return "The store's system is busy — this carries on by itself.";
     if (poll?.state === "pending") return "Getting the photo check ready…";
@@ -182,8 +163,8 @@ export function PairingScreen({ engine, state, onDone, onBleed, onWrongCode }: P
   return (
     <View style={s.root}>
       <Text style={s.kicker}>{state.session.storeName}</Text>
-      <Text style={s.title}>Lay your phone on the counter, screen up</Text>
-      <Say>The advisor will photograph it. Then the tests run by themselves.</Say>
+      <Text style={s.title}>Tests done — lay it on the counter, screen up</Text>
+      <Say>Last step: the advisor photographs it, so the screen and glass get checked too.</Say>
       <View style={s.phone}>
         <View style={s.phoneScreen} />
       </View>
@@ -191,26 +172,23 @@ export function PairingScreen({ engine, state, onDone, onBleed, onWrongCode }: P
         <View style={[s.dot, { backgroundColor: trouble ? T.warn : connected ? T.pass : T.muted }]} />
         <Text style={s.statusText}>{statusLine}</Text>
       </View>
-      <Text style={s.privacy}>
-        Nothing personal is read. No photos, contacts, messages, accounts or location leave this phone — only the test results, the phone model and its storage size.
-      </Text>
+      <Text style={s.privacy}>Your test results are already with the store.</Text>
       <View style={{ flex: 1 }} />
       {offer ? (
         <>
           <Big
-            title="Continue without photos"
+            title="Finish without photos"
             kind="secondary"
             onPress={() =>
               leave({
                 outcome: "skipped",
-                reason: offer === "never-connected" ? "the store's camera did not connect within 3 minutes" : "the photo check stopped part-way",
+                reason: offer === "never-connected" ? "the store's camera did not connect within 1 minute of the tests finishing" : "the photo check stopped part-way",
               })
             }
           />
           <Text style={s.small}>The advisor then checks the screen and body by eye.</Text>
         </>
       ) : null}
-      <Big title="Wrong store? Use another code" kind="quiet" onPress={onWrongCode} />
       <Text style={s.small}>Trade-in {state.session.caseRef}</Text>
     </View>
   );

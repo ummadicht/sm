@@ -25,14 +25,16 @@ GradeIQ integration: `~/projects/swapup/docs/GRADEIQ-INTEGRATION.md`. The automa
    `swapupcheck://join?code=…&server=…`) and the 6-character code to type as a fallback.
 4. The app joins (code → one-time ticket, bound to that phone). From here the **native app
    asks nothing**:
-   - **Pairing — "Lay your phone on the counter, screen up".** It asks for the camera,
-     microphone and location permissions first (so no dialog can cover a pattern), turns the
+   - **Get ready** — the camera, microphone and location permission dialogs, then straight on.
+     The tests run FIRST (below); the photos are the last step, so the customer never waits for
+     the store's camera.
+   - **Photos (last) — "Tests done — lay it on the counter, screen up".** It turns the
      brightness up and polls `GET /api/device/screen` every ~700 ms. Whatever GradeIQ's camera
      page asks for (white, black, stripes, red/green/blue…) is drawn full-screen and echoed with
      `POST /api/device/screen {shown}`. The first echo is what unlocks the store's camera button.
      It leaves when the camera says it is finished (`handoffDone`, or 30 s after `cosmeticDone`),
-     at once when camera grading is off or failed for this check, and offers **Continue without
-     photos** only if the store's camera never connects within 3 min (or stalls for 6 min) — the
+     at once when camera grading is off or failed for this check, and offers **Finish without
+     photos** only if the store's camera never connects within 1 min (or stalls for 6 min) — the
      phone then records `display` as skipped ("not camera-checked: …").
    - **Automatic steps** — one progress bar, steps tick by themselves: battery, sensors, motion,
      connectivity, vibration (felt by the accelerometer), speaker + microphone (a tone played and

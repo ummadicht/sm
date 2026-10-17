@@ -70,11 +70,11 @@ test("pairing: a retake clears cosmeticDone, so the grace clock restarts", () =>
   assert.equal(r.tracker.cosmeticSince, 40_000);
 });
 
-test("pairing: 'Continue without photos' only after 3 min with no store connection", () => {
+test("pairing: 'Finish without photos' only after 1 min with no store connection", () => {
   let tr = P.newTracker(0);
   tr = P.trackPoll(tr, poll(), 1000).tracker;
-  assert.equal(P.skipOffer(tr, 179_999), null);
-  assert.equal(P.skipOffer(tr, 180_000), "never-connected");
+  assert.equal(P.skipOffer(tr, 59_999), null);
+  assert.equal(P.skipOffer(tr, 60_000), "never-connected");
   // Connected: no offer at 3 min…
   const c = P.trackPoll(P.newTracker(0), poll({ connectedAt: "x" }), 1000).tracker;
   assert.equal(P.skipOffer(c, 200_000), null);
@@ -121,15 +121,19 @@ test("plan: speaker + mic are one loopback step", () => {
   assert.deepEqual(Plan.autoSteps(["mic"]), ["loopback"]);
 });
 
-test("plan: native step — pairing, auto, actions, done; display is never waited for", () => {
+test("plan: native step — tests first (auto, actions), photos last, then done; display is never waited for", () => {
   const p = Plan.partitionPlan(FULL);
-  assert.equal(Plan.nativeStep(false, {}, p), "pairing");
+  // A fresh check starts testing at once — it never waits for the store's camera.
+  assert.equal(Plan.nativeStep(false, {}, p), "auto");
   assert.equal(Plan.nativeStep(true, {}, p), "auto");
   const r: Record<string, { outcome: string }> = {};
   for (const id of [...p.auto, ...p.notInRun]) r[id] = { outcome: "pass" };
-  assert.equal(Plan.nativeStep(true, r, p), "actions");
+  assert.equal(Plan.nativeStep(false, r, p), "actions");
   r.touch = { outcome: "pass" };
   r.charging = { outcome: "skip" };
+  // Every test done: the photos are the last step…
+  assert.equal(Plan.nativeStep(false, r, p), "pairing");
+  // …and once they're done (or skipped), the check is done.
   assert.equal(Plan.nativeStep(true, r, p), "done");
   assert.deepEqual(Plan.rerunnable(p, { ...r, mic: { outcome: "fail" }, multitouch: { outcome: "skip" } }), ["mic", "charging"]);
 });

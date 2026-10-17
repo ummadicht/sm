@@ -1,8 +1,10 @@
 // The NATIVE SwapUp Check after joining (docs/AUTO-TESTS.md) — no questions:
-//   Pairing (the store photographs this phone; GradeIQ grades the glass and the LCD)
+//   Get ready (the permission dialogs, then straight on)
 //   → Automatic steps (one progress bar, ticks itself)
 //   → Actions (swipe the grid, plug in the charger)
+//   → Photos (lay it on the counter; the store photographs it; GradeIQ grades the glass and the LCD)
 //   → Done ("Show this to the advisor").
+// Tests come first so the customer never waits for the store's camera.
 // The browser build keeps the interactive flow in ./screens.tsx and never loads
 // this file (Metro picks ./NativeCheck.web.tsx there).
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -15,6 +17,7 @@ import { NOT_IN_RUN_REASON, nativeStep, partitionPlan, rerunnable } from "../dia
 import { AutoRunner } from "../diagnostics/auto/AutoRunner";
 import { ChargingAction, TouchAction } from "../diagnostics/auto/Actions";
 import { PairingScreen } from "./PairingScreen";
+import { GetReady } from "./GetReady";
 import { Screen, SyncBadge, Title, Note } from "./screens";
 import { countResults, type Detail, type Outcome, type PairingRec } from "./core";
 import type { CheckEngine, Snapshot } from "./engine";
@@ -45,10 +48,12 @@ export function NativeCheck({
     return m;
   }, [st.session.plan]);
   const [rerun, setRerun] = useState<Rerun | null>(null);
+  /** The test permissions were asked for in this run of the app (GetReady). */
+  const [permsAsked, setPermsAsked] = useState(false);
   const [rerunAction, setRerunAction] = useState(0);
   const record = useCallback((id: string, o: Outcome, d: Detail | null) => void engine.record(id, o, d), [engine]);
 
-  // The pairing screen's privacy line stands in for the browser's welcome screen.
+  // GetReady's privacy line stands in for the browser's welcome screen.
   useEffect(() => {
     if (!st.consentAt) void engine.consent();
   }, [engine, st.consentAt]);
@@ -115,7 +120,11 @@ export function NativeCheck({
   );
 
   if (step === "pairing") {
-    return <PairingScreen engine={engine} state={st} onDone={(r) => void pairingDone(r)} onBleed={onBleed} onWrongCode={onWrongCode} />;
+    return <PairingScreen engine={engine} state={st} onDone={(r) => void pairingDone(r)} onBleed={onBleed} />;
+  }
+
+  if (step === "auto" && !rerun && !permsAsked) {
+    return <GetReady state={st} onReady={() => setPermsAsked(true)} onWrongCode={onWrongCode} />;
   }
 
   if (step === "auto") {

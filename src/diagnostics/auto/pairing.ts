@@ -27,8 +27,12 @@ export const STRIPE_PX = 6;
 
 export const POLL_MS = 700;
 export const GRACE_AFTER_COSMETIC_MS = 30_000;
-/** "Continue without photos" appears when the store's camera has not connected in this long. */
-export const NO_CONNECT_MS = 180_000;
+/**
+ * "Finish without photos" appears when the store's camera has not connected in
+ * this long. The photos are the LAST step (after the tests), so the advisor has
+ * already had the whole test run to open the camera page.
+ */
+export const NO_CONNECT_MS = 60_000;
 /**
  * Safety net beyond the design doc: once connected, if nothing at all changes
  * for this long (camera page closed mid-way), the same button appears so the

@@ -92,12 +92,18 @@ export function CameraStepCard({
   const again = graded || needRetake;
   const joined = status === "joined" || status === "testing" || status === "complete";
   const unlocked = !!g.cameraUrl && (g.deviceReady || !!g.override);
-  const movedOn = joined && !g.deviceReady && (status === "complete" || (v.progress?.done ?? 0) > 0);
-  // The server says when an override is allowed; we only hold it back for the first
-  // half-minute after joining when nothing is wrong yet (the phone is still opening the photo screen).
+  // SwapUp Check runs its tests FIRST and shows the photo screen last, so a phone
+  // that is testing is on its way here — not gone. "Moved on" = it finished the
+  // whole check without ever showing the photo screen (photos skipped on the phone).
+  const testing = joined && !g.deviceReady && status !== "complete" && (v.progress?.done ?? 0) > 0;
+  const movedOn = joined && !g.deviceReady && status === "complete";
+  // The server says when an override is allowed; we hold it back while the phone is
+  // still testing (the photo screen is coming), and for the first half-minute after
+  // joining when nothing is wrong yet.
   const joinedFor = v.joinedAt ? Date.now() - Date.parse(v.joinedAt) : Infinity;
   const allowed = g.canOverride ?? (joined && (!!g.screenProblem || movedOn));
-  const canOverride = allowed && joined && !g.deviceReady && !g.override && (!!g.screenProblem || movedOn || joinedFor >= OVERRIDE_GRACE_MS);
+  const canOverride =
+    allowed && joined && !g.deviceReady && !g.override && (!!g.screenProblem || movedOn || (!testing && joinedFor >= OVERRIDE_GRACE_MS));
 
   async function takePhotos() {
     if (!g.cameraUrl) return;
@@ -161,21 +167,31 @@ export function CameraStepCard({
       <View style={{ gap: 12 }}>
         <Locked
           title={
-            g.deviceReady ? "Getting the camera link from SwapUp…" : g.screenProblem ? "Can't confirm the customer's phone is ready" : "Waiting for the customer's phone to open SwapUp Check"
+            g.deviceReady
+              ? "Getting the camera link from SwapUp…"
+              : g.screenProblem
+                ? "Can't confirm the customer's phone is ready"
+                : testing
+                  ? "The customer's phone is running its tests"
+                  : joined
+                    ? "Waiting for the customer's phone to show the photo screen"
+                    : "Waiting for the customer's phone to open SwapUp Check"
           }
           text={
             g.screenProblem ??
             g.cameraLocked ??
             (g.deviceReady
               ? "The customer's phone is ready. The button appears in a moment."
-              : joined
-                ? "SwapUp Check is connected but isn't showing the photo screen yet. This unlocks by itself once the phone is lying on the counter with SwapUp Check open."
-                : "Photos come after the customer's phone joins: it shows the screen patterns the camera asks for, so the screen gets checked too.")
+              : testing
+                ? "Photos are the last step: when the tests finish, the phone asks to be laid on the counter and this unlocks by itself. Take the case off it and wipe the screen meanwhile."
+                : joined
+                  ? "This unlocks by itself once the phone is lying on the counter showing SwapUp Check's photo screen."
+                  : "Photos come after the customer's tests: the phone shows the screen patterns the camera asks for, so the screen gets checked too.")
           }
         />
         {g.screenProblem ? null : movedOn ? (
-          <Banner tone="warn" title="The customer's phone has moved on to its tests">
-            It isn't showing the photo screen, so the camera can't check the display. You can still photograph the outside.
+          <Banner tone="warn" title="The customer's phone finished without photos">
+            It skipped the photo screen, so the camera can't check the display. You can still photograph the outside.
           </Banner>
         ) : null}
         {canOverride ? (
