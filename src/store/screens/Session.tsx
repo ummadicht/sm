@@ -1,13 +1,13 @@
 // The heart of the store app: the two QR codes the customer scans, then their
 // phone's results landing live (poll every 2 s while this screen is up), then
-// Apply to case → the PRICE card (buy vs sell, the advisor's refurb cost quote,
-// the margin — ./PriceCard.tsx) → Continue pricing in the web desk.
+// Apply to case → THE ANSWER (./Offer.tsx: refurb quote vs trade-in + bonus, one tap
+// for what the customer chose). "Open full case" stays as the way to the web desk.
 //
 // With a two-pass server (docs/TWO-PASS-CAMERA.md, 2026-10-17) the screen reads
 // top to bottom in the order the counter works:
 //   1 Photograph the phone (photosUrl, at once — or skip) → 2 Connect the customer's
 //   phone (Wi‑Fi + test QR) → 3 The phone tests itself → 4 Check the screen
-//   (screenUrl, after the tests) → 5 Apply to case → Continue pricing.
+//   (screenUrl, after the tests) → 5 Apply to case → the answer.
 // An older server (no photosUrl) keeps the one-pass layout: QR codes, then step 3
 // "Photograph the phone" with the single cameraUrl.
 //
@@ -16,7 +16,7 @@
 //   1 Connect the customer's phone (Wi‑Fi + test QR) → 2 Identify the phone (what the
 //   customer confirmed or picked, IMEI 1/2) → 3 Scan the customer's phone (its QR,
 //   with this tablet's camera app — or Take photos) → 4 The phone tests itself
-//   (+ battery health) → 5 Apply to case → Continue pricing.
+//   (+ battery health) → 5 Apply to case → the answer.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AppState, KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
@@ -41,7 +41,6 @@ import {
   nowLine,
 } from "./SessionParts";
 import { CameraAiCard, CameraStepCard, PhotosStepCard, ScanStepCard, ScreenStepCard } from "./CameraParts";
-import { PriceCard } from "./PriceCard";
 import { CameraGrading, PhotosStep, photosStep, readGrading } from "../grading";
 import { Layout, readPhonePhase, scanFirstNow, scanStage, sessionLayout } from "../phoneLed";
 
@@ -88,6 +87,7 @@ export function SessionScreen({
   onBack,
   onSwitch,
   onOpenWeb,
+  onOffer,
 }: {
   api: StaffClient;
   user: StaffUser;
@@ -99,6 +99,8 @@ export function SessionScreen({
   /** A reissue that produced a different session id. */
   onSwitch: (id: string, links: SessionLinks) => void;
   onOpenWeb: (url: string, title: string) => void;
+  /** The results are on the case: show the answer (./Offer.tsx). */
+  onOffer: (caseId: string, ref: string) => void;
 }) {
   const { wide, pad, content } = useLayout();
   const store = user.store!;
@@ -244,7 +246,10 @@ export function SessionScreen({
         setV(nv);
         terminalRef.current = TERMINAL.has(nv.status);
       }
-      setAppliedCaseId(r?.caseId || nv?.caseId || v.caseId);
+      const caseId = r?.caseId || nv?.caseId || v.caseId;
+      setAppliedCaseId(caseId);
+      // Straight to the answer: the numbers are what the advisor came for.
+      onOffer(caseId, nv?.caseRef || v.caseRef);
     } catch (e) {
       setActionErr({ title: "Not applied", text: errText(e) });
     } finally {
@@ -264,13 +269,14 @@ export function SessionScreen({
     );
   }
 
+  /** "Open full case": the desk, at its answer (POST /api/auth/handoff, then the in-app browser). */
   async function continuePricing() {
     if (!v) return;
     const caseId = appliedCaseId || v.caseId;
     setActionErr(null);
     setBusy("handoff");
     try {
-      const r = await api.post<{ url?: string }>("/api/auth/handoff", { next: `/cases/${caseId}` });
+      const r = await api.post<{ url?: string }>("/api/auth/handoff", { next: `/cases/${caseId}?view=answer` });
       if (!r?.url) throw new Error("The server didn't return a link to the case. Try again.");
       onOpenWeb(absolute(api.base, r.url), `Case ${v.caseRef}`);
     } catch (e) {
@@ -455,7 +461,7 @@ export function SessionScreen({
               <IdentifyStepCard v={v} api={api} phase={phase} />
               <ScanStepCard v={v} g={grading} api={api} wide={wide} phase={phase} stage={stage} onSession={takeOverride} />
               <TestsStepCard v={v} label="Step 4 · customer's phone" phoneLed phase={phase} />
-              <Actions v={v} busy={busy} onApply={confirmApply} onContinue={continuePricing} onReissue={reissue} onBack={onBack} layout={layout} />
+              <Actions v={v} busy={busy} onApply={confirmApply} onContinue={continuePricing} onAnswer={() => onOffer(appliedCaseId || v.caseId, v.caseRef)} onReissue={reissue} onBack={onBack} layout={layout} />
               {actionErr ? <Banner tone="bad" title={actionErr.title}>{actionErr.text}</Banner> : null}
             </>
           ) : twoPass && !terminal ? (
@@ -471,6 +477,7 @@ export function SessionScreen({
                 busy={busy}
                 onApply={confirmApply}
                 onContinue={continuePricing}
+                onAnswer={() => onOffer(appliedCaseId || v.caseId, v.caseRef)}
                 onReissue={reissue}
                 onBack={onBack}
                 layout={layout}
@@ -479,15 +486,13 @@ export function SessionScreen({
             </>
           ) : (
             <>
-              {/* The results are on the case: buy vs sell, the refurb cost quote, the margin. */}
-              {v.status === "applied" ? <PriceCard key={appliedCaseId || v.caseId} api={api} caseId={appliedCaseId || v.caseId} /> : null}
-
-              {/* What to do next */}
+              {/* What to do next — once applied, the answer (./Offer.tsx) */}
               <Actions
                 v={v}
                 busy={busy}
                 onApply={confirmApply}
                 onContinue={continuePricing}
+                onAnswer={() => onOffer(appliedCaseId || v.caseId, v.caseRef)}
                 onReissue={reissue}
                 onBack={onBack}
                 layout={layout}
@@ -550,6 +555,7 @@ function Actions({
   busy,
   onApply,
   onContinue,
+  onAnswer,
   onReissue,
   onBack,
   layout,
@@ -557,7 +563,10 @@ function Actions({
   v: TestSessionView;
   busy: Busy;
   onApply: (partial: boolean) => void;
+  /** "Open full case" — the web desk at its answer. */
   onContinue: () => void;
+  /** "See the answer" — ./Offer.tsx. */
+  onAnswer: () => void;
   onReissue: () => void;
   onBack: () => void;
   /**
@@ -590,12 +599,9 @@ function Actions({
     case "applied":
       return (
         <Card style={{ gap: 12 }}>
-          <Body>
-            The results are on case {v.caseRef}
-            {v.appliedAt ? ` (applied ${new Date(v.appliedAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })})` : ""}. Continue on the case to
-            price the repair and the trade-in.
-          </Body>
-          <Btn title="Continue pricing" onPress={onContinue} busy={busy === "handoff"} disabled={other && busy !== "handoff"} big />
+          <Body>The results are on case {v.caseRef}.</Body>
+          <Btn title="See the answer" onPress={onAnswer} disabled={other} big />
+          <Btn title="Open full case" kind="ghost" onPress={onContinue} busy={busy === "handoff"} disabled={other && busy !== "handoff"} />
         </Card>
       );
     case "expired":

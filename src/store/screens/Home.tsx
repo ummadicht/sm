@@ -17,11 +17,44 @@ const CREDIT_STATE: Record<CreditState, { label: string; tone: Tone }> = {
 
 const LIST_REFRESH_MS = 10_000;
 
+/**
+ * A case still at the counter (GET /api/cases?status=draft,quoted — CaseListItem in
+ * ~/projects/swapup lib/server/cases.ts). Once a test is applied the session leaves "Open
+ * tests", so this list is the app's way back to the answer.
+ */
+type WaitingCase = { id: string; ref: string; status: string; customerName: string | null; device: string | null; updatedAt: string | null };
+
+const CASE_STATUS: Record<string, { label: string; tone: Tone }> = {
+  draft: { label: "Assessing", tone: "muted" },
+  quoted: { label: "Quoted", tone: "fix" },
+};
+
+function readWaiting(x: unknown): WaitingCase[] {
+  const list = x && typeof x === "object" ? (x as { cases?: unknown }).cases : null;
+  if (!Array.isArray(list)) throw new Error("The server's list of cases didn't make sense. Pull down to try again.");
+  const str = (v: unknown) => (typeof v === "string" && v ? v : null);
+  return list
+    .map((c) => {
+      const o = c && typeof c === "object" ? (c as Record<string, unknown>) : null;
+      if (!o || typeof o.id !== "string" || typeof o.status !== "string") return null;
+      return {
+        id: o.id,
+        ref: str(o.ref) ?? o.id,
+        status: o.status,
+        customerName: str(o.customerName),
+        device: str(o.device),
+        updatedAt: str(o.updatedAt),
+      };
+    })
+    .filter((c): c is WaitingCase => !!c);
+}
+
 export function Home({
   api,
   user,
   onNew,
   onOpenSession,
+  onOpenCase,
   onSettings,
   onOpenWeb,
   onSwitch,
@@ -30,6 +63,8 @@ export function Home({
   user: StaffUser;
   onNew: () => void;
   onOpenSession: (id: string) => void;
+  /** A case waiting on the customer: open its answer. */
+  onOpenCase: (caseId: string, ref: string) => void;
   onSettings: () => void;
   onOpenWeb: (url: string, title: string) => void;
   /** Store tablet only: hand the tablet to the next person (back to "Who's serving?"). */
@@ -41,6 +76,8 @@ export function Home({
   const [creditErr, setCreditErr] = useState<string | null>(null);
   const [sessions, setSessions] = useState<TestSessionView[] | null>(null);
   const [sessionsErr, setSessionsErr] = useState<string | null>(null);
+  const [cases, setCases] = useState<WaitingCase[] | null>(null);
+  const [casesErr, setCasesErr] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [pickupBusy, setPickupBusy] = useState(false);
   const [pickupErr, setPickupErr] = useState<string | null>(null);
@@ -72,18 +109,32 @@ export function Home({
     }
   }, [api]);
 
+  const loadCases = useCallback(async () => {
+    try {
+      const r = await api.get<unknown>("/api/cases?status=draft,quoted&limit=10");
+      if (!alive.current) return;
+      setCases(readWaiting(r));
+      setCasesErr(null);
+    } catch (e) {
+      if (alive.current) setCasesErr(errText(e));
+    }
+  }, [api]);
+
   const refresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([loadCredit(), loadSessions()]);
+    await Promise.all([loadCredit(), loadSessions(), loadCases()]);
     if (alive.current) setRefreshing(false);
-  }, [loadCredit, loadSessions]);
+  }, [loadCredit, loadSessions, loadCases]);
 
   useEffect(() => {
     alive.current = true;
     refresh();
     // Keep the open-tests list fresh while this screen is up and the app is in front.
     const t = setInterval(() => {
-      if (AppState.currentState === "active") loadSessions();
+      if (AppState.currentState === "active") {
+        loadSessions();
+        loadCases();
+      }
     }, LIST_REFRESH_MS);
     const sub = AppState.addEventListener("change", (st) => {
       if (st === "active") refresh();
@@ -93,7 +144,7 @@ export function Home({
       clearInterval(t);
       sub.remove();
     };
-  }, [refresh, loadSessions]);
+  }, [refresh, loadSessions, loadCases]);
 
   async function openPickups() {
     setPickupErr(null);
@@ -118,6 +169,10 @@ export function Home({
         {store.reviewNote || "Contact your programme for details."}
       </Banner>
     ) : null;
+
+  // A case whose test is still open is reached through its test (above), not twice.
+  const testing = new Set((sessions ?? []).map((x) => x.caseId));
+  const waiting = (cases ?? []).filter((c) => !testing.has(c.id));
 
   const creditCard = (
     <Card>
@@ -193,6 +248,20 @@ export function Home({
         {sessions && sessions.length === 0 ? <Body muted>No open tests. Tap “New customer trade-in” to start one.</Body> : null}
         {sessions?.map((x) => <SessionRow key={x.id} s={x} onPress={() => onOpenSession(x.id)} />)}
       </Card>
+
+      {waiting.length || casesErr ? (
+        <Card>
+          <H2>Waiting on the customer{waiting.length ? ` (${waiting.length})` : ""}</H2>
+          {casesErr ? (
+            <Banner tone="bad" title="Couldn't load the cases" action={{ title: "Try again", onPress: loadCases }}>
+              {casesErr}
+            </Banner>
+          ) : null}
+          {waiting.map((c) => (
+            <CaseRow key={c.id} c={c} onPress={() => onOpenCase(c.id, c.ref)} />
+          ))}
+        </Card>
+      ) : null}
     </ScrollView>
   );
 }
@@ -249,6 +318,40 @@ function CreditBody({
       ) : null}
       {pickupErr ? <Banner tone="bad" title="Couldn't open Credit & pickups">{pickupErr}</Banner> : null}
     </View>
+  );
+}
+
+function CaseRow({ c, onPress }: { c: WaitingCase; onPress: () => void }) {
+  const st = CASE_STATUS[c.status] ?? { label: c.status, tone: "muted" as Tone };
+  const sub = [c.device, c.customerName, c.updatedAt ? ago(c.updatedAt) : null].filter(Boolean).join(" · ");
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 14,
+        paddingVertical: 14,
+        paddingHorizontal: 4,
+        borderTopWidth: 1,
+        borderTopColor: L.border,
+        opacity: pressed ? 0.6 : 1,
+      })}
+    >
+      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+        <Text style={{ fontSize: 17, fontWeight: "700", color: L.ink }} numberOfLines={1}>
+          {c.ref}
+        </Text>
+        {sub ? (
+          <Text style={{ fontSize: 15, color: L.muted }} numberOfLines={2}>
+            {sub}
+          </Text>
+        ) : null}
+      </View>
+      <Chip text={st.label} tone={st.tone} />
+      <Text style={{ fontSize: 24, color: L.muted }}>›</Text>
+    </Pressable>
   );
 }
 

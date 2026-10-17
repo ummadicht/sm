@@ -304,8 +304,12 @@ export type IdentityMatch = "exact" | "family" | "none";
  * The join response's `identity` (swapup docs/PHONE-LED-FLOW.md): the server's
  * matchModel on the phone's own model code — by code only, never a marketing
  * name — and never a price. `reason` is the server's explanation (staff words).
+ * `variants` = that model's storage sizes, so the confirm card can ask which one
+ * when the phone couldn't measure it; [] from an older server, with no match, or
+ * when the phone DID measure a size — even one not on file (a 1TB S23 Ultra): the
+ * customer is never asked a question the phone already answered.
  */
-export type Identity = { label: string | null; match: IdentityMatch; reason: string | null; variant: string | null; modelId: string | null };
+export type Identity = { label: string | null; match: IdentityMatch; reason: string | null; variant: string | null; modelId: string | null; variants: string[] };
 
 const nonEmpty = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 
@@ -322,6 +326,7 @@ export function parseIdentity(raw: unknown): Identity | null {
     reason: nonEmpty(r.reason) ?? nonEmpty(r.why),
     variant: matched ? nonEmpty(r.variant) : null,
     modelId: matched ? nonEmpty(r.modelId) : null,
+    variants: matched && Array.isArray(r.variants) ? [...new Set(r.variants.map(nonEmpty).filter((v): v is string => !!v))] : [],
   };
 }
 
@@ -339,6 +344,20 @@ export function startedByCustomer(rawSession: unknown): boolean {
 /** "Samsung Galaxy S23 Ultra · 256 GB" — the Identify card's headline. */
 export function identityLine(label: string, variant: string | null | undefined): string {
   return variant ? `${label} · ${variant}` : label;
+}
+
+/**
+ * The confirm card's "How much storage?" (swapup offer spec A10). Asked only when
+ * the phone was recognised, couldn't measure its storage, and the model comes in
+ * more than one size: one size the server fills from the catalogue, and a
+ * measured size always wins on the server. The answer is a CLAIM the advisor
+ * checks in Settings before the trade-in, never a measurement.
+ */
+export function confirmStorage(identity: Identity | null | undefined): { ask: boolean; options: string[] } {
+  if (!identity || identity.match === "none" || !identity.label || !identity.modelId || identity.variant) return { ask: false, options: [] };
+  // A check saved by an app older than `variants` has none on its identity.
+  const options = Array.isArray(identity.variants) ? identity.variants : [];
+  return options.length > 1 ? { ask: true, options } : { ask: false, options: [] };
 }
 
 /** One phone in the picker (GET /api/device/models?brand=…). No prices — the server never sends them here. */

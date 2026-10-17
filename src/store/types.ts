@@ -124,13 +124,19 @@ export type WifiResponse = {
   qr: string | null;
 };
 
-/** Where the session screen is: a session, maybe with the links the server just returned. */
+/**
+ * Where the app is: a session, maybe with the links the server just returned; the answer
+ * for a case (repair quote vs trade-in + bonus, screens/Offer.tsx) and its lock form
+ * (screens/Lock.tsx), each with the screen Back returns to.
+ */
 export type Screen =
   | { name: "home" }
   | { name: "new" }
   | { name: "session"; id: string; links?: SessionLinks }
   | { name: "settings" }
-  | { name: "web"; url: string; title: string; back: Screen };
+  | { name: "web"; url: string; title: string; back: Screen }
+  | { name: "offer"; caseId: string; ref: string; back: Screen }
+  | { name: "lock"; caseId: string; ref: string; back: Screen };
 
 export const TERMINAL: ReadonlySet<SessionStatus> = new Set(["applied", "expired", "cancelled"]);
 

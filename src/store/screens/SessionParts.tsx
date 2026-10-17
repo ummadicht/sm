@@ -656,7 +656,7 @@ export function nowLine(v: TestSessionView): { text: string; tone: Tone } {
     case "complete":
       return { text: "The customer has finished. Check the summary, then apply it to the case.", tone: "up" };
     case "applied":
-      return { text: `Applied to case ${v.caseRef}. Continue pricing on the case.`, tone: "up" };
+      return { text: `Applied to case ${v.caseRef}. The answer is ready.`, tone: "up" };
     case "expired":
       return { text: v.joinedAt ? "This test session expired (2 hours after the app connected)." : "This code expired before the app connected.", tone: "warn" };
     case "cancelled":

@@ -1,6 +1,8 @@
-// The trade-in PRICE card, shown once the results are on the case: BUY (what the store
-// pays the customer) against SELL (what it sells for refurbished — PriceIQ's Cashify
-// listing less 2–5%), the advisor's REFURB cost between them, and the MARGIN they leave.
+// The STORE MARGIN card — staff only, closed by default at the bottom of the answer
+// (./Offer.tsx, "Store margin · staff only"): BUY (what the store pays the customer)
+// against SELL (what it sells for refurbished — PriceIQ's Cashify listing less 2–5%),
+// the STORE'S refurb cost between them, and the MARGIN they leave. The store's refurb
+// cost is not the customer's refurb quote on the answer — hence its label.
 // The numbers and their rules live in ../buySell.ts (tested under node); this file only
 // loads the case (GET /api/cases/<id>, again quietly when the app comes back to the front
 // and every 30 s), saves the refurb cost (PATCH — it moves no price) and draws it.
@@ -87,7 +89,7 @@ export function PriceCard({ api, caseId }: { api: StaffClient; caseId: string })
   if (load.state !== "ready") {
     return (
       <Card>
-        <Label>Trade-in price</Label>
+        <Label>Store margin</Label>
         {load.state === "error" ? (
           <Banner tone="bad" title="Couldn't load the price" action={{ title: "Try again", onPress: () => void fetchCase(false) }}>
             {load.text}
@@ -107,7 +109,7 @@ export function PriceCard({ api, caseId }: { api: StaffClient; caseId: string })
   return (
     <Card style={{ gap: 16 }}>
       <View style={{ gap: 6 }}>
-        <Label>Trade-in price</Label>
+        <Label>Store margin</Label>
         <H2 style={{ fontSize: 26, lineHeight: 32 }}>Buy vs sell</H2>
         <Body muted>What you pay the customer, against what the phone sells for once it is refurbished.</Body>
       </View>
@@ -118,7 +120,7 @@ export function PriceCard({ api, caseId }: { api: StaffClient; caseId: string })
       </View>
 
       <View style={{ gap: 8 }}>
-        <Text style={{ color: L.ink, fontSize: 15, fontWeight: "600" }}>Refurb cost · your quote</Text>
+        <Text style={{ color: L.ink, fontSize: 15, fontWeight: "600" }}>Store's refurb cost</Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           <View
             style={{
@@ -150,7 +152,7 @@ export function PriceCard({ api, caseId }: { api: StaffClient; caseId: string })
               editable={!m.locked && !saving}
               placeholder="0"
               placeholderTextColor={L.faint}
-              accessibilityLabel="Refurb cost in rupees"
+              accessibilityLabel="Store's refurb cost in rupees"
               style={{ flex: 1, minWidth: 0, fontSize: 19, color: L.ink, paddingVertical: 12, fontVariant: ["tabular-nums"] }}
             />
           </View>

@@ -1,9 +1,10 @@
 // SwapUp Store — the staff app at the service-centre counter.
 //
 // Navigation is a small state machine (no router): boot → sign in → home ⇄
-// new trade-in / session / settings / web desk. The staff token lives in the
-// OS keystore (expo-secure-store) and is checked against GET /api/me on launch;
-// any 401 anywhere sends the app back to sign-in.
+// new trade-in / session → the answer → take the trade-in / settings / web desk
+// (the answer and the lock form carry the screen their Back returns to). The
+// staff token lives in the OS keystore (expo-secure-store) and is checked
+// against GET /api/me on launch; any 401 anywhere sends the app back to sign-in.
 //
 // A STORE TABLET (docs/STORE-TABLET.md in ~/projects/swapup) is different: the
 // device keeps a long-lived device token for its store, boot goes to "Who's
@@ -20,7 +21,9 @@ import { ApiError, createClient } from "../shared/api";
 import { DEFAULT_SERVER, IS_WEB } from "../shared/config";
 import { idleLocks, isIdle } from "./pin";
 import { Home } from "./screens/Home";
+import { LockScreen } from "./screens/Lock";
 import { NewTradeIn } from "./screens/NewTradeIn";
+import { OfferScreen } from "./screens/Offer";
 import { SessionScreen } from "./screens/Session";
 import { Settings } from "./screens/Settings";
 import { SignIn, staffProblem } from "./screens/SignIn";
@@ -395,7 +398,8 @@ function Root() {
       if (ph.kind !== "in") return false;
       const sc = screenRef.current;
       if (sc.name === "home" || sc.name === "web") return false;
-      setScreen({ name: "home" });
+      // The answer and the lock form go back where they came from (the test, Home, the answer).
+      setScreen(sc.name === "offer" || sc.name === "lock" ? sc.back : { name: "home" });
       return true;
     });
     return () => sub.remove();
@@ -482,6 +486,33 @@ function Root() {
               setScreen({ name: "session", id, links: l });
             }}
             onOpenWeb={openWeb({ name: "session", id: screen.id })}
+            onOffer={(caseId, ref) => setScreen({ name: "offer", caseId, ref, back: { name: "session", id: screen.id } })}
+          />
+        );
+      case "offer":
+        return (
+          <OfferScreen
+            key={screen.caseId}
+            api={api}
+            caseId={screen.caseId}
+            caseRef={screen.ref}
+            back={screen.back}
+            onBack={() => setScreen(screen.back)}
+            onOpenWeb={openWeb(screen)}
+            onLock={(caseId) => setScreen({ name: "lock", caseId, ref: screen.ref, back: screen })}
+            onHome={() => setScreen({ name: "home" })}
+          />
+        );
+      case "lock":
+        return (
+          <LockScreen
+            key={screen.caseId}
+            api={api}
+            caseId={screen.caseId}
+            caseRef={screen.ref}
+            onBack={() => setScreen(screen.back)}
+            // Locked: back to the answer, which now shows "Traded in".
+            onDone={() => setScreen(screen.back)}
           />
         );
       case "settings":
@@ -507,6 +538,7 @@ function Root() {
             user={auth.user}
             onNew={() => setScreen({ name: "new" })}
             onOpenSession={(id) => setScreen({ name: "session", id })}
+            onOpenCase={(caseId, ref) => setScreen({ name: "offer", caseId, ref, back: { name: "home" } })}
             onSettings={() => setScreen({ name: "settings" })}
             onOpenWeb={openWeb({ name: "home" })}
             onSwitch={tablet ? () => lock() : undefined}

@@ -2,7 +2,10 @@
 // (swapup docs/PHONE-LED-FLOW.md §2, after GradeIQ v2's identify step):
 //   1. "Let's check this phone." — the model the store matched from the phone's
 //      own model code (the join response's `identity`): "Yes, that's my phone" /
-//      "No — choose my phone".
+//      "No — choose my phone". When the phone couldn't measure its storage and
+//      the model comes in more than one size, the same card asks "How much
+//      storage?" (confirmStorage); "Not sure" leaves it to the advisor. The
+//      pick is a CLAIM — a measured size always wins on the server.
 //   2. No match, or "No" → choose it: brand → model (search past 12) → storage,
 //      from GET /api/device/models. The answer is a CLAIM ("customer picked"),
 //      never a match — the store decides what the phone is.
@@ -29,6 +32,7 @@ import {
   checkImei,
   cleanMobile,
   cleanName,
+  confirmStorage,
   filterModels,
   identityLine,
   imeisFromText,
@@ -64,6 +68,9 @@ export function IdentifyScreen({
   const [stage, setStage] = useState<Stage>(known ? "confirm" : "brand");
   /** null = there was nothing to confirm (no match). */
   const [confirmed, setConfirmed] = useState<boolean | null>(null);
+  // ── the confirm card's storage question (kept apart from the picker's model + variant)
+  const storage = confirmStorage(identity);
+  const [confirmVariant, setConfirmVariant] = useState<string | null>(null);
 
   // ── the picker
   const [attempt, setAttempt] = useState(0);
@@ -132,11 +139,17 @@ export function IdentifyScreen({
     const a = checkImei(imei1);
     const b = checkImei(imei2);
     const phone = cleanMobile(mobile);
+    // The size picked on the confirm card goes only with "Yes, that's my phone" — after a
+    // "No" the matched model is not the customer's answer, so it is never sent back as one.
+    const sized =
+      confirmed === true && identity?.modelId && confirmVariant && storage.options.includes(confirmVariant)
+        ? { modelId: identity.modelId, variant: confirmVariant }
+        : null;
     onDone({
       imei: a.ok === true ? a.imei : null,
       imei2: b.ok === true && !(a.ok === true && a.imei === b.imei) ? b.imei : null,
       identityConfirmed: confirmed,
-      picked: model ? { modelId: model.id, variant } : null,
+      picked: model ? { modelId: model.id, variant } : sized,
       customerName: state.session.customerStarted ? cleanName(name) : null,
       customerPhone: state.session.customerStarted && phone.ok ? phone.value : null,
       ...over,
@@ -149,24 +162,24 @@ export function IdentifyScreen({
 
   /* ─────────── 1. is this your phone? ─────────── */
   if (stage === "confirm" && identity?.label) {
+    const yes = (size: string | null) => {
+      setConfirmed(true);
+      setModel(null);
+      setConfirmVariant(size);
+      go("imei");
+    };
     return (
       <Screen
         footer={
           <>
-            <PillButton
-              title="Yes, that's my phone"
-              onPress={() => {
-                setConfirmed(true);
-                setModel(null);
-                go("imei");
-              }}
-            />
+            <PillButton title="Yes, that's my phone" onPress={() => yes(confirmVariant)} disabled={storage.ask && !confirmVariant} />
             <PillButton
               title="No — choose my phone"
               kind="outline"
               arrow={false}
               onPress={() => {
                 setConfirmed(false);
+                setConfirmVariant(null);
                 go("brand");
               }}
             />
@@ -177,11 +190,22 @@ export function IdentifyScreen({
         <Wordmark store={state.session.storeName} />
         <Headline>Let&apos;s check this phone.</Headline>
         <Lead>Is this the right model?</Lead>
-        <Hero minHeight={220}>
-          <PhoneArt width={84} />
+        {/* With the storage question below it, the phone shrinks so the sizes stay above the buttons. */}
+        <Hero minHeight={storage.ask ? 0 : 220} grow={!storage.ask} style={storage.ask ? { paddingVertical: 16 } : undefined}>
+          <PhoneArt width={storage.ask ? 56 : 84} />
           <Text style={s.model}>{identityLine(identity.label, identity.variant)}</Text>
           {code ? <Caption style={{ marginTop: 4 }}>Your phone calls itself {code}</Caption> : null}
         </Hero>
+        {storage.ask ? (
+          <View style={s.list}>
+            <Label style={{ marginBottom: 0 }}>How much storage?</Label>
+            {storage.options.map((v) => (
+              <Option key={v} title={v} selected={confirmVariant === v} onPress={() => setConfirmVariant(v)} />
+            ))}
+            <Caption style={{ marginTop: 0 }}>Settings › About phone shows it.</Caption>
+            <QuietLink title="Not sure — the advisor will check" onPress={() => yes(null)} />
+          </View>
+        ) : null}
         <Caption>Trade-in {state.session.caseRef}</Caption>
       </Screen>
     );
@@ -228,6 +252,8 @@ export function IdentifyScreen({
               <QuietLink
                 title={`It is the ${identity?.label} after all`}
                 onPress={() => {
+                  // Back to the confirm card when its storage question still needs an answer.
+                  if (storage.ask) return go("confirm");
                   setConfirmed(true);
                   setModel(null);
                   go("imei");

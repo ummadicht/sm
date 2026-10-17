@@ -68,6 +68,7 @@ test("identify: the join response's identity — a match needs a name to confirm
     reason: "Model code SM-S918U is the Galaxy S23 Ultra.",
     variant: "256GB",
     modelId: "m1",
+    variants: [],
   });
   assert.equal(C.parseIdentity({ label: "Samsung Galaxy S22", match: "family", why: "regional", variant: null, modelId: "m2" })?.reason, "regional", "matchModel's own `why`");
   const none = C.parseIdentity({ label: null, match: "none", reason: "Model code SM-X is not in SwapUp's model list.", variant: "128GB", modelId: "m3" });
