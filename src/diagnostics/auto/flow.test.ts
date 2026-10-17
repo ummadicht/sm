@@ -70,11 +70,14 @@ test("pairing: a retake clears cosmeticDone, so the grace clock restarts", () =>
   assert.equal(r.tracker.cosmeticSince, 40_000);
 });
 
-test("pairing: 'Finish without photos' only after 1 min with no store connection", () => {
+test("pairing: 'Finish without photos' only after 90 s with no store camera page", () => {
   let tr = P.newTracker(0);
   tr = P.trackPoll(tr, poll(), 1000).tracker;
-  assert.equal(P.skipOffer(tr, 59_999), null);
-  assert.equal(P.skipOffer(tr, 60_000), "never-connected");
+  assert.equal(P.skipOffer(tr, 89_999), null);
+  assert.equal(P.skipOffer(tr, 90_000), "never-connected");
+  // The camera page opening (GradeIQ connectedAt, relayed) counts as connected: no early offer.
+  const opened = P.trackPoll(P.newTracker(0), poll({ connectedAt: "2026-10-17T00:00:00Z" }), 1000).tracker;
+  assert.equal(P.skipOffer(opened, 120_000), null);
   // Connected: no offer at 3 min…
   const c = P.trackPoll(P.newTracker(0), poll({ connectedAt: "x" }), 1000).tracker;
   assert.equal(P.skipOffer(c, 200_000), null);

@@ -434,13 +434,20 @@ function Actions({
 }) {
   const other = !!busy;
   switch (v.status) {
-    case "complete":
+    case "complete": {
+      // Photos are the phone's last step: the camera grade usually lands 8–30 s after it says "complete".
+      const waiting = readGrading(v).gradePending;
       return (
         <Card style={{ gap: 12 }}>
-          <Body>Check the summary below, then put the results on case {v.caseRef}. The repair quote and trade-in price update from them.</Body>
-          <Btn title="Apply to case" onPress={() => onApply(false)} busy={busy === "apply"} disabled={other && busy !== "apply"} big />
+          <Body>
+            {waiting
+              ? "The store camera's grade is still being worked out — usually under 30 seconds. Apply unlocks by itself."
+              : `Check the summary below, then put the results on case ${v.caseRef}. The repair quote and trade-in price update from them.`}
+          </Body>
+          <Btn title={waiting ? "Waiting for the camera grade…" : "Apply to case"} onPress={() => onApply(false)} busy={busy === "apply" || waiting} disabled={waiting || (other && busy !== "apply")} big />
         </Card>
       );
+    }
     case "applied":
       return (
         <Card style={{ gap: 12 }}>

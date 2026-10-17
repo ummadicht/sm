@@ -136,6 +136,8 @@ export type CameraGrading = {
   outOfSync: string | null;
   /** SwapUp stopped waiting for a final grade (180 s after the photos were accepted). */
   timedOut: boolean;
+  /** Photos are in, the grade isn't final yet — the server refuses Apply until it is (≤ 180 s). */
+  gradePending: boolean;
   override: { reason: string | null; by: string | null; at: string | null } | null;
   capture: {
     connected: boolean;
@@ -330,6 +332,7 @@ export function readGrading(raw: unknown): CameraGrading {
     canRetry: false,
     outOfSync: null,
     timedOut: false,
+    gradePending: false,
     override: null,
     capture: { connected: false, connectedAt: null, cosmeticDone: false, handoffDone: false, verdict: null, reasons: [], attempt: null },
     result: null,
@@ -484,6 +487,7 @@ export function readGrading(raw: unknown): CameraGrading {
     canRetry: g.canRetry === true,
     outOfSync: g.outOfSync === true ? (str(obj(g.sync)?.error) ?? "GradeIQ out of sync, retrying.") : null,
     timedOut: g.timedOut === true,
+    gradePending: g.gradePending === true,
     override,
     capture,
     result,

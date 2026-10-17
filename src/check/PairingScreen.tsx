@@ -145,7 +145,18 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
     };
   }, [ready, engine, echo, leave]);
 
-  if (ready && drawing !== "idle") return <Pattern name={drawing} />;
+  // A pattern fills the screen — but never traps the customer: if the camera has
+  // gone quiet (stalled), the way out is drawn over the pattern too.
+  if (ready && drawing !== "idle")
+    return (
+      <Pattern name={drawing}>
+        {offer ? (
+          <View style={s.overOffer}>
+            <Big title="Finish without photos" kind="secondary" onPress={() => leave({ outcome: "skipped", reason: "the photo check stopped part-way" })} />
+          </View>
+        ) : null}
+      </Pattern>
+    );
 
   const connected = tracker.current.connectedAt != null;
   const retake = poll?.capture?.verdict === "retake" || poll?.capture?.verdict === "retaking";
@@ -182,7 +193,7 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
             onPress={() =>
               leave({
                 outcome: "skipped",
-                reason: offer === "never-connected" ? "the store's camera did not connect within 1 minute of the tests finishing" : "the photo check stopped part-way",
+                reason: offer === "never-connected" ? "the store's camera page did not open within 90 seconds of the tests finishing" : "the photo check stopped part-way",
               })
             }
           />
@@ -195,7 +206,7 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
 }
 
 /** One full-screen pattern, as GradeIQ's /v2 draws it, with its small caption. */
-function Pattern({ name }: { name: string }) {
+function Pattern({ name, children }: { name: string; children?: React.ReactNode }) {
   const [w, setW] = useState(0);
   const fill = PATTERN_FILLS[name];
   return (
@@ -213,6 +224,7 @@ function Pattern({ name }: { name: string }) {
           📷 Screen check · showing <Text style={{ fontWeight: "900" }}>{name}</Text> — keep the phone still
         </Text>
       </View>
+      {children}
     </View>
   );
 }
@@ -229,6 +241,7 @@ const s = StyleSheet.create({
   privacy: { color: T.muted, fontSize: 14, lineHeight: 20, marginTop: 14 },
   small: { color: T.muted, fontSize: 14, textAlign: "center", marginTop: 8 },
   stripes: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, flexDirection: "row", overflow: "hidden" },
+  overOffer: { position: "absolute", top: 48, left: 24, right: 24 },
   capWrap: { position: "absolute", left: 0, right: 0, bottom: 32, alignItems: "center", paddingHorizontal: 24 },
   cap: { color: "#fff", backgroundColor: "rgba(0,0,0,0.75)", borderRadius: 999, paddingHorizontal: 16, paddingVertical: 8, fontSize: 13, fontWeight: "600", overflow: "hidden", textAlign: "center" },
 });

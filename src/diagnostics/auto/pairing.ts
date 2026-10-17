@@ -28,11 +28,14 @@ export const STRIPE_PX = 6;
 export const POLL_MS = 700;
 export const GRACE_AFTER_COSMETIC_MS = 30_000;
 /**
- * "Finish without photos" appears when the store's camera has not connected in
- * this long. The photos are the LAST step (after the tests), so the advisor has
- * already had the whole test run to open the camera page.
+ * "Finish without photos" appears when the store's camera page has not opened in
+ * this long. The store's "Take photos" only unlocks when this screen first echoes,
+ * so the clock and the advisor start together; the advisor then has to open the
+ * camera page — which counts as connected the moment it loads (SwapUp relays
+ * GradeIQ's connectedAt since 2026-10-17), not only when it asks for a pattern.
+ * Once connected, only STALL_MS applies.
  */
-export const NO_CONNECT_MS = 60_000;
+export const NO_CONNECT_MS = 90_000;
 /**
  * Safety net beyond the design doc: once connected, if nothing at all changes
  * for this long (camera page closed mid-way), the same button appears so the

@@ -17,6 +17,15 @@ const IS_WEB = Platform.OS === "web";
 const MIN_REASON = 8;
 /** A phone that has joined but isn't echoing yet is usually still opening the photo screen: don't tempt an override for this long. */
 const OVERRIDE_GRACE_MS = 30_000;
+/** A photos-last phone that has sent no result for this long is treated as having stopped. */
+const STALE_TESTING_MS = 180_000;
+
+/** SwapUp Check 0.3.0+ native (not "web-…"): tests first, photo screen last. */
+export function photosLastApp(appVersion: string | null): boolean {
+  const m = /^(\d+)\.(\d+)\./.exec(appVersion ?? "");
+  if (!m) return false;
+  return Number(m[1]) > 0 || Number(m[2]) >= 3;
+}
 
 /** The server's sentence, ending with the advice to check by eye exactly once. */
 export function byEye(msg: string | null | undefined): string {
@@ -92,11 +101,16 @@ export function CameraStepCard({
   const again = graded || needRetake;
   const joined = status === "joined" || status === "testing" || status === "complete";
   const unlocked = !!g.cameraUrl && (g.deviceReady || !!g.override);
-  // SwapUp Check runs its tests FIRST and shows the photo screen last, so a phone
-  // that is testing is on its way here — not gone. "Moved on" = it finished the
-  // whole check without ever showing the photo screen (photos skipped on the phone).
-  const testing = joined && !g.deviceReady && status !== "complete" && (v.progress?.done ?? 0) > 0;
-  const movedOn = joined && !g.deviceReady && status === "complete";
+  // SwapUp Check 0.3.0+ (native) runs its tests FIRST and shows the photo screen
+  // last, so a phone that is testing is on its way here — not gone. The browser
+  // check and older apps never come back to it: for them, progress means moved on.
+  // A phone that has sent nothing for 3 minutes is not "testing" any more either.
+  const photosLast = photosLastApp(v.device?.appVersion ?? null);
+  const lastResultAt = Math.max(0, ...Object.values(v.results ?? {}).map((x) => Date.parse(x.at) || 0));
+  const quiet = lastResultAt > 0 && Date.now() - lastResultAt > STALE_TESTING_MS;
+  const progressed = (v.progress?.done ?? 0) > 0;
+  const testing = photosLast && joined && !g.deviceReady && status !== "complete" && progressed && !quiet;
+  const movedOn = joined && !g.deviceReady && (status === "complete" || (!photosLast && progressed) || (photosLast && quiet));
   // The server says when an override is allowed; we hold it back while the phone is
   // still testing (the photo screen is coming), and for the first half-minute after
   // joining when nothing is wrong yet.
@@ -190,8 +204,8 @@ export function CameraStepCard({
           }
         />
         {g.screenProblem ? null : movedOn ? (
-          <Banner tone="warn" title="The customer's phone finished without photos">
-            It skipped the photo screen, so the camera can't check the display. You can still photograph the outside.
+          <Banner tone="warn" title={status === "complete" ? "The customer's phone finished without photos" : "The customer's phone has moved on"}>
+            It isn't showing the photo screen, so the camera can't check the display. You can still photograph the outside.
           </Banner>
         ) : null}
         {canOverride ? (

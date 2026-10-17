@@ -17,7 +17,7 @@ import { NOT_IN_RUN_REASON, nativeStep, partitionPlan, rerunnable } from "../dia
 import { AutoRunner } from "../diagnostics/auto/AutoRunner";
 import { ChargingAction, TouchAction } from "../diagnostics/auto/Actions";
 import { PairingScreen } from "./PairingScreen";
-import { GetReady } from "./GetReady";
+import { GetReady, askTestPermissions } from "./GetReady";
 import { Screen, SyncBadge, Title, Note } from "./screens";
 import { countResults, type Detail, type Outcome, type PairingRec } from "./core";
 import type { CheckEngine, Snapshot } from "./engine";
@@ -177,8 +177,11 @@ export function NativeCheck({
       snap={snap}
       planIds={plan}
       onRerun={(ids) => {
-        setRerun({ auto: plan.auto.filter((i) => ids.includes(i)), actions: plan.actions.filter((i) => ids.includes(i)), stage: plan.auto.some((i) => ids.includes(i)) ? "auto" : "actions", n: Date.now() });
-        setRerunAction(0);
+        // A test skipped for a refused permission can only pass if it is asked for again.
+        void askTestPermissions().finally(() => {
+          setRerun({ auto: plan.auto.filter((i) => ids.includes(i)), actions: plan.actions.filter((i) => ids.includes(i)), stage: plan.auto.some((i) => ids.includes(i)) ? "auto" : "actions", n: Date.now() });
+          setRerunAction(0);
+        });
       }}
       onNewCheck={onNewCheck}
     />
