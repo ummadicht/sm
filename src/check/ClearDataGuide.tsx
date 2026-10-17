@@ -1,10 +1,11 @@
 // "Clear your phone" — shown once the store has the test results. The customer
 // clears their own phone from its own Settings; this screen only explains the
-// steps and opens Settings. Nothing here resets anything.
+// steps and opens Settings. Nothing here resets anything. Look: a white card on
+// the result screen; the steps open in a bottom sheet.
 import React, { useState } from "react";
-import { Linking, Platform, Pressable, Text, View } from "react-native";
-import { T } from "../shared/theme";
-import { Big, Say } from "../diagnostics/parts";
+import { Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { P } from "../shared/theme";
+import { Arrow, Caption, PillButton, Sheet } from "../shared/kit";
 
 const STEPS: { title: string; body: string }[] = [
   { title: "Back up", body: "Move photos and chats to your new phone (Smart Switch) or the cloud. After the reset nothing on this phone can be recovered." },
@@ -40,47 +41,67 @@ export function ClearDataGuide({ applied }: { applied: boolean }) {
   const [failed, setFailed] = useState(false);
   const android = Platform.OS === "android";
 
-  if (!applied)
-    return (
-      <View style={{ marginTop: 14 }}>
-        <Say muted center>
-          Trading this phone in? Don&apos;t reset it yet — the advisor still needs these results.
-        </Say>
-      </View>
-    );
+  if (!applied) return <Caption style={{ marginTop: 14 }}>Trading this phone in? Don&apos;t reset it yet — the advisor still needs these results.</Caption>;
 
   return (
-    <View style={{ marginTop: 18, backgroundColor: T.surface, borderRadius: T.radius, borderWidth: 1, borderColor: T.border, padding: 16 }}>
-      <Pressable onPress={() => setOpen((o) => !o)} accessibilityRole="button" accessibilityState={{ expanded: open }}>
-        <Text style={{ color: T.text, fontSize: 19, fontWeight: "800" }}>Trading it in? Clear your phone {open ? "▾" : "›"}</Text>
-        <Text style={{ color: T.muted, fontSize: 15, marginTop: 4 }}>
-          Once you&apos;ve agreed the trade-in, you clear it yourself — the advisor never needs your passwords.
-        </Text>
+    <>
+      <Pressable
+        onPress={() => setOpen(true)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        style={({ pressed }) => [s.card, pressed && { backgroundColor: P.surface2 }]}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={s.cardTitle}>Trading it in? Clear your phone</Text>
+          <Text style={s.cardSub}>Once you&apos;ve agreed the trade-in, you clear it yourself — the advisor never needs your passwords.</Text>
+        </View>
+        <Arrow color={P.ink} />
       </Pressable>
-      {open ? (
-        <View style={{ marginTop: 12, gap: 12 }}>
-          {STEPS.map((s, i) => (
-            <View key={s.title}>
-              <Text style={{ color: T.text, fontSize: 16, fontWeight: "700" }}>
-                {i + 1}. {s.title}
-              </Text>
-              <Text style={{ color: T.muted, fontSize: 15, marginTop: 2, lineHeight: 21 }}>{s.body}</Text>
+      <Sheet
+        visible={open}
+        onClose={() => setOpen(false)}
+        title="Clear your phone"
+        lead="Once you've agreed the trade-in, you clear it yourself — the advisor never needs your passwords."
+        footer={<PillButton title="Done" onPress={() => setOpen(false)} />}
+      >
+        <View style={{ marginTop: 18, gap: 14 }}>
+          {STEPS.map((step, i) => (
+            <View key={step.title} style={s.step}>
+              <View style={s.num}>
+                <Text style={s.numText}>{i + 1}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.stepTitle}>{step.title}</Text>
+                <Text style={s.stepBody}>{step.body}</Text>
+              </View>
             </View>
           ))}
           {android ? (
-            <>
-              <Big
+            <View style={{ gap: 10, marginTop: 4 }}>
+              <PillButton
                 title="Open Accounts"
-                kind="secondary"
+                kind="outline"
+                arrow={false}
                 onPress={() => void openSettings("android.settings.SYNC_SETTINGS").then((ok) => setFailed(!ok))}
               />
-              <Big title="Open Settings" kind="secondary" onPress={() => void openSettings("android.settings.SETTINGS").then((ok) => setFailed(!ok))} />
-              {failed ? <Say muted>Couldn&apos;t open Settings — open it from your home screen.</Say> : null}
-            </>
+              <PillButton title="Open Settings" kind="outline" arrow={false} onPress={() => void openSettings("android.settings.SETTINGS").then((ok) => setFailed(!ok))} />
+              {failed ? <Caption>Couldn&apos;t open Settings — open it from your home screen.</Caption> : null}
+            </View>
           ) : null}
-          <Say muted>Resetting also removes this app. That&apos;s expected — your results are already with the store.</Say>
+          <Caption center={false}>Resetting also removes this app. That&apos;s expected — your results are already with the store.</Caption>
         </View>
-      ) : null}
-    </View>
+      </Sheet>
+    </>
   );
 }
+
+const s = StyleSheet.create({
+  card: { marginTop: 18, flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: P.surface, borderRadius: P.radius, paddingVertical: 18, paddingHorizontal: 20 },
+  cardTitle: { color: P.ink, fontSize: 17, fontWeight: "700" },
+  cardSub: { color: P.muted, fontSize: 14, lineHeight: 20, marginTop: 4 },
+  step: { flexDirection: "row", gap: 12 },
+  num: { width: 28, height: 28, borderRadius: 14, backgroundColor: P.tint, alignItems: "center", justifyContent: "center", marginTop: 1 },
+  numText: { color: P.ink, fontSize: 14, fontWeight: "700" },
+  stepTitle: { color: P.ink, fontSize: 16, fontWeight: "700" },
+  stepBody: { color: P.muted, fontSize: 15, lineHeight: 21, marginTop: 2 },
+});

@@ -15,6 +15,7 @@ export function staffClient(server: string, token: string, onUnauthorized: () =>
     base: c.base,
     get: <T,>(path: string) => guard(c.get<T>(path)),
     post: <T,>(path: string, body?: unknown) => guard(c.post<T>(path, body)),
+    patch: <T,>(path: string, body: unknown) => guard(c.patch<T>(path, body)),
   };
 }
 

@@ -1,9 +1,12 @@
 // Big, plain building blocks for the hardware tests. The person holding the
 // phone is a customer at a shop counter, not a technician: large text, large
-// touch targets, one clear action at a time.
+// touch targets, one clear action at a time. Drawn in the SWAPUP EXPERIENCE
+// CENTER look (theme P): pill buttons — filled blue, or a 1.5 px ink outline.
+// The docked label-left/arrow-right button of a whole screen is the kit's
+// PillButton (src/shared/kit); Big is the centred pill used inside a screen.
 import React from "react";
 import { ActivityIndicator, Linking, Platform, Pressable, StyleSheet, Text, View, ViewStyle } from "react-native";
-import { T } from "../shared/theme";
+import { P } from "../shared/theme";
 
 export type BigKind = "primary" | "pass" | "fail" | "secondary" | "quiet";
 
@@ -23,12 +26,11 @@ export function Big({
   style?: ViewStyle;
 }) {
   const bg =
-    kind === "primary" ? T.accent
-    : kind === "pass" ? T.pass
-    : kind === "fail" ? T.fail
-    : kind === "secondary" ? T.surface2
+    kind === "primary" ? P.primary
+    : kind === "pass" ? P.pass
+    : kind === "fail" ? P.fail
     : "transparent";
-  const fg = kind === "secondary" ? T.text : kind === "quiet" ? T.muted : "#08111f";
+  const fg = kind === "secondary" ? P.ink : kind === "quiet" ? P.primary : P.onPrimary;
   return (
     <Pressable
       accessibilityRole="button"
@@ -38,8 +40,9 @@ export function Big({
       style={({ pressed }) => [
         s.big,
         kind === "quiet" && s.quiet,
-        kind === "secondary" && { borderWidth: 1, borderColor: T.border },
-        { backgroundColor: bg, opacity: disabled ? 0.4 : pressed ? 0.75 : 1 },
+        kind === "secondary" && s.outline,
+        { backgroundColor: pressed && kind === "primary" ? P.primaryPressed : pressed && kind === "secondary" ? P.surface2 : bg },
+        { opacity: disabled ? 0.4 : pressed && kind !== "primary" && kind !== "secondary" ? 0.75 : 1 },
         style,
       ]}
     >
@@ -51,7 +54,7 @@ export function Big({
 
 /** One reading, label on the left, value on the right. */
 export function Fact({ label, value, tone }: { label: string; value: string; tone?: "pass" | "fail" | "warn" | "skip" }) {
-  const color = tone === "pass" ? T.pass : tone === "fail" ? T.fail : tone === "warn" ? T.warn : tone === "skip" ? T.muted : T.text;
+  const color = tone === "pass" ? P.pass : tone === "fail" ? P.fail : tone === "warn" ? P.warn : tone === "skip" ? P.muted : P.ink;
   return (
     <View style={s.fact}>
       <Text style={s.factLabel}>{label}</Text>
@@ -61,7 +64,7 @@ export function Fact({ label, value, tone }: { label: string; value: string; ton
 }
 
 export function Say({ children, muted, center, style }: { children: React.ReactNode; muted?: boolean; center?: boolean; style?: object }) {
-  return <Text style={[s.say, muted && { color: T.muted }, center && { textAlign: "center" }, style]}>{children}</Text>;
+  return <Text style={[s.say, muted && { color: P.muted }, center && { textAlign: "center" }, style]}>{children}</Text>;
 }
 
 export function BigEmoji({ children }: { children: string }) {
@@ -91,29 +94,30 @@ export async function openAndroidSettings(action: string): Promise<void> {
 
 const s = StyleSheet.create({
   big: {
-    minHeight: 58,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    borderRadius: T.radius,
+    minHeight: 56,
+    paddingVertical: 12,
+    paddingHorizontal: 22,
+    borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
     gap: 10,
   },
-  bigText: { fontSize: 19, fontWeight: "800", textAlign: "center" },
-  quiet: { minHeight: 48, paddingVertical: 10 },
-  quietText: { fontSize: 17, fontWeight: "700", textDecorationLine: "underline" },
+  outline: { borderWidth: 1.5, borderColor: P.ink },
+  bigText: { fontSize: 18, fontWeight: "700", textAlign: "center" },
+  quiet: { minHeight: 44, paddingVertical: 8 },
+  quietText: { fontSize: 16, fontWeight: "600" },
   fact: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     gap: 12,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: T.border,
+    borderBottomColor: P.line,
   },
-  factLabel: { color: T.muted, fontSize: 17, flexShrink: 0 },
-  factValue: { fontSize: 18, fontWeight: "700", textAlign: "right", flexShrink: 1 },
-  say: { color: T.text, fontSize: 18, lineHeight: 26 },
+  factLabel: { color: P.muted, fontSize: 16, flexShrink: 0 },
+  factValue: { fontSize: 16, fontWeight: "700", textAlign: "right", flexShrink: 1 },
+  say: { color: P.ink, fontSize: 17, lineHeight: 25 },
   emoji: { fontSize: 76, textAlign: "center" },
 });

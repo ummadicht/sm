@@ -20,7 +20,7 @@ export class ApiError extends Error {
 
 export function createClient(server: string, auth: Auth, timeoutMs = 15_000) {
   const base = server.replace(/\/$/, "");
-  async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+  async function call<T>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<T> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
@@ -54,6 +54,8 @@ export function createClient(server: string, auth: Auth, timeoutMs = 15_000) {
     base,
     get: <T>(path: string) => call<T>("GET", path),
     post: <T>(path: string, body?: unknown) => call<T>("POST", path, body ?? {}),
+    /** Partial update (e.g. PATCH /api/cases/<id>); the server answers with the whole record. */
+    patch: <T>(path: string, body: unknown) => call<T>("PATCH", path, body ?? {}),
   };
 }
 

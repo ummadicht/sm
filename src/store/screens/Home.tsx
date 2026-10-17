@@ -1,13 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
-import { L } from "../../shared/theme";
 import { StaffClient, absolute, errText } from "../staffClient";
 import type { CreditState, CreditSummary, StaffUser, TestSessionView } from "../types";
 import { unwrapSession } from "../types";
 import { photosNeeded, readGrading } from "../grading";
 import { customerStarted, readPhonePhase, scanFlag, scanStage, sessionLayout } from "../phoneLed";
 import { firstName } from "../pin";
-import { Banner, Body, Btn, Card, Chip, Columns, H1, H2, Label, STATUS, Tone, ago, inr, toneColor, until, useLayout } from "../ui";
+import { Banner, Body, Brand, Btn, Card, Chip, Columns, Figure, H1, H2, Label, STATUS, Tone, ago, inr, toneColor, until, useLayout, L } from "../ui";
 
 const CREDIT_STATE: Record<CreditState, { label: string; tone: Tone }> = {
   ok: { label: "Healthy", tone: "up" },
@@ -142,7 +141,7 @@ export function Home({
 
   const startCard = (
     <Card style={{ gap: 12 }}>
-      <H2>Customer at the counter?</H2>
+      <H1 style={{ fontSize: 28, lineHeight: 34 }}>Customer at the counter?</H1>
       <Body muted>Start a trade-in. You'll get a code for the customer to scan, and their phone tests itself in a few minutes.</Body>
       <Btn title="New customer trade-in" onPress={onNew} big />
     </Card>
@@ -151,14 +150,13 @@ export function Home({
   return (
     <ScrollView
       contentContainerStyle={{ padding: pad, gap: 16, alignSelf: "center", width: content + pad * 2 }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} colors={[L.up]} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} colors={[L.primary]} tintColor={L.primary} />}
     >
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
         <View style={{ flex: 1, gap: 4 }}>
-          <H1>{store.name}</H1>
-          <Body muted>
-            {[store.city, store.code].filter(Boolean).join(" · ")}
-            {"  ·  "}
+          {/* The wordmark (no logo), the store's name under it in muted text. */}
+          <Brand store={[store.name, store.city, store.code].filter(Boolean).join(" · ")} />
+          <Body muted style={{ fontSize: 15, lineHeight: 21 }}>
             {user.name} ({user.roleLabel})
           </Body>
           {user.org?.demo ? (
@@ -218,7 +216,9 @@ function CreditBody({
   const color = toneColor(st.tone);
   return (
     <View style={{ gap: 10 }}>
-      <Text style={{ fontSize: 44, fontWeight: "800", color: p.available < 0 ? L.bad : L.ink, letterSpacing: -1 }}>{inr(p.available)}</Text>
+      <Figure size={44} color={p.available < 0 ? L.bad : L.ink}>
+        {inr(p.available)}
+      </Figure>
       <Body muted>
         {inr(p.exposure)} used of {inr(p.limit)} limit · {pct}% used
       </Body>

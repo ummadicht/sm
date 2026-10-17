@@ -6,8 +6,7 @@ import { ActivityIndicator, BackHandler, Text, View } from "react-native";
 import * as Linking from "expo-linking";
 import { WebView } from "react-native-webview";
 import type { ShouldStartLoadRequest } from "react-native-webview/lib/WebViewTypes";
-import { L } from "../../shared/theme";
-import { Banner, Btn, TopBar } from "../ui";
+import { Banner, Btn, TopBar, L } from "../ui";
 
 function originOf(url: string): string | null {
   const m = /^(https?:\/\/[^/?#]+)/i.exec(url);
@@ -127,7 +126,7 @@ export function WebScreen({ url, title, onClose }: { url: string; title: string;
             pointerEvents="none"
             style={{ position: "absolute", top: 0, left: 0, right: 0, paddingVertical: 10, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 10 }}
           >
-            <ActivityIndicator color={L.up} />
+            <ActivityIndicator color={L.primary} />
             <Text style={{ color: L.muted, fontSize: 15 }}>Loading…</Text>
           </View>
         ) : null}

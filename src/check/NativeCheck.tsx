@@ -17,10 +17,9 @@
 // The browser build runs the same steps where it can from ../CheckApp.tsx and
 // never loads this file (Metro picks ./NativeCheck.web.tsx there).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BackHandler, Linking, Text, View } from "react-native";
+import { BackHandler, Linking, View } from "react-native";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
-import { T } from "../shared/theme";
-import { Big, BigEmoji, Fact, Say } from "../diagnostics/parts";
+import { Caption, Card, ChecklistArt, FactRow, Gap, Headline, Hero, Lead, Notice, PillButton, QuietLink, Screen, TickArt, Wordmark } from "../shared/kit";
 import { testById } from "../diagnostics/catalog";
 import { NOT_IN_RUN_REASON, nativeStep, partitionPlan, rerunnable, testsStarted } from "../diagnostics/auto/plan";
 import { AutoRunner } from "../diagnostics/auto/AutoRunner";
@@ -30,7 +29,7 @@ import { IdentifyScreen } from "./IdentifyScreen";
 import { BatteryScreen } from "./BatteryScreen";
 import { Railed } from "./StepRail";
 import { GetReady, askTestPermissions } from "./GetReady";
-import { Screen, SyncBadge, Title, Note } from "./screens";
+import { SyncBadge } from "./screens";
 import { BATTERY_HEALTH_ID, countResults, phaseFor, startedBeforeIdentify, type BatteryRec, type Detail, type Outcome, type PairingRec } from "./core";
 import { batteryResultText } from "./battery";
 import type { CheckEngine, IdentifyAnswers, Snapshot } from "./engine";
@@ -165,24 +164,24 @@ export function NativeCheck({
   if (step === "battery") {
     return (
       <Railed at="test">
-          <BatteryScreen engine={engine} state={st} onDone={(b: Omit<BatteryRec, "at">) => void engine.setBattery({ ...b, at: new Date().toISOString() })} />
-        </Railed>
-      );
-    }
+        <BatteryScreen engine={engine} state={st} onDone={(b: Omit<BatteryRec, "at">) => void engine.setBattery({ ...b, at: new Date().toISOString() })} />
+      </Railed>
+    );
+  }
 
-    if (step === "auto" && !rerun && !permsAsked) {
-      return (
-        <Railed at="test">
-          <GetReady state={st} onReady={() => setPermsAsked(true)} onWrongCode={onWrongCode} />
-        </Railed>
-      );
-    }
+  if (step === "auto" && !rerun && !permsAsked) {
+    return (
+      <Railed at="test">
+        <GetReady state={st} onReady={() => setPermsAsked(true)} onWrongCode={onWrongCode} />
+      </Railed>
+    );
+  }
 
-    if (step === "auto") {
-      const all = rerun ? rerun.auto : plan.auto;
-      const todo = rerun ? rerun.auto : plan.auto.filter((id) => !st.results[id]);
-      return (
-        <Railed at="test">
+  if (step === "auto") {
+    const all = rerun ? rerun.auto : plan.auto;
+    const todo = rerun ? rerun.auto : plan.auto.filter((id) => !st.results[id]);
+    return (
+      <Railed at="test">
         <AutoRunner
           key={rerun ? `rerun-${rerun.n}` : "main"}
           all={all}
@@ -273,52 +272,54 @@ function NativeDone({
   const redo = rerunnable(planIds, s.results);
   const photos = s.pairing?.outcome;
   const byCamera = photos === "handoff" || photos === "grace";
+  const rows: { label: string; value: string; tone?: "pass" | "fail" | "warn" | "muted" }[] = [
+    { label: "Trade-in", value: s.session.caseRef },
+    { label: "Passed", value: String(c.passed), tone: "pass" },
+    { label: "Failed", value: String(c.failed), tone: c.failed ? "fail" : undefined },
+    { label: "Not tested", value: String(c.skipped), tone: c.skipped ? "warn" : undefined },
+  ];
+  if (c.unsupported) rows.push({ label: "Not on this phone", value: String(c.unsupported), tone: "muted" });
+  if (planIds.server.includes("display")) rows.push({ label: "Screen and glass", value: byCamera ? "checked by the store's camera" : "checked by eye", tone: "muted" });
+  if (planIds.server.includes(BATTERY_HEALTH_ID)) rows.push({ label: "Battery health", value: batteryResultText(s.battery), tone: "muted" });
   return (
-    <Screen>
-      <BigEmoji>{applied ? "✅" : "📱"}</BigEmoji>
+    <Screen
+      footer={
+        <>
+          {redo.length && !applied ? (
+            <PillButton title={redo.length === 1 ? "Test that again" : `Test those ${redo.length} again`} kind="outline" onPress={() => onRerun(redo)} />
+          ) : null}
+          <QuietLink title="Finish and start a new check" onPress={onNewCheck} />
+        </>
+      }
+    >
+      <Wordmark store={s.session.storeName} />
       {/* Never a price or a grade letter here: the price comes from the store and can still change. */}
-      <Title>{applied ? "The store has your results" : "Checks complete — the advisor will confirm your price."}</Title>
-      <Text style={{ color: T.text, fontSize: 22, fontWeight: "800", textAlign: "center", marginBottom: 4 }}>{s.session.caseRef}</Text>
-      <Say muted center>
-        {s.session.storeName}
-      </Say>
-      <View style={{ height: 18 }} />
-      <View style={{ backgroundColor: T.surface, borderRadius: T.radius, paddingHorizontal: 16, borderWidth: 1, borderColor: T.border }}>
-        <Fact label="Passed" value={String(c.passed)} tone="pass" />
-        <Fact label="Failed" value={String(c.failed)} tone={c.failed ? "fail" : undefined} />
-        <Fact label="Not tested" value={String(c.skipped)} tone={c.skipped ? "warn" : undefined} />
-        {c.unsupported ? <Fact label="Not on this phone" value={String(c.unsupported)} tone="skip" /> : null}
-        {planIds.server.includes("display") ? (
-          <Fact label="Screen and glass" value={byCamera ? "checked by the store's camera" : "checked by eye"} tone="skip" />
-        ) : null}
-        {planIds.server.includes(BATTERY_HEALTH_ID) ? <Fact label="Battery health" value={batteryResultText(s.battery)} tone="skip" /> : null}
-      </View>
-      <View style={{ height: 12 }} />
-      <SyncBadge snap={snap} />
-      {!applied ? <Say muted>The advisor is reviewing your results on their screen.</Say> : null}
+      <Headline>{applied ? "The store has your results" : "Checks complete"}</Headline>
+      {!applied ? <Lead>The advisor will confirm your price.</Lead> : null}
+      <Hero grow={false} minHeight={0} style={{ paddingVertical: 24 }}>
+        {applied ? <TickArt width={104} /> : <ChecklistArt width={92} ticked={3} />}
+      </Hero>
+      <Card pad={false} style={{ paddingHorizontal: 20 }}>
+        {rows.map((r, i) => (
+          <FactRow key={r.label} label={r.label} value={r.value} tone={r.tone} last={i === rows.length - 1} />
+        ))}
+      </Card>
+      <Gap h={14} />
+      <SyncBadge snap={snap} center />
+      {!applied ? <Caption>The advisor is reviewing your results on their screen.</Caption> : null}
       <ClearDataGuide applied={applied} />
       {photos === "skipped" || photos === "unavailable" ? (
-        <View style={{ marginTop: 12 }}>
-          <Note tone="warn">The camera didn't check the screen, so the advisor checks it by eye.</Note>
-        </View>
+        <Notice tone="warn" style={{ marginTop: 12 }}>
+          The camera didn&apos;t check the screen, so the advisor checks it by eye.
+        </Notice>
       ) : null}
       {blockedPerms.length && !applied ? (
         <View style={{ marginTop: 14, gap: 10 }}>
-          <Note tone="warn">{`The ${blockedPerms.join(" and ")} ${blockedPerms.length === 1 ? "is" : "are"} turned off for SwapUp Check, so those tests can't run. Turn ${blockedPerms.length === 1 ? "it" : "them"} on in Settings, then test again.`}</Note>
-          <Big title="Open Settings" kind="secondary" onPress={() => void Linking.openSettings().catch(() => {})} />
+          <Notice tone="warn">{`The ${blockedPerms.join(" and ")} ${blockedPerms.length === 1 ? "is" : "are"} turned off for SwapUp Check, so those tests can't run. Turn ${blockedPerms.length === 1 ? "it" : "them"} on in Settings, then test again.`}</Notice>
+          <PillButton title="Open Settings" kind="outline" size="sm" onPress={() => void Linking.openSettings().catch(() => {})} style={{ alignSelf: "flex-start" }} />
         </View>
       ) : null}
-      {redo.length && !applied ? (
-        <>
-          <View style={{ height: 18 }} />
-          <Big title={redo.length === 1 ? "Test that again" : `Test those ${redo.length} again`} kind="secondary" onPress={() => onRerun(redo)} />
-          <Text style={{ color: T.muted, fontSize: 14, textAlign: "center", marginTop: 10 }}>
-            Not tested or failed: {redo.map((id) => testById(id)?.title ?? id).join(", ")}
-          </Text>
-        </>
-      ) : null}
-      <View style={{ height: 26 }} />
-      <Big title="Finish and start a new check" kind="quiet" onPress={onNewCheck} />
+      {redo.length && !applied ? <Caption>Not tested or failed: {redo.map((id) => testById(id)?.title ?? id).join(", ")}</Caption> : null}
     </Screen>
   );
 }

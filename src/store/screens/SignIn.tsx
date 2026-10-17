@@ -2,12 +2,11 @@ import React, { useState } from "react";
 import { KeyboardAvoidingView, Pressable, ScrollView, Text, View } from "react-native";
 import { ApiError, createClient } from "../../shared/api";
 import { DEFAULT_SERVER, IS_WEB } from "../../shared/config";
-import { L } from "../../shared/theme";
 import { normaliseServer } from "../storage";
 import { errText } from "../staffClient";
 import type { StaffUser, TokenResponse } from "../types";
 import { SignUp } from "./SignUp";
-import { Banner, Body, Btn, Card, Field, H1, useLayout } from "../ui";
+import { Banner, Body, Brand, Btn, Card, Field, H1, useLayout, L } from "../ui";
 
 /** Counter roles only — anything else is turned away with a sentence that says why. */
 export function staffProblem(u: StaffUser): string | null {
@@ -108,7 +107,7 @@ function SignInForm({
             </Pressable>
           ) : null}
           <View style={{ gap: 6 }}>
-            <Text style={{ color: L.up, fontSize: 16, fontWeight: "800", letterSpacing: 1, textTransform: "uppercase" }}>SwapUp Store</Text>
+            <Brand style={{ marginBottom: 10 }} />
             <H1>Sign in to your store</H1>
             <Body muted>Use the same username and password as the SwapUp desk on the web.</Body>
           </View>

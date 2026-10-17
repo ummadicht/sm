@@ -21,7 +21,7 @@ import { ActivityIndicator, AppState, BackHandler, Linking, Text, View } from "r
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
-import { T } from "../shared/theme";
+import { P } from "../shared/theme";
 import { DEFAULT_SERVER, CLIENT_VERSION, IS_WEB } from "../shared/config";
 import { APPLIED_MESSAGE, CheckEngine, joinErrorMessage } from "./engine";
 import { fileStore, storageIsPersistent } from "./files";
@@ -42,8 +42,9 @@ export function CheckApp() {
   const [bleed, setBleed] = useState(false);
   return (
     <SafeAreaProvider>
-      <StatusBar style="light" hidden={bleed} />
-      <SafeAreaView style={{ flex: 1, backgroundColor: T.bg }} edges={bleed ? [] : EDGES}>
+      {/* Light theme: dark status-bar icons on the grey tint. */}
+      <StatusBar style="dark" hidden={bleed} />
+      <SafeAreaView style={{ flex: 1, backgroundColor: P.bg }} edges={bleed ? [] : EDGES}>
         {/* Not over a screen-check pattern: the camera needs the whole screen lit. */}
         {IS_WEB && !bleed && !storageIsPersistent() ? <NoStorageBar /> : null}
         <Root onBleed={setBleed} />
@@ -55,8 +56,8 @@ export function CheckApp() {
 /** Browser with storage blocked (private mode, blocked site data): a refresh would lose the place. */
 function NoStorageBar() {
   return (
-    <View style={{ paddingVertical: 10, paddingHorizontal: 16, backgroundColor: T.surface2, borderBottomWidth: 2, borderBottomColor: T.warn }}>
-      <Text style={{ color: T.warn, fontSize: 14, lineHeight: 20, fontWeight: "600" }}>
+    <View style={{ paddingVertical: 10, paddingHorizontal: 20, backgroundColor: P.warnBg }}>
+      <Text style={{ color: "#8A4B00", fontSize: 14, lineHeight: 20, fontWeight: "600" }}>
         This browser isn't saving your progress (private browsing or blocked site data). Keep this page open until you finish — results
         already sent to the store are safe.
       </Text>
@@ -280,8 +281,8 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
 
   if (!snap.ready) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: T.bg }}>
-        <ActivityIndicator color={T.accent} size="large" />
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: P.bg }}>
+        <ActivityIndicator color={P.primary} size="large" />
       </View>
     );
   }

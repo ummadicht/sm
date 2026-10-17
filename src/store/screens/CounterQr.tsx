@@ -8,12 +8,11 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, Text, View } from "react-native";
 import { ApiError } from "../../shared/api";
-import { L } from "../../shared/theme";
 import { QR } from "../QR";
 import { readCounterCode } from "../phoneLed";
 import { PRINT_HINT, PRINT_LABEL, printCounterQr } from "../printPoster";
 import { StaffClient, absolute, errText } from "../staffClient";
-import { Banner, Body, Btn, Card, H2 } from "../ui";
+import { Banner, Body, Btn, Card, H2, L } from "../ui";
 
 type Code = { code: string; joinUrl: string };
 

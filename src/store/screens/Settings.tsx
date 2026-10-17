@@ -8,10 +8,9 @@ import { CounterQrCard } from "./CounterQr";
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, KeyboardAvoidingView, ScrollView, Text, View } from "react-native";
 import { APP_VERSION, DEFAULT_SERVER, IS_WEB } from "../../shared/config";
-import { L } from "../../shared/theme";
 import { StaffClient, errText } from "../staffClient";
 import type { StaffUser, StoreDeviceCreated, WifiResponse } from "../types";
-import { Banner, Body, Btn, Card, Chip, Columns, H2, KV, TopBar, useLayout } from "../ui";
+import { Banner, Body, Btn, Card, Chip, Columns, H2, KV, Label, TopBar, useLayout, L } from "../ui";
 import { WifiForm, WifiInfo } from "./SessionParts";
 import { ChangePin, StoreTabletCard } from "./TabletSettings";
 
@@ -81,8 +80,8 @@ export function Settings({
 
   const account = (
     <Card>
-      <H2>Signed in</H2>
-      <Text style={{ fontSize: 24, fontWeight: "800", color: L.ink }}>{user.name}</Text>
+      <Label>Signed in</Label>
+      <H2 style={{ fontSize: 24, lineHeight: 30 }}>{user.name}</H2>
       <View>
         {user.username ? <KV label="Username" value={user.username} /> : null}
         <KV label="Role" value={user.roleLabel || user.role} />
@@ -106,8 +105,8 @@ export function Settings({
 
   const storeCard = (
     <Card>
-      <H2>Store</H2>
-      <Text style={{ fontSize: 24, fontWeight: "800", color: L.ink }}>{store.name}</Text>
+      <Label>Store</Label>
+      <H2 style={{ fontSize: 24, lineHeight: 30 }}>{store.name}</H2>
       <View>
         <KV label="Store code" value={store.code || "—"} />
         <KV label="City" value={store.city || "—"} />

@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { SvgXml } from "react-native-svg";
 import QRCode from "qrcode";
-import { L } from "../shared/theme";
+import { L } from "./ui";
 
 // qrcode encodes text with TextEncoder. Hermes ships it, but a QR that can't be
 // drawn at the counter is a dead end, so fall back to a tiny UTF-8 encoder.

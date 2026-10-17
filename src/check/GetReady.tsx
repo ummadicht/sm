@@ -6,12 +6,12 @@
 // The tests only READ these permissions (src/diagnostics/auto/*), so they must
 // be asked here, before the runner starts.
 import React, { useEffect, useRef } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator } from "react-native";
 import { Camera } from "expo-camera";
 import { requestRecordingPermissionsAsync } from "expo-audio";
 import * as Location from "expo-location";
-import { T } from "../shared/theme";
-import { Big, Say } from "../diagnostics/parts";
+import { P } from "../shared/theme";
+import { Caption, ChecklistArt, Headline, Hero, Lead, QuietLink, Screen } from "../shared/kit";
 import type { CheckState } from "./core";
 
 type Perm = "camera" | "microphone" | "location";
@@ -50,25 +50,23 @@ export function GetReady({ state, onReady, onWrongCode }: { state: CheckState; o
   }, []);
 
   return (
-    <View style={s.root}>
-      <Text style={s.kicker}>{state.session.storeName}</Text>
-      <Text style={s.title}>Testing your phone</Text>
-      <Say>Allow the camera, microphone and location when asked — then everything runs by itself.</Say>
-      <ActivityIndicator color={T.accent} size="large" style={{ marginVertical: 28 }} />
-      <Text style={s.privacy}>
+    <Screen
+      footer={
+        <>
+          <QuietLink title="Wrong store? Use another code" onPress={onWrongCode} />
+          <Caption style={{ marginTop: 0 }}>Trade-in {state.session.caseRef}</Caption>
+        </>
+      }
+    >
+      <Headline>Testing your phone</Headline>
+      <Lead>Allow the camera, microphone and location when asked — then everything runs by itself.</Lead>
+      <Hero>
+        <ChecklistArt width={120} ticked={1} />
+        <ActivityIndicator color={P.primary} size="large" style={{ marginTop: 26 }} />
+      </Hero>
+      <Caption>
         Nothing personal is read. No photos, contacts, messages, accounts or location leave this phone — only the test results, the phone model and its storage size.
-      </Text>
-      <View style={{ flex: 1 }} />
-      <Big title="Wrong store? Use another code" kind="quiet" onPress={onWrongCode} />
-      <Text style={s.small}>Trade-in {state.session.caseRef}</Text>
-    </View>
+      </Caption>
+    </Screen>
   );
 }
-
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: T.bg, padding: 22, paddingTop: 30 },
-  kicker: { color: T.accent, fontSize: 14, fontWeight: "800", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 },
-  title: { color: T.text, fontSize: 30, fontWeight: "800", lineHeight: 36, marginBottom: 10 },
-  privacy: { color: T.muted, fontSize: 14, lineHeight: 20, marginTop: 14 },
-  small: { color: T.muted, fontSize: 14, textAlign: "center", marginTop: 8 },
-});

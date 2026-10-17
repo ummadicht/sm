@@ -2,10 +2,9 @@
 // opens the store app's sign-up with it filled in). Codes work for 7 days, 5 people.
 import React, { useState } from "react";
 import { Text, View } from "react-native";
-import { L } from "../../shared/theme";
 import { QR } from "../QR";
 import { errText, type StaffClient } from "../staffClient";
-import { Banner, Body, Btn, Card, H2 } from "../ui";
+import { Banner, Body, Btn, Card, H2, L } from "../ui";
 
 type Created = { code: string; role: string; expiresAt: string; maxUses: number; url: string; deepLink: string };
 

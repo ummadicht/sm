@@ -13,12 +13,11 @@
 // (a 401 on the device token) sends it to sign-in.
 import "../shared/platform"; // browser shims (Alert, BackHandler) — a no-op on native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, BackHandler, Linking, Text, View } from "react-native";
+import { ActivityIndicator, AppState, BackHandler, Linking, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { ApiError, createClient } from "../shared/api";
 import { DEFAULT_SERVER, IS_WEB } from "../shared/config";
-import { L } from "../shared/theme";
 import { idleLocks, isIdle } from "./pin";
 import { Home } from "./screens/Home";
 import { NewTradeIn } from "./screens/NewTradeIn";
@@ -40,7 +39,7 @@ import {
   saveToken,
 } from "./storage";
 import { readTabletView, type Screen, type SessionLinks, type StaffUser, type StoreDeviceCreated, type TabletView, type TokenResponse } from "./types";
-import { Banner, Body, Btn, H1, useLayout } from "./ui";
+import { Banner, Body, Brand, Btn, H1, useLayout, L } from "./ui";
 
 type Auth = { server: string; token: string; user: StaffUser; expiresAt: string | null };
 
@@ -82,7 +81,7 @@ export function StoreApp() {
   return (
     <SafeAreaProvider>
       <StatusBar style="dark" />
-      <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: L.surface }}>
+      <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: L.bg }}>
         <SafeAreaView edges={["left", "right", "bottom"]} style={{ flex: 1, backgroundColor: L.bg }}>
           <Root />
         </SafeAreaView>
@@ -526,8 +525,8 @@ function Root() {
 function Booting() {
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 14 }}>
-      <Text style={{ color: L.up, fontSize: 16, fontWeight: "800", letterSpacing: 1, textTransform: "uppercase" }}>SwapUp Store</Text>
-      <ActivityIndicator size="large" color={L.up} />
+      <Brand style={{ alignItems: "center" }} />
+      <ActivityIndicator size="large" color={L.primary} />
       <Body muted>Checking your sign-in…</Body>
     </View>
   );
@@ -551,7 +550,7 @@ function Offline({
   return (
     <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: pad }}>
       <View style={{ width: "100%", maxWidth: 520, gap: 16 }}>
-        <Text style={{ color: L.up, fontSize: 16, fontWeight: "800", letterSpacing: 1, textTransform: "uppercase" }}>SwapUp Store</Text>
+        <Brand />
         <H1>Can't reach SwapUp</H1>
         <Banner tone="bad" title={tablet ? "The store tablet couldn't check in" : "Your sign-in couldn't be checked"}>
           {`${message} (Trying ${server}.)`}

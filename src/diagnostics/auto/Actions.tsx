@@ -1,11 +1,13 @@
 // The only two things the customer does on the native app (docs/AUTO-TESTS.md):
 // swipe over every square, and plug in the charger. No Pass/Fail/Skip buttons —
 // the grid and the battery state decide, and waiting too long is "not tested".
-// Native only.
+// Native only. Look: the kit (theme P) — blue squares on the grey tint; the
+// charger step is a battery illustration and one headline.
 import React, { useEffect, useRef, useState } from "react";
-import { GestureResponderEvent, StyleSheet, Text, View } from "react-native";
+import { GestureResponderEvent, StyleSheet, View } from "react-native";
 import * as Battery from "expo-battery";
-import { T } from "../../shared/theme";
+import { P } from "../../shared/theme";
+import { BatteryArt, Eyebrow, Headline, Lead, ProgressBar } from "../../shared/kit";
 import type { Detail, Outcome } from "./analysis";
 import { batteryStateName } from "../device";
 import { COLS, ROWS, applyTouches, cellAt, newTouchState, touchVerdict, type TouchState } from "./touch";
@@ -55,19 +57,19 @@ export function TouchAction({ onResult, step, steps }: { onResult: Done; step: n
 
   const remaining = cleared.filter((c) => !c).length;
   return (
-    <View style={{ flex: 1, backgroundColor: T.bg }}>
+    <View style={{ flex: 1, backgroundColor: P.bg }}>
       <View style={a.head}>
-        <Text style={a.step}>
+        <Eyebrow>
           Step {step} of {steps}
-        </Text>
-        <Text style={a.title}>Swipe over every square</Text>
-        <Text style={a.sub}>
-          {remaining === 0 ? "All clear ✓" : stuck ? `${remaining} left — swipe over the bright squares. Ones that won't clear are noted for the advisor.` : `${remaining} ${remaining === 1 ? "square" : "squares"} left`}
-        </Text>
+        </Eyebrow>
+        <Headline size="md">Swipe over every square</Headline>
+        <Lead style={{ marginTop: 6 }}>
+          {remaining === 0 ? "All clear ✓" : stuck ? `${remaining} left — swipe over the blue squares. Ones that won't clear are noted for the advisor.` : `${remaining} ${remaining === 1 ? "square" : "squares"} left`}
+        </Lead>
       </View>
       <View style={a.grid} onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })} onTouchStart={mark} onTouchMove={mark}>
         {cleared.map((c, i) => (
-          <View key={i} pointerEvents="none" style={[a.cell, { width: `${100 / COLS}%`, height: `${100 / ROWS}%`, backgroundColor: c ? "transparent" : T.accent }]} />
+          <View key={i} pointerEvents="none" style={[a.cell, { width: `${100 / COLS}%`, height: `${100 / ROWS}%`, backgroundColor: c ? "transparent" : P.primary }]} />
         ))}
       </View>
     </View>
@@ -130,17 +132,17 @@ export function ChargingAction({ onResult, step, steps }: { onResult: Done; step
 
   return (
     <View style={a.center}>
-      <Text style={a.step}>
+      <Eyebrow style={{ textAlign: "center" }}>
         Step {step} of {steps}
-      </Text>
-      <Text style={a.bigEmoji}>{phase === "charging" ? "⚡" : "🔌"}</Text>
-      <Text style={[a.title, { textAlign: "center" }]}>{phase === "charging" ? "Charging ✓" : "Plug in the charger"}</Text>
+      </Eyebrow>
+      <View style={a.art}>
+        <BatteryArt width={180} level={phase === "charging" ? 0.75 : 0.3} charging={phase === "charging"} />
+      </View>
+      <Headline center>{phase === "charging" ? "Charging ✓" : "Plug in the charger"}</Headline>
       {phase === "waiting" ? (
         <>
-          <Text style={[a.sub, { textAlign: "center" }]}>Use the store's cable. This moves on by itself in {left} s.</Text>
-          <View style={[a.bar, { marginTop: 22 }]}>
-            <View style={[a.fill, { width: `${Math.round((left / (CHARGE_WAIT_MS / 1000)) * 100)}%` }]} />
-          </View>
+          <Lead center>Use the store&apos;s cable. This moves on by itself in {left} s.</Lead>
+          <ProgressBar value={left / (CHARGE_WAIT_MS / 1000)} style={{ marginTop: 26 }} />
         </>
       ) : null}
     </View>
@@ -148,14 +150,9 @@ export function ChargingAction({ onResult, step, steps }: { onResult: Done; step
 }
 
 const a = StyleSheet.create({
-  head: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 10 },
-  step: { color: T.muted, fontSize: 14, fontWeight: "800", letterSpacing: 1, textTransform: "uppercase" },
-  title: { color: T.text, fontSize: 28, fontWeight: "800", lineHeight: 34, marginTop: 4 },
-  sub: { color: T.muted, fontSize: 17, lineHeight: 24, marginTop: 6 },
-  grid: { flex: 1, flexDirection: "row", flexWrap: "wrap", backgroundColor: T.bg },
-  cell: { borderWidth: 1, borderColor: T.bg },
-  center: { flex: 1, backgroundColor: T.bg, padding: 24, justifyContent: "center", alignItems: "stretch" },
-  bigEmoji: { fontSize: 88, textAlign: "center", marginVertical: 12 },
-  bar: { height: 10, borderRadius: 5, backgroundColor: T.surface2, overflow: "hidden" },
-  fill: { height: "100%", backgroundColor: T.warn },
+  head: { paddingHorizontal: P.gutter, paddingTop: 22, paddingBottom: 14 },
+  grid: { flex: 1, flexDirection: "row", flexWrap: "wrap", backgroundColor: P.bg },
+  cell: { borderWidth: 1, borderColor: P.bg, borderRadius: 4 },
+  center: { flex: 1, backgroundColor: P.bg, padding: P.gutter, justifyContent: "center", alignItems: "stretch" },
+  art: { alignItems: "center", marginTop: 18, marginBottom: 30 },
 });

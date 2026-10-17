@@ -17,14 +17,14 @@
 //                    same page from here (cameraUrl — the same fail-closed gate and override).
 import React, { useRef, useState } from "react";
 import { Platform, Text, View } from "react-native";
-import { L } from "../../shared/theme";
 import { CameraFault, CameraFinding, CameraGrading, CameraResult, GRADE_MEANING, disagreementLine, findingLine, pct, photosStep } from "../grading";
 import type { Layout, PhonePhase, ScanStage } from "../phoneLed";
 import { openCameraPage, openInDefaultBrowser } from "../openCamera";
 import { StaffClient, errText } from "../staffClient";
 import type { TestSessionView } from "../types";
 import { faultLabel } from "./SessionParts";
-import { Banner, Body, Btn, Card, Chip, Field, H2, KV, Label, Tone, ago, toneColor } from "../ui";
+import Svg, { Path, Rect } from "react-native-svg";
+import { Banner, Body, Btn, Card, Chip, Field, Figure, H2, KV, Label, Tone, ago, toneColor, L } from "../ui";
 
 const IS_WEB = Platform.OS === "web";
 /** The server refuses shorter reasons (testSessions.cameraOverride). */
@@ -236,14 +236,25 @@ function NoCamera({ v, g, retry }: { v: TestSessionView; g: CameraGrading; retry
   );
 }
 
+/** A padlock as a line drawing (ink strokes, the one pale tint) — no emoji. */
+function LockIcon() {
+  return (
+    <View accessibilityLabel="Locked" style={{ paddingTop: 2 }}>
+      <Svg width={28} height={28} viewBox="0 0 28 28" fill="none">
+        <Path d="M9 12V9a5 5 0 0 1 10 0v3" stroke={L.ink} strokeWidth={2} strokeLinecap="round" />
+        <Rect x={5.5} y={12} width={17} height={12.5} rx={3.5} fill={L.tint} stroke={L.ink} strokeWidth={2} />
+        <Path d="M14 16.5v3.5" stroke={L.ink} strokeWidth={2} strokeLinecap="round" />
+      </Svg>
+    </View>
+  );
+}
+
 function Locked({ title, text }: { title: string; text: string }) {
   return (
-    <View style={{ flexDirection: "row", gap: 14, alignItems: "flex-start", padding: 14, borderRadius: L.radius, backgroundColor: L.surface2 }}>
-      <Text style={{ fontSize: 28 }} accessibilityLabel="Locked">
-        🔒
-      </Text>
+    <View style={{ flexDirection: "row", gap: 14, alignItems: "flex-start", padding: 16, borderRadius: L.radius + 4, backgroundColor: L.surface2 }}>
+      <LockIcon />
       <View style={{ flex: 1, gap: 4 }}>
-        <Text style={{ fontSize: 18, fontWeight: "800", color: L.ink }}>{title}</Text>
+        <H2 style={{ fontSize: 18, lineHeight: 23 }}>{title}</H2>
         <Body muted>{text}</Body>
       </View>
     </View>
@@ -1096,14 +1107,16 @@ export function CameraAiCard({
             minWidth: 84,
             height: 84,
             paddingHorizontal: 10,
-            borderRadius: 18,
+            borderRadius: 22,
             backgroundColor: r.final ? L.upBg : L.warnBg,
             alignItems: "center",
             justifyContent: "center",
           }}
           accessibilityLabel={`Cosmetic grade ${r.grade}, ${r.final ? "final" : "provisional"}`}
         >
-          <Text style={{ fontSize: r.grade.length > 2 ? 24 : 44, fontWeight: "900", color: r.final ? L.up : L.warn }}>{r.grade}</Text>
+          <Figure size={r.grade.length > 2 ? 24 : 44} color={r.final ? L.up : L.warn}>
+            {r.grade}
+          </Figure>
         </View>
         <View style={{ flex: 1, gap: 6 }}>
           <Text style={{ fontSize: 17, fontWeight: "700", color: L.ink }}>Cosmetic grade · {GRADE_MEANING[r.grade] ?? r.grade}</Text>

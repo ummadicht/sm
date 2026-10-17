@@ -2,8 +2,8 @@
   "expo": {
     "version": "0.6.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "dark",
-    "backgroundColor": "#0b0a10",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F4F4F6",
     "ios": {
       "infoPlist": {
         "NSCameraUsageDescription": "Camera, flashlight and QR-station tests.",

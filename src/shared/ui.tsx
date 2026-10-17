@@ -18,7 +18,7 @@ export function Btn({ title, onPress, kind = "primary", disabled, style, small }
     : kind === "fail" ? T.fail
     : kind === "skip" ? T.surface2
     : "transparent";
-  const fg = kind === "ghost" ? T.accent : kind === "skip" ? T.muted : kind === "pass" || kind === "fail" ? "#0b0a10" : "#fff";
+  const fg = kind === "ghost" ? T.accent : kind === "skip" ? T.muted : "#fff";
   return (
     <Pressable
       onPress={onPress}
@@ -65,7 +65,7 @@ export function Row({ label, value, tone }: { label: string; value: React.ReactN
 
 export function Pill({ text, tone }: { text: string; tone: "pass" | "fail" | "warn" | "skip" | "accent" }) {
   const bg = tone === "pass" ? T.pass : tone === "fail" ? T.fail : tone === "warn" ? T.warn : tone === "accent" ? T.accent : T.surface2;
-  const fg = tone === "skip" ? T.muted : tone === "accent" ? "#fff" : "#0b0a10";
+  const fg = tone === "skip" ? T.muted : "#fff";
   return (
     <View style={[s.pill, { backgroundColor: bg }]}>
       <Text style={[s.pillText, { color: fg }]}>{text}</Text>
@@ -80,8 +80,8 @@ export function fmtBytes(n: number | null | undefined): string {
 }
 
 const s = StyleSheet.create({
-  btn: { paddingVertical: 14, paddingHorizontal: 20, borderRadius: T.radius, alignItems: "center", justifyContent: "center" },
-  btnSmall: { paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10 },
+  btn: { minHeight: 52, paddingVertical: 14, paddingHorizontal: 24, borderRadius: 999, alignItems: "center", justifyContent: "center" },
+  btnSmall: { minHeight: 0, paddingVertical: 9, paddingHorizontal: 16, borderRadius: 999 },
   btnText: { fontSize: 16, fontWeight: "700", letterSpacing: 0.2 },
   card: { backgroundColor: T.surface, borderRadius: T.radius, padding: 16, borderWidth: 1, borderColor: T.border, gap: 8 },
   h1: { color: T.text, fontSize: 28, fontWeight: "800", letterSpacing: -0.5 },

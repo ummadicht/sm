@@ -5,11 +5,10 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { canKeepDevice } from "../storage";
 import { Alert, Text, View } from "react-native";
-import { L } from "../../shared/theme";
 import { deviceNameProblem, newPinProblem, pinInput, PIN_LENGTH } from "../pin";
 import { errText, type StaffClient } from "../staffClient";
 import type { StoreDevice, StoreDeviceCreated } from "../types";
-import { ago, Banner, Body, Btn, Card, Chip, Field, H2 } from "../ui";
+import { ago, Banner, Body, Btn, Card, Chip, Field, H2, L } from "../ui";
 
 function day(iso: string | null): string {
   const t = iso ? Date.parse(iso) : NaN;

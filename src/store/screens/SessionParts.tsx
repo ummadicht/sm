@@ -8,12 +8,11 @@
 // (IdentifyStepCard) in between and the scan (step 3) in ./CameraParts.
 import React, { useEffect, useState } from "react";
 import { Text, View } from "react-native";
-import { L } from "../../shared/theme";
 import { fmtBytes } from "../../shared/ui";
 import { QR } from "../QR";
 import { StaffClient, errText } from "../staffClient";
 import type { DiagnosticSummary, Outcome, SessionStatus, TestSessionView, WifiResponse, WifiSecurity } from "../types";
-import { Banner, Body, Btn, Card, Chip, Field, H2, KV, Label, Segmented, Toggle, Tone, toneColor, until } from "../ui";
+import { Banner, Body, Btn, Card, Chip, Field, H2, KV, Label, Segmented, Toggle, Tone, toneColor, until, L } from "../ui";
 import {
   BATTERY_HEALTH_MIN,
   PhonePhase,
@@ -510,9 +509,7 @@ export function IdentifyStepCard({ v, api, phase, label = "Step 2 · customer's 
         <>
           <View style={{ gap: 4 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <Text style={{ fontSize: 22, fontWeight: "800", color: L.ink }}>
-                {sm?.label ? `${sm.label}${sm.variant ? ` · ${sm.variant}` : ""}` : "Not identified"}
-              </Text>
+              <H2 style={{ fontSize: 22, lineHeight: 28 }}>{sm?.label ? `${sm.label}${sm.variant ? ` · ${sm.variant}` : ""}` : "Not identified"}</H2>
               {match ? <Chip text={match.label} tone={match.tone} /> : null}
             </View>
             {reported ? (
@@ -611,17 +608,17 @@ function StepRail({ labels, reached, stopped, wide }: { labels: string[]; reache
       {labels.map((label, i) => {
         const isDone = i < reached || (i === last && reached === last);
         const current = i === reached && !isDone && !stopped;
-        const color = stopped && i === reached ? L.warn : isDone ? L.up : current ? L.fix : L.border;
+        const color = stopped && i === reached ? L.warn : isDone ? L.primary : current ? L.fix : L.border;
         return (
           <View key={i} style={{ flex: 1, alignItems: "center", gap: 6 }}>
             <View style={{ flexDirection: "row", alignItems: "center", alignSelf: "stretch" }}>
-              <View style={{ flex: 1, height: 3, backgroundColor: i === 0 ? "transparent" : i <= reached ? L.up : L.border }} />
+              <View style={{ flex: 1, height: 3, backgroundColor: i === 0 ? "transparent" : i <= reached ? L.primary : L.border }} />
               <View
                 style={{
                   width: wide ? 34 : 28,
                   height: wide ? 34 : 28,
                   borderRadius: 17,
-                  backgroundColor: isDone ? L.up : L.surface,
+                  backgroundColor: isDone ? L.primary : L.surface,
                   borderWidth: 3,
                   borderColor: color,
                   alignItems: "center",
@@ -630,7 +627,7 @@ function StepRail({ labels, reached, stopped, wide }: { labels: string[]; reache
               >
                 <Text style={{ color: isDone ? "#fff" : color, fontWeight: "900", fontSize: wide ? 16 : 13 }}>{isDone ? "✓" : i + 1}</Text>
               </View>
-              <View style={{ flex: 1, height: 3, backgroundColor: i === last ? "transparent" : i < reached ? L.up : L.border }} />
+              <View style={{ flex: 1, height: 3, backgroundColor: i === last ? "transparent" : i < reached ? L.primary : L.border }} />
             </View>
             <Text
               style={{ fontSize: wide ? 15 : 12, fontWeight: current || isDone ? "800" : "600", color: current ? L.fix : isDone ? L.ink : L.muted, textAlign: "center" }}
@@ -696,7 +693,7 @@ export function DeviceCard({ v }: { v: TestSessionView }) {
   return (
     <Card>
       <Label>Phone</Label>
-      <Text style={{ fontSize: 24, fontWeight: "800", color: L.ink }}>{title}</Text>
+      <H2 style={{ fontSize: 24, lineHeight: 30 }}>{title}</H2>
       {reported && reported !== title ? <Body muted>The phone calls itself {reported}{d.modelCode && d.modelCode !== d.modelName ? ` (${d.modelCode})` : ""}</Body> : null}
       {d.isPhysicalDevice === false ? <Banner tone="bad" title="Not a real phone">The app is running on an emulator. Don't use these results for a trade-in.</Banner> : null}
       <View>

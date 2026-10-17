@@ -5,10 +5,9 @@
 import React, { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Pressable, ScrollView, Text, View } from "react-native";
 import { ApiError, createClient } from "../../shared/api";
-import { L } from "../../shared/theme";
 import { errText } from "../staffClient";
 import type { TokenResponse } from "../types";
-import { Banner, Body, Btn, Card, Field, H1, Segmented, useLayout } from "../ui";
+import { Banner, Body, Brand, Btn, Card, Field, H1, Segmented, useLayout, L } from "../ui";
 
 type Mode = "invite" | "register";
 type Programme = { id: string; name: string; clientType: string | null; brand: string | null };
@@ -142,7 +141,7 @@ export function SignUp({
             <Text style={{ color: L.fix, fontSize: 16, fontWeight: "700" }}>‹ Back to sign in</Text>
           </Pressable>
           <View style={{ gap: 6 }}>
-            <Text style={{ color: L.up, fontSize: 16, fontWeight: "800", letterSpacing: 1, textTransform: "uppercase" }}>SwapUp Store</Text>
+            <Brand style={{ marginBottom: 10 }} />
             <H1>{mode === "invite" ? "Join your store" : "Register a new store"}</H1>
             <Body muted>
               {mode === "invite"

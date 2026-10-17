@@ -29,7 +29,7 @@ const variants = {
     scheme: "swapupstore",
     package: "com.swapup.store",
     userInterfaceStyle: "light",
-    backgroundColor: "#f5f6f8",
+    backgroundColor: "#F4F4F6",
     permissions: ["android.permission.CAMERA", "android.permission.VIBRATE"],
     // Both apps link the same native modules, so the store app would inherit the
     // test app's permissions (mic, location, biometrics…) it never uses. Block them.
@@ -56,8 +56,8 @@ const variants = {
     webDescription: "SwapUp Check — test your phone in the browser for your trade-in. Results go straight to the store.",
     scheme: "swapupcheck",
     package: "com.swapup.check",
-    userInterfaceStyle: "dark",
-    backgroundColor: "#0f1729",
+    userInterfaceStyle: "light",
+    backgroundColor: "#F4F4F6",
     permissions: CHECK_PERMISSIONS,
     // Drawing over other apps is never needed by the tests.
     blockedPermissions: ["android.permission.SYSTEM_ALERT_WINDOW"],
@@ -89,8 +89,8 @@ module.exports = () => {
     android: {
       package: v.package,
       // Bump with every APK published to /downloads so it installs over the previous one.
-      versionCode: 8,
-      adaptiveIcon: { backgroundColor: "#0f1729", foregroundImage: `./assets/${VARIANT}-icon-foreground.png` },
+      versionCode: 9,
+      adaptiveIcon: { backgroundColor: "#FFFFFF", foregroundImage: `./assets/${VARIANT}-icon-foreground.png` },
       permissions: v.permissions,
       blockedPermissions: v.blockedPermissions,
       predictiveBackGestureEnabled: false,

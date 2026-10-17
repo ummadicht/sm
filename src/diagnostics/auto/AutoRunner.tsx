@@ -3,11 +3,13 @@
 // onResult (the Check engine's outbox: disk first, then the store), and never
 // asks the customer anything. The only line it may show is a physical action
 // ("Hold the phone up") when a camera saw nothing.
-// Native only.
+// Native only. Look: the kit's headline and sentence, a thin blue bar, and the
+// list on a white card (theme P).
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
 import { RecordingPresets, useAudioRecorder } from "expo-audio";
-import { T } from "../../shared/theme";
+import { P } from "../../shared/theme";
+import { Card, Headline, Lead, ProgressBar } from "../../shared/kit";
 import type { Detail, Outcome, Verdict } from "./analysis";
 import { type AutoStepId, autoSteps } from "./plan";
 import { batteryStep, connectivityStep, faceidStep, featureStep, motionStep, sensorsStep, sleep, vibrationStep, within } from "./steps";
@@ -130,68 +132,66 @@ export function AutoRunner({ all, todo, names, existing, onResult, onDone, statu
   return (
     <View style={s.root}>
       <View style={s.head}>
-        <Text style={s.kicker}>SwapUp Check</Text>
-        <Text style={s.title}>Testing your phone…</Text>
-        <Text style={s.sub}>Leave it on the counter — the checks run by themselves.</Text>
-        <View style={s.bar}>
-          <View style={[s.fill, { width: `${Math.round(pct * 100)}%` }]} />
-        </View>
+        <Headline>Testing your phone…</Headline>
+        <Lead>Leave it on the counter — the checks run by themselves.</Lead>
+        <ProgressBar value={pct} style={{ marginTop: 22 }} />
         <View style={s.barRow}>
           <Text style={s.count}>
             {done} of {all.length}
           </Text>
-          {status}
+          <View style={{ flexShrink: 1 }}>{status}</View>
         </View>
       </View>
       {line ? (
-        <View style={s.action}>
+        <View style={s.action} accessibilityRole="alert">
           <Text style={s.actionText}>{line}</Text>
         </View>
       ) : null}
       <View style={s.camRow}>{rig.view}</View>
-      <ScrollView contentContainerStyle={s.list}>
-        {all.map((id) => (
-          <Row key={id} name={names[id] ?? id} state={outcomeOf(id)} />
-        ))}
+      <ScrollView contentContainerStyle={s.scroll}>
+        <Card pad={false} style={s.list}>
+          {all.map((id, i) => (
+            <Row key={id} name={names[id] ?? id} state={outcomeOf(id)} last={i === all.length - 1} />
+          ))}
+        </Card>
       </ScrollView>
     </View>
   );
 }
 
-function Row({ name, state }: { name: string; state: Outcome | "running" | "waiting" }) {
-  const [mark, color, word] =
-    state === "pass" ? ["✓", T.pass, "Working"]
-    : state === "fail" ? ["✗", T.fail, "Problem found"]
-    : state === "skip" ? ["–", T.warn, "Not tested"]
-    : state === "unsupported" ? ["–", T.skip, "Not on this phone"]
-    : state === "running" ? ["", T.accent, "Checking…"]
-    : ["", T.muted, ""];
+function Row({ name, state, last }: { name: string; state: Outcome | "running" | "waiting"; last: boolean }) {
+  const [mark, color, bg, word] =
+    state === "pass" ? ["✓", P.pass, P.passBg, "Working"]
+    : state === "fail" ? ["✗", P.fail, P.failBg, "Problem found"]
+    : state === "skip" ? ["–", P.warn, P.warnBg, "Not tested"]
+    : state === "unsupported" ? ["–", P.muted, P.surface2, "Not on this phone"]
+    : state === "running" ? ["", P.primary, "transparent", "Checking…"]
+    : ["", P.faint, "transparent", ""];
   return (
-    <View style={s.row}>
-      <View style={s.mark}>{state === "running" ? <ActivityIndicator size="small" color={T.accent} /> : <Text style={[s.markText, { color }]}>{mark}</Text>}</View>
-      <Text style={[s.name, state === "waiting" && { color: T.muted }]}>{name}</Text>
+    <View style={[s.row, last && { borderBottomWidth: 0 }]}>
+      <View style={[s.mark, { backgroundColor: bg }, state === "waiting" && s.markWaiting]}>
+        {state === "running" ? <ActivityIndicator size="small" color={P.primary} /> : <Text style={[s.markText, { color }]}>{mark}</Text>}
+      </View>
+      <Text style={[s.name, state === "waiting" && { color: P.faint }]}>{name}</Text>
       <Text style={[s.word, { color }]}>{word}</Text>
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: T.bg },
-  head: { paddingHorizontal: 22, paddingTop: 22, paddingBottom: 12 },
-  kicker: { color: T.accent, fontSize: 14, fontWeight: "800", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 },
-  title: { color: T.text, fontSize: 30, fontWeight: "800", lineHeight: 36 },
-  sub: { color: T.muted, fontSize: 17, lineHeight: 24, marginTop: 6 },
-  bar: { height: 12, borderRadius: 6, backgroundColor: T.surface2, overflow: "hidden", marginTop: 18 },
-  fill: { height: "100%", backgroundColor: T.accent },
-  barRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 8 },
-  count: { color: T.text, fontSize: 15, fontWeight: "800" },
-  action: { marginHorizontal: 22, marginBottom: 8, padding: 14, borderRadius: T.radius, borderWidth: 2, borderColor: T.warn, backgroundColor: T.surface },
-  actionText: { color: T.text, fontSize: 19, fontWeight: "800", lineHeight: 26, textAlign: "center" },
+  root: { flex: 1, backgroundColor: P.bg },
+  head: { paddingHorizontal: P.gutter, paddingTop: 28, paddingBottom: 14 },
+  barRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 10 },
+  count: { color: P.ink, fontSize: 15, fontWeight: "700" },
+  action: { marginHorizontal: P.gutter, marginBottom: 10, paddingVertical: 14, paddingHorizontal: 16, borderRadius: P.radiusSm, backgroundColor: P.warnBg },
+  actionText: { color: P.ink, fontSize: 18, fontWeight: "700", lineHeight: 25, textAlign: "center" },
   camRow: { alignItems: "center" },
-  list: { paddingHorizontal: 22, paddingBottom: 30 },
-  row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: T.border },
-  mark: { width: 26, alignItems: "center" },
-  markText: { fontSize: 20, fontWeight: "900" },
-  name: { flex: 1, color: T.text, fontSize: 17, fontWeight: "600" },
-  word: { fontSize: 15, fontWeight: "700" },
+  scroll: { paddingHorizontal: P.gutter, paddingTop: 6, paddingBottom: 30 },
+  list: { paddingHorizontal: 18 },
+  row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 13, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: P.line },
+  mark: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  markWaiting: { borderWidth: 1.5, borderColor: P.line },
+  markText: { fontSize: 15, fontWeight: "800" },
+  name: { flex: 1, color: P.ink, fontSize: 16, fontWeight: "600" },
+  word: { fontSize: 14, fontWeight: "600" },
 });

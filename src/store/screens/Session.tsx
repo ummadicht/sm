@@ -1,6 +1,7 @@
 // The heart of the store app: the two QR codes the customer scans, then their
 // phone's results landing live (poll every 2 s while this screen is up), then
-// Apply to case → Continue pricing in the web desk.
+// Apply to case → the PRICE card (buy vs sell, the advisor's refurb cost quote,
+// the margin — ./PriceCard.tsx) → Continue pricing in the web desk.
 //
 // With a two-pass server (docs/TWO-PASS-CAMERA.md, 2026-10-17) the screen reads
 // top to bottom in the order the counter works:
@@ -20,11 +21,10 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, AppState, KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { ApiError } from "../../shared/api";
-import { L } from "../../shared/theme";
 import { StaffClient, absolute, errText } from "../staffClient";
 import type { SessionLinks, StaffUser, TestSessionView, WifiResponse } from "../types";
 import { TERMINAL, unwrapSession } from "../types";
-import { Banner, Body, Btn, Card, Chip, Columns, Label, STATUS, TopBar, Tone, ago, useLayout } from "../ui";
+import { Banner, Body, Btn, Card, Chip, Columns, Label, STATUS, TopBar, Tone, ago, useLayout, L } from "../ui";
 import {
   ConnectHead,
   DeclaredCard,
@@ -41,6 +41,7 @@ import {
   nowLine,
 } from "./SessionParts";
 import { CameraAiCard, CameraStepCard, PhotosStepCard, ScanStepCard, ScreenStepCard } from "./CameraParts";
+import { PriceCard } from "./PriceCard";
 import { CameraGrading, PhotosStep, photosStep, readGrading } from "../grading";
 import { Layout, readPhonePhase, scanFirstNow, scanStage, sessionLayout } from "../phoneLed";
 
@@ -478,6 +479,9 @@ export function SessionScreen({
             </>
           ) : (
             <>
+              {/* The results are on the case: buy vs sell, the refurb cost quote, the margin. */}
+              {v.status === "applied" ? <PriceCard key={appliedCaseId || v.caseId} api={api} caseId={appliedCaseId || v.caseId} /> : null}
+
               {/* What to do next */}
               <Actions
                 v={v}

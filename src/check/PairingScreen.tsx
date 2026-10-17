@@ -14,15 +14,19 @@
 //
 // It comes before the permission dialogs (GetReady runs after it), so no dialog
 // can cover a pattern mid-sweep.
+//
+// Look: the idle screen is the SWAPUP EXPERIENCE CENTER kit — the QR on a white
+// rounded card is the hero. The patterns are functional, not styled: they stay
+// exactly as GradeIQ's /v2 draws them.
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Linking, Platform, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, Linking, Platform, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as Brightness from "expo-brightness";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
-import { T } from "../shared/theme";
+import { P } from "../shared/theme";
 import { IS_WEB } from "../shared/config";
 import { QR } from "../shared/QR";
-import { Big, Say } from "../diagnostics/parts";
+import { Caption, Headline, Hero, Lead, Notice, PhoneImeiArt, PillButton, ScanArt, Screen, StatusLine } from "../shared/kit";
 import {
   PATTERN_FILLS,
   POLL_MS,
@@ -41,7 +45,6 @@ import {
   type Tracker,
 } from "../diagnostics/auto/pairing";
 import { StepRail } from "./StepRail";
-import { Note } from "./screens";
 import type { CheckEngine } from "./engine";
 import { onIphone } from "./onIphone";
 import type { CheckState, PairingRec } from "./core";
@@ -240,7 +243,7 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
       <Pattern name={drawing}>
         {offer ? (
           <View style={s.overOffer}>
-            <Big title="Skip the camera check" kind="secondary" onPress={() => skip("stalled")} />
+            <PillButton title="Skip the camera check" kind="outline" arrow={false} onPress={() => skip("stalled")} style={{ backgroundColor: P.surface }} />
           </View>
         ) : null}
       </Pattern>
@@ -262,61 +265,60 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
     if (connected) return "Connected — keep this screen facing the camera.";
     return "Waiting for the advisor's tablet…";
   })();
-  const qrSize = Math.max(180, Math.min(280, width - 44 - 32));
+  const qrSize = Math.max(180, Math.min(280, width - P.gutter * 2 - 40));
 
   return (
-    <View style={{ flex: 1, backgroundColor: T.bg }}>
+    <View style={{ flex: 1, backgroundColor: P.bg }}>
       <StepRail at="scan" />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={s.body}>
-        <Text style={s.kicker}>{state.session.storeName}</Text>
+      <Screen
+        footer={
+          <>
+            {askSettings && Platform.OS === "android" ? <PillButton title="Open Settings" onPress={() => void openAbout()} /> : null}
+            {offer ? (
+              <>
+                <PillButton title="Skip the camera check" kind="outline" arrow={false} onPress={() => skip(offer)} />
+                <Caption style={{ marginTop: 0 }}>The advisor then checks the screen by eye.</Caption>
+              </>
+            ) : null}
+            <Caption style={{ marginTop: 0 }}>Trade-in {state.session.caseRef}</Caption>
+          </>
+        }
+      >
         {askSettings ? (
           <>
-            <Text style={s.title}>{ios ? "Open Settings › General › About" : "Open Settings › About phone"}</Text>
-            <Say>So the advisor&apos;s camera can read the model and IMEI. Then come back to this {IS_WEB ? "page" : "app"}.</Say>
-            {Platform.OS === "android" ? (
-              <View style={{ marginTop: 18 }}>
-                <Big title="Open Settings" onPress={() => void openAbout()} />
-              </View>
-            ) : null}
-            {settingsNote ? (
-              <View style={{ marginTop: 12 }}>
-                <Note tone="warn">{settingsNote}</Note>
-              </View>
-            ) : null}
+            <Headline>{ios ? "Open Settings › General › About" : "Open Settings › About phone"}</Headline>
+            <Lead>So the advisor&apos;s camera can read the model and IMEI. Then come back to this {IS_WEB ? "page" : "app"}.</Lead>
+            <Hero>
+              <PhoneImeiArt width={104} />
+            </Hero>
+            {settingsNote ? <Notice tone="warn">{settingsNote}</Notice> : null}
           </>
         ) : (
           <>
-            <Text style={s.title}>Show this to the advisor</Text>
-            <Say>Their tablet scans it, photographs your phone and checks its screen (about 2 minutes).</Say>
-            <View style={s.qrArea}>
+            <Headline>Show this to the advisor</Headline>
+            <Lead>Their tablet scans it, photographs your phone and checks its screen (about 2 minutes).</Lead>
+            <Hero minHeight={qrSize + 60}>
               {link.kind === "ready" ? (
-                <View style={s.qrBox}>
+                <View style={s.qrCard}>
                   <QR value={link.url} size={qrSize} fallback="The QR code couldn't be drawn — the advisor can open the camera from their tablet." />
                 </View>
               ) : link.kind === "loading" ? (
-                <View style={[s.qrBox, { width: qrSize + 32, height: qrSize + 32, alignItems: "center", justifyContent: "center", backgroundColor: T.surface }]}>
-                  <ActivityIndicator color={T.accent} size="large" />
-                  <Text style={[s.small, { marginTop: 12 }]}>Getting the scan code…</Text>
+                <View style={[s.qrCard, { width: qrSize + 40, height: qrSize + 40, alignItems: "center", justifyContent: "center" }]}>
+                  <ActivityIndicator color={P.primary} size="large" />
+                  <Caption>Getting the scan code…</Caption>
                 </View>
               ) : (
-                <Note>The advisor opens the camera from their tablet — keep this screen facing it.</Note>
+                <>
+                  <ScanArt width={220} />
+                  <Notice style={{ marginTop: 18, alignSelf: "stretch" }}>The advisor opens the camera from their tablet — keep this screen facing it.</Notice>
+                </>
               )}
-            </View>
-            {IS_WEB ? <Note tone="warn">Turn your brightness all the way up — this page can&apos;t do it for you.</Note> : null}
+            </Hero>
+            {IS_WEB ? <Notice tone="warn">Turn your brightness all the way up — this page can&apos;t do it for you.</Notice> : null}
           </>
         )}
-        <View style={[s.status, { borderColor: connected ? T.pass : T.border }]}>
-          <View style={[s.dot, { backgroundColor: trouble ? T.warn : connected ? T.pass : T.muted }]} />
-          <Text style={s.statusText}>{statusLine}</Text>
-        </View>
-        {offer ? (
-          <View style={{ marginTop: 18 }}>
-            <Big title="Skip the camera check" kind="secondary" onPress={() => skip(offer)} />
-            <Text style={s.small}>The advisor then checks the screen by eye.</Text>
-          </View>
-        ) : null}
-        <Text style={s.small}>Trade-in {state.session.caseRef}</Text>
-      </ScrollView>
+        <StatusLine text={statusLine} tone={trouble ? "warn" : connected ? "pass" : "muted"} style={{ marginTop: 18 }} />
+      </Screen>
     </View>
   );
 }
@@ -346,16 +348,8 @@ function Pattern({ name, children }: { name: string; children?: React.ReactNode 
 }
 
 const s = StyleSheet.create({
-  body: { padding: 22, paddingTop: 18, paddingBottom: 36 },
-  kicker: { color: T.accent, fontSize: 14, fontWeight: "800", letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 6 },
-  title: { color: T.text, fontSize: 30, fontWeight: "800", lineHeight: 36, marginBottom: 10 },
-  qrArea: { alignItems: "center", marginVertical: 20 },
-  // White all round: a quiet zone the tablet's camera needs, on a dark screen.
-  qrBox: { padding: 16, borderRadius: 18, backgroundColor: "#fff" },
-  status: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: T.radius, borderWidth: 1, backgroundColor: T.surface, marginTop: 16 },
-  dot: { width: 12, height: 12, borderRadius: 6 },
-  statusText: { flex: 1, color: T.text, fontSize: 17, lineHeight: 24, fontWeight: "600" },
-  small: { color: T.muted, fontSize: 14, textAlign: "center", marginTop: 8 },
+  // White all round: the quiet zone the tablet's camera needs.
+  qrCard: { padding: 20, borderRadius: P.radius, backgroundColor: P.surface },
   stripes: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, flexDirection: "row", overflow: "hidden" },
   overOffer: { position: "absolute", top: 48, left: 24, right: 24 },
   capWrap: { position: "absolute", left: 0, right: 0, bottom: 32, alignItems: "center", paddingHorizontal: 24 },

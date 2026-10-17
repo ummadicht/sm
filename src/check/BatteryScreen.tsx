@@ -5,12 +5,13 @@
 // records it — below 80 % it counts against the price as battery drain, so the
 // screen only ever shows what was read, never what it means for the offer.
 // Optional: Skip is always there. Native and browser (the browser's picker is a
-// file input — ./batteryShot.web.ts).
+// file input — ./batteryShot.web.ts). Look: the kit — a battery is the hero, and
+// once read it shows the % the store recorded.
 import React, { useMemo, useState } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
-import { T } from "../shared/theme";
-import { Big, Say, openAndroidSettings } from "../diagnostics/parts";
-import { Kicker, Note, Screen, Title } from "./screens";
+import { Platform, StyleSheet, Text } from "react-native";
+import { P } from "../shared/theme";
+import { BatteryArt, Caption, Headline, Hero, Lead, Notice, PillButton, QuietLink, Screen } from "../shared/kit";
+import { openAndroidSettings } from "../diagnostics/parts";
 import { batteryGuide, readBatteryAnswer } from "./battery";
 import { chooseScreenshot } from "./batteryShot";
 import { onIphone } from "./onIphone";
@@ -64,73 +65,73 @@ export function BatteryScreen({ engine, state, onDone }: { engine: CheckEngine; 
   // The last answer the store recorded is what the step ends with.
   const leave = () => onDone(read != null ? { outcome: "read", healthPct: read } : last ? { outcome: "unreadable", healthPct: null } : { outcome: unavailable ? "unavailable" : "skipped", healthPct: null });
 
+  if (unavailable) {
+    return (
+      <Screen footer={<PillButton title="Continue" onPress={leave} />}>
+        <Headline>Battery health</Headline>
+        <Lead>This store&apos;s system can&apos;t read battery screenshots yet — the advisor checks the battery instead.</Lead>
+        <Hero>
+          <BatteryArt width={180} level={0.6} />
+        </Hero>
+      </Screen>
+    );
+  }
+
   return (
-    <Screen>
-      <Kicker>{state.session.storeName}</Kicker>
-      <Title>Battery health</Title>
-      {unavailable ? (
-        <>
-          <Note>This store&apos;s system can&apos;t read battery screenshots yet — the advisor checks the battery instead.</Note>
-          <View style={{ height: 18 }} />
-          <Big title="Continue" onPress={leave} />
-        </>
-      ) : (
-        <>
-          <Say>
-            Open <Text style={s.strong}>{guide.path}</Text>. Take a screenshot of it, then choose it here.
-          </Say>
-          {guide.alt ? <Say muted style={{ marginTop: 8 }}>{guide.alt}</Say> : null}
-          <Say muted style={{ marginTop: 8 }}>
-            To take a screenshot: {guide.screenshot.charAt(0).toLowerCase() + guide.screenshot.slice(1)}
-          </Say>
-          {guide.settingsAction && Platform.OS === "android" ? (
-            <View style={{ marginTop: 16 }}>
-              <Big title="Open Settings" kind="secondary" onPress={() => void openAndroidSettings(guide.settingsAction!)} />
-            </View>
-          ) : null}
-
-          {last ? (
-            <View style={[s.result, { borderColor: read != null ? T.pass : T.warn }]}>
-              {read != null ? (
-                <Text style={s.resultText}>
-                  Battery health <Text style={s.resultPct}>{read} %</Text>
-                </Text>
-              ) : (
-                <Text style={[s.resultText, { fontSize: 18 }]}>Couldn&apos;t read it — try a clearer screenshot.</Text>
-              )}
-            </View>
-          ) : null}
-          {note ? (
-            <View style={{ marginTop: 14 }}>
-              <Note tone="warn">{note}</Note>
-            </View>
-          ) : null}
-
-          <View style={{ height: 20 }} />
-          {read != null ? (
-            <>
-              <Big title="Continue" onPress={leave} disabled={busy} />
-              <View style={{ height: 10 }} />
-              <Big title={busy ? "Reading the screenshot…" : "Choose a different screenshot"} kind="secondary" onPress={() => void choose()} busy={busy} />
-            </>
-          ) : (
-            <>
-              <Big title={busy ? "Reading the screenshot…" : last ? "Choose another screenshot" : "Choose screenshot"} onPress={() => void choose()} busy={busy} />
-              <View style={{ height: 10 }} />
-              <Big title="Skip" kind="quiet" onPress={leave} disabled={busy} />
-            </>
-          )}
-          <Text style={s.small}>Only the screenshot you choose is sent — nothing else on this phone.</Text>
-        </>
-      )}
+    <Screen
+      footer={
+        read != null ? (
+          <>
+            <PillButton title="Continue" onPress={leave} disabled={busy} />
+            <PillButton
+              title={busy ? "Reading the screenshot…" : "Choose a different screenshot"}
+              kind="outline"
+              arrow={false}
+              onPress={() => void choose()}
+              busy={busy}
+            />
+          </>
+        ) : (
+          <>
+            <PillButton title={busy ? "Reading the screenshot…" : last ? "Choose another screenshot" : "Choose screenshot"} onPress={() => void choose()} busy={busy} />
+            <QuietLink title="Skip" onPress={leave} disabled={busy} />
+          </>
+        )
+      }
+    >
+      <Headline>Battery health</Headline>
+      <Lead>
+        Open <Text style={s.strong}>{guide.path}</Text>. Take a screenshot of it, then choose it here.
+      </Lead>
+      {guide.alt ? (
+        <Caption center={false} style={{ marginTop: 8 }}>
+          {guide.alt}
+        </Caption>
+      ) : null}
+      <Caption center={false} style={{ marginTop: 6 }}>
+        To take a screenshot: {guide.screenshot.charAt(0).toLowerCase() + guide.screenshot.slice(1)}
+      </Caption>
+      <Hero minHeight={150}>
+        <BatteryArt width={190} level={read != null ? read / 100 : 0.62} />
+        {read != null ? (
+          <Text style={s.read}>
+            Battery health <Text style={s.pct}>{read} %</Text>
+          </Text>
+        ) : null}
+        {guide.settingsAction && Platform.OS === "android" ? (
+          <PillButton title="Open Settings" kind="outline" size="sm" onPress={() => void openAndroidSettings(guide.settingsAction!)} style={{ marginTop: 22 }} />
+        ) : null}
+      </Hero>
+      {last && read == null ? <Notice tone="warn">Couldn&apos;t read it — try a clearer screenshot.</Notice> : null}
+      {note ? <Notice tone="warn" style={{ marginTop: 12 }}>{note}</Notice> : null}
+      <Caption>Only the screenshot you choose is sent — nothing else on this phone.</Caption>
     </Screen>
   );
 }
 
 const s = StyleSheet.create({
-  strong: { fontWeight: "800", color: T.text },
-  result: { marginTop: 20, borderWidth: 1, borderRadius: T.radius, padding: 16, backgroundColor: T.surface },
-  resultText: { color: T.text, fontSize: 20, fontWeight: "700", lineHeight: 28 },
-  resultPct: { fontSize: 26, fontWeight: "900", color: T.text },
-  small: { color: T.muted, fontSize: 14, textAlign: "center", marginTop: 16 },
+  strong: { fontWeight: "700", color: P.ink },
+  // What was read, never what it means for the offer: no good/bad colour.
+  read: { color: P.ink, fontSize: 19, fontWeight: "600", marginTop: 16 },
+  pct: { fontSize: 24, fontWeight: "800" },
 });

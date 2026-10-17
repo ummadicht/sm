@@ -16,13 +16,14 @@
 // Unlike GradeIQ's picker it keeps the model id it picked, offers the manual
 // route even when the phone was recognised, and an older server (no model list,
 // no identity) just leaves the model to the advisor instead of dead-ending.
+// Look: the SWAPUP EXPERIENCE CENTER kit — the wordmark on the first of these
+// screens only, then one headline, one sentence, the choices, one pill button.
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Linking, Platform, StyleSheet, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import { T } from "../shared/theme";
+import { P } from "../shared/theme";
 import { IS_WEB } from "../shared/config";
-import { Big, Say } from "../diagnostics/parts";
-import { Kicker, Note, Screen, Title } from "./screens";
+import { Caption, Chip, DialKeysArt, Field, Headline, Hero, Label, Lead, Notice, Option, PhoneArt, PillButton, QuietLink, Screen, Wordmark } from "../shared/kit";
 import {
   MODEL_SEARCH_FROM,
   checkImei,
@@ -143,36 +144,45 @@ export function IdentifyScreen({
   };
   const afterImei = () => (state.session.customerStarted ? go("you") : finish());
 
+  /** The first screen after joining carries the wordmark and the store's name. */
+  const entry: Stage = known ? "confirm" : "brand";
+
   /* ─────────── 1. is this your phone? ─────────── */
   if (stage === "confirm" && identity?.label) {
     return (
-      <Screen>
-        <Kicker>{state.session.storeName}</Kicker>
-        <Title>Let&apos;s check this phone.</Title>
-        <View style={s.card}>
-          <Text style={s.cardTitle}>{identityLine(identity.label, identity.variant)}</Text>
-          {code ? <Text style={s.cardSub}>Your phone calls itself {code}</Text> : null}
-        </View>
-        <Big
-          title="Yes, that's my phone"
-          onPress={() => {
-            setConfirmed(true);
-            setModel(null);
-            go("imei");
-          }}
-        />
-        <View style={{ height: 10 }} />
-        <Big
-          title="No — choose my phone"
-          kind="secondary"
-          onPress={() => {
-            setConfirmed(false);
-            go("brand");
-          }}
-        />
-        <View style={{ height: 18 }} />
-        <Big title="Wrong store? Use another code" kind="quiet" onPress={onWrongCode} />
-        <Text style={s.ref}>Trade-in {state.session.caseRef}</Text>
+      <Screen
+        footer={
+          <>
+            <PillButton
+              title="Yes, that's my phone"
+              onPress={() => {
+                setConfirmed(true);
+                setModel(null);
+                go("imei");
+              }}
+            />
+            <PillButton
+              title="No — choose my phone"
+              kind="outline"
+              arrow={false}
+              onPress={() => {
+                setConfirmed(false);
+                go("brand");
+              }}
+            />
+            <QuietLink title="Wrong store? Use another code" onPress={onWrongCode} />
+          </>
+        }
+      >
+        <Wordmark store={state.session.storeName} />
+        <Headline>Let&apos;s check this phone.</Headline>
+        <Lead>Is this the right model?</Lead>
+        <Hero minHeight={220}>
+          <PhoneArt width={84} />
+          <Text style={s.model}>{identityLine(identity.label, identity.variant)}</Text>
+          {code ? <Caption style={{ marginTop: 4 }}>Your phone calls itself {code}</Caption> : null}
+        </Hero>
+        <Caption>Trade-in {state.session.caseRef}</Caption>
       </Screen>
     );
   }
@@ -190,38 +200,65 @@ export function IdentifyScreen({
       setVariant(null);
       go("imei");
     };
+    const lead =
+      stage === "brand" && !known
+        ? code
+          ? `We couldn't tell the exact model from its code (${code}). Choose it here.`
+          : "We couldn't tell the exact model. Choose it here."
+        : stage === "storage"
+          ? "Settings › About phone shows the storage, if you're not sure."
+          : null;
     return (
-      <Screen>
-        <Kicker>{state.session.storeName}</Kicker>
-        <Title>{stage === "brand" ? "Which phone is this?" : stage === "model" ? `Which ${brand}?` : "How much storage?"}</Title>
-        {stage === "brand" && !known ? (
-          <View style={{ marginBottom: 14 }}>
-            <Note>{code ? `We couldn't tell the exact model from its code (${code}). Choose it here.` : "We couldn't tell the exact model. Choose it here."}</Note>
-          </View>
-        ) : null}
-        {stage === "storage" ? <Say muted>Settings › About phone shows the storage, if you&apos;re not sure.</Say> : null}
+      <Screen
+        footer={
+          <>
+            {load === "none" ? (
+              <PillButton title="Continue" onPress={leave} />
+            ) : load === "ready" && stage !== "brand" ? (
+              <PillButton title="Confirm phone" onPress={() => go("imei")} disabled={!ready} />
+            ) : null}
+            {load !== "none" ? (
+              stage === "brand" ? (
+                <PillButton title="Leave it to the advisor" kind="outline" arrow={false} onPress={leave} />
+              ) : (
+                <QuietLink title="Leave it to the advisor" onPress={leave} />
+              )
+            ) : null}
+            {known && stage === "brand" ? (
+              <QuietLink
+                title={`It is the ${identity?.label} after all`}
+                onPress={() => {
+                  setConfirmed(true);
+                  setModel(null);
+                  go("imei");
+                }}
+              />
+            ) : null}
+            {!known && stage === "brand" ? <QuietLink title="Wrong store? Use another code" onPress={onWrongCode} /> : null}
+          </>
+        }
+      >
+        {stage === entry ? <Wordmark store={state.session.storeName} /> : null}
+        <Headline>{stage === "brand" ? "Which phone is this?" : stage === "model" ? `Which ${brand}?` : "How much storage?"}</Headline>
+        {lead ? <Lead>{lead}</Lead> : null}
         {crumbs.length ? (
           <View style={s.crumbs}>
             {crumbs.map((c) => (
-              <Pressable key={c.stage} onPress={() => go(c.stage)} accessibilityRole="button" accessibilityLabel={`Change ${c.value}`} style={s.crumb}>
-                <Text style={s.crumbText}>{c.value} ✎</Text>
-              </Pressable>
+              <Chip key={c.stage} title={`${c.value} ✎`} accessibilityLabel={`Change ${c.value}`} onPress={() => go(c.stage)} />
             ))}
           </View>
         ) : null}
+        <View style={{ height: 22 }} />
 
         {load === "loading" ? (
-          <ActivityIndicator color={T.accent} size="large" style={{ marginVertical: 28 }} />
+          <ActivityIndicator color={P.primary} size="large" style={{ marginVertical: 28 }} />
         ) : load === "error" ? (
-          <View style={{ gap: 10, marginTop: 8 }}>
-            <Note tone="warn">Couldn&apos;t load the list of phones — check the Wi‑Fi.</Note>
-            <Big title="Try again" kind="secondary" onPress={() => setAttempt((n) => n + 1)} />
+          <View style={{ gap: 12 }}>
+            <Notice tone="warn">Couldn&apos;t load the list of phones — check the Wi‑Fi.</Notice>
+            <PillButton title="Try again" kind="outline" size="sm" onPress={() => setAttempt((n) => n + 1)} style={{ alignSelf: "flex-start" }} />
           </View>
         ) : load === "none" ? (
-          <View style={{ gap: 10, marginTop: 8 }}>
-            <Note>The advisor will choose the model on their tablet.</Note>
-            <Big title="Continue" onPress={leave} />
-          </View>
+          <Notice>The advisor will choose the model on their tablet.</Notice>
         ) : stage === "brand" ? (
           <View style={s.list}>
             {brands.map((b) => (
@@ -245,15 +282,7 @@ export function IdentifyScreen({
         ) : stage === "model" ? (
           <View style={s.list}>
             {models.length > MODEL_SEARCH_FROM ? (
-              <TextInput
-                value={query}
-                onChangeText={setQuery}
-                placeholder={`Search ${brand} models`}
-                placeholderTextColor={T.skip}
-                autoCorrect={false}
-                style={s.input}
-                accessibilityLabel={`Search ${brand} models`}
-              />
+              <Field value={query} onChangeText={setQuery} placeholder={`Search ${brand} models`} autoCorrect={false} accessibilityLabel={`Search ${brand} models`} />
             ) : null}
             {shown.map((m) => (
               <Option
@@ -268,9 +297,9 @@ export function IdentifyScreen({
               />
             ))}
             {!shown.length ? (
-              <View style={{ alignItems: "center", paddingVertical: 16, gap: 8 }}>
-                <Say muted center>No models match “{query.trim()}”.</Say>
-                <Big title="Clear the search" kind="quiet" onPress={() => setQuery("")} />
+              <View style={{ alignItems: "center", paddingVertical: 16, gap: 4 }}>
+                <Caption style={{ marginTop: 0 }}>No models match “{query.trim()}”.</Caption>
+                <QuietLink title="Clear the search" onPress={() => setQuery("")} />
               </View>
             ) : null}
           </View>
@@ -281,27 +310,6 @@ export function IdentifyScreen({
             ))}
           </View>
         )}
-
-        {load === "ready" && stage !== "brand" ? (
-          <>
-            <View style={{ height: 18 }} />
-            <Big title="Confirm phone" onPress={() => go("imei")} disabled={!ready} />
-          </>
-        ) : null}
-        <View style={{ height: 14 }} />
-        <Big title="Leave it to the advisor" kind="quiet" onPress={leave} />
-        {known && stage === "brand" ? (
-          <Big
-            title={`It is the ${identity?.label} after all`}
-            kind="quiet"
-            onPress={() => {
-              setConfirmed(true);
-              setModel(null);
-              go("imei");
-            }}
-          />
-        ) : null}
-        {!known && stage === "brand" ? <Big title="Wrong store? Use another code" kind="quiet" onPress={onWrongCode} /> : null}
       </Screen>
     );
   }
@@ -324,16 +332,39 @@ export function IdentifyScreen({
       }
     };
     return (
-      <Screen>
-        <Kicker>{state.session.storeName}</Kicker>
-        <Title>Your phone&apos;s IMEI</Title>
-        <Say>Dial *#06# — your phone shows its IMEI. Type the 15 digits here, or copy them and tap Paste.</Say>
-        {ios ? <Say muted>On an iPhone, Settings › General › About shows it too.</Say> : null}
+      <Screen
+        footer={
+          <>
+            <PillButton title="Continue" onPress={afterImei} disabled={blocked || a.ok !== true} />
+            {a.ok !== true && !blocked ? <Caption style={{ marginTop: 0 }}>Type IMEI 1 to continue, or skip it.</Caption> : null}
+            <QuietLink
+              title="Skip — the advisor will scan it"
+              onPress={() => {
+                setImei1("");
+                setImei2("");
+                if (state.session.customerStarted) go("you");
+                else finish({ imei: null, imei2: null });
+              }}
+            />
+          </>
+        }
+      >
+        <Headline>Your phone&apos;s IMEI</Headline>
+        <Lead>Dial *#06# — your phone shows its IMEI. Type the 15 digits here, or copy them and tap Paste.</Lead>
+        {ios ? (
+          <Caption center={false} style={{ marginTop: 6 }}>
+            On an iPhone, Settings › General › About shows it too.
+          </Caption>
+        ) : null}
+        <Hero grow={false} minHeight={0} style={{ paddingVertical: 24 }}>
+          <DialKeysArt width={220} />
+        </Hero>
         <View style={s.row}>
           {!ios && (Platform.OS === "android" || IS_WEB) ? (
-            <Big
+            <PillButton
               title="Open dialler"
-              kind="secondary"
+              kind="outline"
+              size="sm"
               style={{ flex: 1 }}
               onPress={() => {
                 setImeiNote(null);
@@ -341,33 +372,19 @@ export function IdentifyScreen({
               }}
             />
           ) : null}
-          <Big title="Paste" kind="secondary" style={{ flex: 1 }} onPress={() => void paste()} />
+          <PillButton title="Paste" kind="outline" size="sm" style={{ flex: 1 }} onPress={() => void paste()} />
         </View>
         {imeiNote ? (
-          <View style={{ marginTop: 10 }}>
-            <Note tone="warn">{imeiNote}</Note>
-          </View>
+          <Notice tone="warn" style={{ marginTop: 12 }}>
+            {imeiNote}
+          </Notice>
         ) : null}
-        <Text style={[s.label, { marginTop: 20 }]}>IMEI 1</Text>
+        <Label style={{ marginTop: 24 }}>IMEI 1</Label>
         <ImeiField value={imei1} onChange={setImei1} label="IMEI 1" />
         <ImeiPill check={a} />
-        <Text style={[s.label, { marginTop: 16 }]}>IMEI 2 (optional — phones with two SIMs)</Text>
+        <Label style={{ marginTop: 18 }}>IMEI 2 (optional — phones with two SIMs)</Label>
         <ImeiField value={imei2} onChange={setImei2} label="IMEI 2" />
-        {same ? <Text style={[s.pill, { color: T.fail }]}>That&apos;s the same number as IMEI 1 — IMEI 2 is the other one shown.</Text> : <ImeiPill check={b} />}
-        <View style={{ height: 22 }} />
-        <Big title="Continue" onPress={afterImei} disabled={blocked || a.ok !== true} />
-        {a.ok !== true && !blocked ? <Text style={s.ref}>Type IMEI 1 to continue, or skip it.</Text> : null}
-        <View style={{ height: 8 }} />
-        <Big
-          title="Skip — the advisor will scan it"
-          kind="quiet"
-          onPress={() => {
-            setImei1("");
-            setImei2("");
-            if (state.session.customerStarted) go("you");
-            else finish({ imei: null, imei2: null });
-          }}
-        />
+        {same ? <Text style={[s.pill, { color: P.fail }]}>That&apos;s the same number as IMEI 1 — IMEI 2 is the other one shown.</Text> : <ImeiPill check={b} />}
       </Screen>
     );
   }
@@ -375,40 +392,39 @@ export function IdentifyScreen({
   /* ─────────── 4. you (customer-started checks) ─────────── */
   const phone = cleanMobile(mobile);
   return (
-    <Screen>
-      <Kicker>{state.session.storeName}</Kicker>
-      <Title>So the store can find your trade-in</Title>
-      <Say muted>Both are optional. They stay with this store.</Say>
-      <Text style={[s.label, { marginTop: 20 }]}>Your mobile number</Text>
-      <TextInput
+    <Screen
+      footer={
+        <>
+          <PillButton title="Continue" onPress={() => finish()} disabled={phone.ok === false} />
+          <QuietLink title="Skip" onPress={() => finish({ customerName: null, customerPhone: null })} />
+        </>
+      }
+    >
+      <Headline>So the store can find your trade-in</Headline>
+      <Lead>Both are optional. They stay with this store.</Lead>
+      <Label style={{ marginTop: 28 }}>Your mobile number</Label>
+      <Field
         value={mobile}
         onChangeText={(t) => setMobile(t.replace(/[^\d+\s-]/g, "").slice(0, 16))}
         keyboardType="phone-pad"
         placeholder="10 digits"
-        placeholderTextColor={T.skip}
-        style={s.input}
         accessibilityLabel="Your mobile number"
       />
-      {phone.ok === false ? <Text style={[s.pill, { color: T.fail }]}>{phone.message}</Text> : null}
-      <Text style={[s.label, { marginTop: 16 }]}>Your name</Text>
-      <TextInput value={name} onChangeText={(t) => setName(t.slice(0, 80))} autoCapitalize="words" placeholder="Name" placeholderTextColor={T.skip} style={s.input} accessibilityLabel="Your name" />
-      <View style={{ height: 22 }} />
-      <Big title="Continue" onPress={() => finish()} disabled={phone.ok === false} />
-      <View style={{ height: 8 }} />
-      <Big title="Skip" kind="quiet" onPress={() => finish({ customerName: null, customerPhone: null })} />
+      {phone.ok === false ? <Text style={[s.pill, { color: P.fail }]}>{phone.message}</Text> : null}
+      <Label style={{ marginTop: 18 }}>Your name</Label>
+      <Field value={name} onChangeText={(t) => setName(t.slice(0, 80))} autoCapitalize="words" placeholder="Name" accessibilityLabel="Your name" />
     </Screen>
   );
 }
 
 function ImeiField({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   return (
-    <TextInput
+    <Field
+      big="digits"
       value={value}
       onChangeText={(t) => onChange(t.replace(/\D/g, "").slice(0, 15))}
       keyboardType="number-pad"
       placeholder="15 digits"
-      placeholderTextColor={T.skip}
-      style={[s.input, s.imei]}
       accessibilityLabel={label}
     />
   );
@@ -417,38 +433,14 @@ function ImeiField({ value, onChange, label }: { value: string; onChange: (v: st
 /** "✓ Check digit OK", or what is wrong with the number — under each field as it is typed. */
 function ImeiPill({ check }: { check: ImeiCheck }) {
   if (check.ok === null) return null;
-  if (check.ok) return <Text style={[s.pill, { color: T.pass }]}>✓ Check digit OK</Text>;
-  return <Text style={[s.pill, { color: T.fail }]}>{check.message}</Text>;
-}
-
-function Option({ title, selected, onPress }: { title: string; selected: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      style={({ pressed }) => [s.option, selected && { borderColor: T.accent, backgroundColor: T.surface2 }, pressed && { opacity: 0.75 }]}
-    >
-      <Text style={s.optionText}>{title}</Text>
-      {selected ? <Text style={[s.optionText, { color: T.accent }]}>✓</Text> : null}
-    </Pressable>
-  );
+  if (check.ok) return <Text style={[s.pill, { color: P.pass }]}>✓ Check digit OK</Text>;
+  return <Text style={[s.pill, { color: P.fail }]}>{check.message}</Text>;
 }
 
 const s = StyleSheet.create({
-  card: { backgroundColor: T.surface, borderRadius: T.radius, borderWidth: 1, borderColor: T.border, padding: 18, marginBottom: 22, gap: 6 },
-  cardTitle: { color: T.text, fontSize: 24, fontWeight: "800", lineHeight: 30 },
-  cardSub: { color: T.muted, fontSize: 16 },
-  crumbs: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },
-  crumb: { minHeight: 44, justifyContent: "center", paddingHorizontal: 14, borderRadius: 999, borderWidth: 1, borderColor: T.accent, backgroundColor: T.surface2 },
-  crumbText: { color: T.accent, fontSize: 15, fontWeight: "700" },
+  model: { color: P.ink, fontSize: 22, fontWeight: "700", lineHeight: 28, textAlign: "center", marginTop: 18 },
+  crumbs: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 16 },
   list: { gap: 10 },
-  option: { minHeight: 56, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, borderRadius: T.radius, borderWidth: 1, borderColor: T.border, backgroundColor: T.surface },
-  optionText: { color: T.text, fontSize: 18, fontWeight: "700" },
-  row: { flexDirection: "row", gap: 10, marginTop: 16 },
-  label: { color: T.text, fontSize: 16, fontWeight: "700", marginBottom: 8 },
-  input: { backgroundColor: T.surface, borderColor: T.border, borderWidth: 1, borderRadius: T.radius, color: T.text, fontSize: 18, paddingVertical: 14, paddingHorizontal: 14 },
-  imei: { fontSize: 22, fontWeight: "800", letterSpacing: 2, textAlign: "center" },
-  pill: { fontSize: 15, lineHeight: 21, fontWeight: "700", marginTop: 8 },
-  ref: { color: T.muted, fontSize: 14, textAlign: "center", marginTop: 10 },
+  row: { flexDirection: "row", gap: 10 },
+  pill: { fontSize: 15, lineHeight: 21, fontWeight: "600", marginTop: 8 },
 });

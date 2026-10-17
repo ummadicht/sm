@@ -7,11 +7,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, BackHandler, KeyboardAvoidingView, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { ApiError, createClient, type Client } from "../../shared/api";
 import { IS_WEB } from "../../shared/config";
-import { L } from "../../shared/theme";
 import { PIN_LENGTH, newPinProblem, pinInput } from "../pin";
 import { errText } from "../staffClient";
 import type { TabletStaff, TabletView, TokenResponse } from "../types";
-import { Banner, Body, Btn, Card, Chip, Field, H1, H2, TopBar, useLayout } from "../ui";
+import { Banner, Body, Brand, Btn, Card, Chip, Field, H1, H2, TopBar, useLayout, L } from "../ui";
 
 /**
  * A name tapped and then left alone goes back to the grid, so the next person
@@ -191,11 +190,11 @@ function Grid({
   return (
     <ScrollView
       contentContainerStyle={{ flexGrow: 1, padding: pad, alignItems: "center" }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[L.up]} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[L.primary]} tintColor={L.primary} />}
     >
       <View style={{ width: inner, gap: 18 }}>
         <View style={{ gap: 6 }}>
-          <Text style={{ color: L.up, fontSize: 16, fontWeight: "800", letterSpacing: 1, textTransform: "uppercase" }}>SwapUp Store</Text>
+          <Brand style={{ marginBottom: 10 }} />
           <H1>Who's serving?</H1>
           <Body muted>
             {view.store.name}
@@ -249,18 +248,18 @@ function NameTile({ person, width, onPress }: { person: TabletStaff; width: numb
         minHeight: 132,
         padding: 16,
         gap: 8,
-        borderRadius: L.radius + 2,
+        borderRadius: L.cardRadius,
         borderWidth: 1.5,
-        borderColor: pressed ? L.up : L.border,
-        backgroundColor: pressed ? L.upBg : L.surface,
+        borderColor: pressed ? L.primary : "transparent",
+        backgroundColor: pressed ? L.tint : L.surface,
       })}
     >
-      <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: L.upBg, alignItems: "center", justifyContent: "center" }}>
-        <Text style={{ color: L.up, fontSize: 18, fontWeight: "800" }}>{initials(person.name)}</Text>
+      <View style={{ width: 46, height: 46, borderRadius: 23, backgroundColor: L.tint, alignItems: "center", justifyContent: "center" }}>
+        <Text style={{ color: L.brand, fontSize: 18, fontWeight: "800" }}>{initials(person.name)}</Text>
       </View>
-      <Text style={{ color: L.ink, fontSize: 20, fontWeight: "800" }} numberOfLines={2}>
+      <H2 style={{ fontSize: 20, lineHeight: 25 }} numberOfLines={2}>
         {person.name}
-      </Text>
+      </H2>
       <Text style={{ color: L.muted, fontSize: 15 }} numberOfLines={1}>
         {person.roleLabel || person.role}
       </Text>
@@ -373,7 +372,7 @@ function PinPad({
             ))}
           </View>
           <View style={{ minHeight: 52, alignSelf: "stretch", justifyContent: "center" }}>
-            {busy ? <ActivityIndicator color={L.up} /> : error ? <Banner tone="bad" title={error} /> : null}
+            {busy ? <ActivityIndicator color={L.primary} /> : error ? <Banner tone="bad" title={error} /> : null}
           </View>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 14, width: keyW * 3 + 28 }}>
             {KEYS.map((k, i) =>
@@ -389,12 +388,12 @@ function PinPad({
                   style={({ pressed }) => ({
                     width: keyW,
                     height: keyH,
-                    borderRadius: 16,
+                    borderRadius: 999,
                     alignItems: "center",
                     justifyContent: "center",
-                    backgroundColor: k === "⌫" ? "transparent" : pressed ? L.upBg : L.surface,
+                    backgroundColor: k === "⌫" ? "transparent" : pressed ? L.tint : L.surface,
                     borderWidth: k === "⌫" ? 0 : 1.5,
-                    borderColor: pressed ? L.up : L.border,
+                    borderColor: pressed ? L.primary : "transparent",
                     opacity: busy ? 0.5 : pressed && k === "⌫" ? 0.6 : 1,
                   })}
                 >

@@ -4,12 +4,11 @@
 // name field. Both stay optional, and the create call is the same as before.
 import React, { useEffect, useRef, useState } from "react";
 import { KeyboardAvoidingView, ScrollView, Text, View } from "react-native";
-import { L } from "../../shared/theme";
 import { ApiError } from "../../shared/api";
 import { StaffClient, errText } from "../staffClient";
 import type { SessionLinks } from "../types";
 import { normaliseMobile, pastTradeInLine, readCustomerLookup, type CustomerLookup } from "../customers";
-import { Banner, Body, Btn, Card, Field, H1, Label, TopBar, useLayout } from "../ui";
+import { Banner, Body, Btn, Card, Field, H1, Label, TopBar, useLayout, L } from "../ui";
 
 export { normaliseMobile } from "../customers";
 
