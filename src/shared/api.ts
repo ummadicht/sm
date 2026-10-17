@@ -2,7 +2,13 @@
 // flaky store Wi‑Fi must never hang a screen), and the server's own sentence
 // as the error message.
 
-export type Auth = { kind: "bearer" | "ticket"; token: string } | null;
+// bearer = a person's 12-hour staff session; ticket = the Check app's test
+// session; device = a store tablet's long-lived token, which can only list the
+// store's staff and unlock one of them by PIN (never Bearer — the server's
+// session check must keep ignoring it).
+export type Auth = { kind: "bearer" | "ticket" | "device"; token: string } | null;
+
+const SCHEME: Record<NonNullable<Auth>["kind"], string> = { bearer: "Bearer", ticket: "Ticket", device: "Device" };
 
 export class ApiError extends Error {
   status: number;
@@ -24,7 +30,7 @@ export function createClient(server: string, auth: Auth, timeoutMs = 15_000) {
         headers: {
           accept: "application/json",
           ...(body !== undefined ? { "content-type": "application/json" } : {}),
-          ...(auth ? { authorization: `${auth.kind === "bearer" ? "Bearer" : "Ticket"} ${auth.token}` } : {}),
+          ...(auth ? { authorization: `${SCHEME[auth.kind]} ${auth.token}` } : {}),
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });

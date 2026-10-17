@@ -4,7 +4,7 @@ One Expo (SDK 57) codebase, two Android apps:
 
 | App | Package | Who | What it does |
 |---|---|---|---|
-| **SwapUp Store** | `com.swapup.store` | store staff | Sign in with the SwapUp store login, start a customer trade-in, show the **Wi‑Fi QR** and the **test QR**, **photograph the customer's phone** on GradeIQ's camera page (step ③), watch the tests and the camera grade arrive live, apply them to the case, continue pricing in the web desk inside the app |
+| **SwapUp Store** | `com.swapup.store` | store staff | Sign in with the SwapUp store login — or, on a **store tablet** a manager set up in Settings, tap your name on "Who's serving?" and type your 4-digit PIN (`~/projects/swapup/docs/STORE-TABLET.md`) — start a customer trade-in, show the **Wi‑Fi QR** and the **test QR**, **photograph the customer's phone** on GradeIQ's camera page (step ③), watch the tests and the camera grade arrive live, apply them to the case, continue pricing in the web desk inside the app |
 | **SwapUp Check** | `com.swapup.check` | the customer | Installed from the test QR's download page. On Android it asks **no questions**: it pairs with the store's camera (shows the screen patterns the camera asks for), then tests the phone **by itself** — two physical actions only (swipe the grid, plug in the charger) — and streams every result to the store |
 
 SwapUp is built on **GradeIQ** (`~/projects/gradeiq`) underneath: the SwapUp server gives every test

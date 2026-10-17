@@ -1,14 +1,17 @@
 // Who is signed in, to which store, on which server — and the way out.
-// A store manager can also set the store Wi‑Fi here, before a customer is waiting.
+// A store manager can also set the store Wi‑Fi here, before a customer is waiting,
+// and make this device the store tablet (or manage the store's tablets).
+// Everyone can set the PIN that unlocks the store tablet.
 import { InviteStaff } from "./InviteStaff";
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, KeyboardAvoidingView, ScrollView, Text, View } from "react-native";
 import { APP_VERSION, DEFAULT_SERVER, IS_WEB } from "../../shared/config";
 import { L } from "../../shared/theme";
 import { StaffClient, errText } from "../staffClient";
-import type { StaffUser, WifiResponse } from "../types";
+import type { StaffUser, StoreDeviceCreated, WifiResponse } from "../types";
 import { Banner, Body, Btn, Card, Chip, Columns, H2, KV, TopBar, useLayout } from "../ui";
 import { WifiForm, WifiInfo } from "./SessionParts";
+import { ChangePin, StoreTabletCard } from "./TabletSettings";
 
 const SECURITY_LABEL: Record<string, string> = { WPA: "WPA / WPA2 / WPA3", WEP: "WEP", nopass: "None (open)" };
 
@@ -26,14 +29,22 @@ export function Settings({
   api,
   user,
   expiresAt,
+  tablet,
   onBack,
   onSignOut,
+  onUseAsTablet,
+  onStopTablet,
 }: {
   api: StaffClient;
   user: StaffUser;
   expiresAt: string | null;
+  /** Set when this device is the store tablet (the staff sign-in is then in memory only). */
+  tablet: { id: string | null; name: string | null } | null;
   onBack: () => void;
+  /** Personal device: sign out. Store tablet: back to "Who's serving?" (the tablet stays signed in for the store). */
   onSignOut: () => void;
+  onUseAsTablet: (res: StoreDeviceCreated) => Promise<void>;
+  onStopTablet: () => void;
 }) {
   const { wide, pad, content } = useLayout();
   const store = user.store!;
@@ -74,11 +85,20 @@ export function Settings({
         {user.username ? <KV label="Username" value={user.username} /> : null}
         <KV label="Role" value={user.roleLabel || user.role} />
         {user.org ? <KV label="Programme" value={user.org.name} /> : null}
-        {until ? <KV label="Sign-in lasts until" value={until} /> : null}
+        {until && !tablet ? <KV label="Sign-in lasts until" value={until} /> : null}
       </View>
       {user.org?.demo ? <Chip text="Demo programme — sample data" tone="warn" /> : null}
-      <Body muted>Sign-ins last 12 hours. After that the app asks for your password again.</Body>
-      <Btn title="Sign out" kind="danger" onPress={confirmSignOut} />
+      {tablet ? (
+        <>
+          <Body muted>This is the store tablet. It goes back to “Who's serving?” when you tap Switch, and after 15 minutes without a touch.</Body>
+          <Btn title="Switch person" kind="secondary" onPress={onSignOut} />
+        </>
+      ) : (
+        <>
+          <Body muted>Sign-ins last 12 hours. After that the app asks for your password again.</Body>
+          <Btn title="Sign out" kind="danger" onPress={confirmSignOut} />
+        </>
+      )}
     </Card>
   );
 
@@ -156,6 +176,9 @@ export function Settings({
       </Text>
       {IS_WEB ? (
         <Body muted>This page always uses the SwapUp server it was opened from.</Body>
+      ) : tablet ? (
+        // No "sign out" on the store tablet: it belongs to this server until a manager stops using it as the tablet.
+        <Body muted>This store tablet is set up on this server. To use another one, a manager stops using it as the store tablet first.</Body>
       ) : api.base !== DEFAULT_SERVER ? (
         <Banner tone="warn" title="Not the normal server">
           {`This tablet is using a test server. The normal one is ${DEFAULT_SERVER}. To switch, sign out and open Advanced on the sign-in screen.`}
@@ -176,10 +199,14 @@ export function Settings({
             <View style={{ gap: 16 }}>
               {canEditWifi ? <InviteStaff api={api} storeId={store.id} storeName={store.name} /> : null}
               {account}
+              <ChangePin api={api} />
               {serverCard}
             </View>
             <View style={{ gap: 16 }}>
               {storeCard}
+              {user.role === "store_manager" ? (
+                <StoreTabletCard api={api} storeName={store.name} thisDevice={tablet} onUseAsTablet={onUseAsTablet} onStopThisDevice={onStopTablet} />
+              ) : null}
               {wifiCard}
             </View>
           </Columns>

@@ -5,6 +5,7 @@ import { StaffClient, absolute, errText } from "../staffClient";
 import type { CreditState, CreditSummary, StaffUser, TestSessionView } from "../types";
 import { unwrapSession } from "../types";
 import { photosNeeded } from "../grading";
+import { firstName } from "../pin";
 import { Banner, Body, Btn, Card, Chip, Columns, H1, H2, Label, STATUS, Tone, ago, inr, toneColor, until, useLayout } from "../ui";
 
 const CREDIT_STATE: Record<CreditState, { label: string; tone: Tone }> = {
@@ -23,6 +24,7 @@ export function Home({
   onOpenSession,
   onSettings,
   onOpenWeb,
+  onSwitch,
 }: {
   api: StaffClient;
   user: StaffUser;
@@ -30,6 +32,8 @@ export function Home({
   onOpenSession: (id: string) => void;
   onSettings: () => void;
   onOpenWeb: (url: string, title: string) => void;
+  /** Store tablet only: hand the tablet to the next person (back to "Who's serving?"). */
+  onSwitch?: () => void;
 }) {
   const { wide, pad, content } = useLayout();
   const store = user.store!;
@@ -162,7 +166,11 @@ export function Home({
             </View>
           ) : null}
         </View>
-        <Btn title="Settings" kind="secondary" onPress={onSettings} />
+        {/* Stacked on a phone so the store name keeps its width; side by side on a tablet. */}
+        <View style={{ flexDirection: wide ? "row" : "column", gap: 8, alignItems: "stretch" }}>
+          {onSwitch ? <Btn title={`${firstName(user.name)} · Switch`} kind="secondary" onPress={onSwitch} /> : null}
+          <Btn title="Settings" kind="secondary" onPress={onSettings} />
+        </View>
       </View>
 
       {approval}

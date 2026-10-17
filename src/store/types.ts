@@ -115,3 +115,35 @@ export function unwrapSession(x: unknown): TestSessionView | null {
   if (typeof o.status === "string" && typeof o.id === "string") return x as TestSessionView;
   return null;
 }
+
+// ── Store tablet (docs/STORE-TABLET.md in ~/projects/swapup) ────────────────
+
+/** One name on "Who's serving?": an active advisor or store manager of the tablet's store. */
+export type TabletStaff = { id: string; name: string; role: string; roleLabel: string; hasPin: boolean };
+
+/** GET /api/tablet (Authorization: Device <token>). */
+export type TabletView = {
+  device: { id: string; name: string };
+  store: { id: string; name: string; code: string; city: string; status?: "pending" | "active" | "rejected" };
+  org: { name: string; demo: boolean } | null;
+  staff: TabletStaff[];
+};
+
+/** POST /api/store-devices — the device token is in this answer once and never again. */
+export type StoreDeviceCreated = {
+  deviceToken: string;
+  device: { id: string; name: string; createdAt: string };
+  store: { id: string; name: string; code: string; city: string };
+};
+
+/** GET /api/store-devices — newest first, removed ones included. */
+export type StoreDevice = { id: string; name: string; createdAt: string; createdBy: string | null; lastSeenAt: string | null; revokedAt: string | null };
+
+/** The answer to GET /api/tablet, or null when it isn't one (wrong server, proxy page). */
+export function readTabletView(x: unknown): TabletView | null {
+  if (!x || typeof x !== "object") return null;
+  const o = x as Partial<TabletView>;
+  if (!o.device || typeof o.device.id !== "string" || !o.store || typeof o.store.name !== "string" || !Array.isArray(o.staff)) return null;
+  const staff = o.staff.filter((p): p is TabletStaff => !!p && typeof p.id === "string" && typeof p.name === "string");
+  return { device: o.device, store: o.store, org: o.org ?? null, staff };
+}

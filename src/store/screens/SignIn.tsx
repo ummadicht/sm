@@ -23,19 +23,22 @@ export function SignIn({
   notice,
   initialInvite,
   onSignedIn,
+  onBack,
 }: {
   initialServer: string;
   notice?: string;
   /** An invite code from a link (swapupstore://join?invite=… or /app/store/?invite=…) opens sign-up directly. */
   initialInvite?: string;
   onSignedIn: (server: string, res: TokenResponse) => void;
+  /** On the store tablet: the way back to "Who's serving?" (the tablet stays the tablet). */
+  onBack?: { label: string; onPress: () => void };
 }) {
   const [signUp, setSignUp] = useState<null | "invite" | "register">(initialInvite ? "invite" : null);
   if (signUp) {
     const base = normaliseServer(initialServer) ?? DEFAULT_SERVER;
     return <SignUp server={base} mode={signUp} initialInvite={initialInvite} onBack={() => setSignUp(null)} onSignedIn={onSignedIn} />;
   }
-  return <SignInForm initialServer={initialServer} notice={notice} onSignedIn={onSignedIn} onSignUp={setSignUp} />;
+  return <SignInForm initialServer={initialServer} notice={notice} onSignedIn={onSignedIn} onSignUp={setSignUp} onBack={onBack} />;
 }
 
 function SignInForm({
@@ -43,11 +46,13 @@ function SignInForm({
   notice,
   onSignedIn,
   onSignUp,
+  onBack,
 }: {
   initialServer: string;
   notice?: string;
   onSignedIn: (server: string, res: TokenResponse) => void;
   onSignUp: (mode: "invite" | "register") => void;
+  onBack?: { label: string; onPress: () => void };
 }) {
   const { wide, pad } = useLayout();
   const [server, setServer] = useState(initialServer);
@@ -97,6 +102,11 @@ function SignInForm({
     <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: pad, alignItems: "center" }} keyboardShouldPersistTaps="handled">
         <View style={{ width: "100%", maxWidth: wide ? 520 : 480, gap: 18 }}>
+          {onBack ? (
+            <Pressable onPress={onBack.onPress} hitSlop={10} accessibilityRole="button" style={({ pressed }) => ({ alignSelf: "flex-start", paddingVertical: 6, opacity: pressed ? 0.6 : 1 })}>
+              <Text style={{ color: L.fix, fontSize: 18, fontWeight: "700" }}>{onBack.label}</Text>
+            </Pressable>
+          ) : null}
           <View style={{ gap: 6 }}>
             <Text style={{ color: L.up, fontSize: 16, fontWeight: "800", letterSpacing: 1, textTransform: "uppercase" }}>SwapUp Store</Text>
             <H1>Sign in to your store</H1>

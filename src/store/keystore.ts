@@ -17,6 +17,10 @@ export async function write(key: string, value: string): Promise<void> {
     /* best effort */
   }
 }
+/** The OS keystore keeps what is written across restarts. */
+export function persistent(): boolean {
+  return true;
+}
 export async function remove(key: string): Promise<void> {
   try {
     await SecureStore.deleteItemAsync(key);
