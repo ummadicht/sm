@@ -26,12 +26,12 @@ const filled = (over: Partial<LockForm> = {}): LockForm => ({
   idLast4: "ab12",
   kym: "clear",
   kymRef: "  SMS 10:42  ",
-  checks: { ownership: true, simRemoved: true, imeiMatches: true, noFinanceLock: true },
+  handover: true,
   ...over,
 });
 
-const STORAGE = "Confirm before taking the phone: Settings › About phone shows 512GB (the customer typed it — the phone couldn't measure it).";
-const IMEI_ACK = "An IMEI fails its check digit. Re-read it from *#06#, or confirm it is correct.";
+const STORAGE = "Check Settings › About phone shows 512GB.";
+const IMEI_ACK = "An IMEI fails its check digit — re-read *#06#.";
 
 test("constants: the desk's words", () => {
   assert.deepEqual(
@@ -45,15 +45,17 @@ test("constants: the desk's words", () => {
     { id: "duplicate", label: "Duplicate IMEI" },
     { id: "in_use", label: "Already in use" },
   ]);
-  assert.deepEqual(
-    K.CHECKS.map((c) => c.label),
-    [
-      "The customer confirms they own this phone",
-      "SIM and memory card removed",
-      "IMEI on the phone (*#06#) matches the one recorded",
-      "Not on an EMI / finance plan, and no lender or company lock on it",
-    ]
-  );
+  assert.equal(K.HANDOVER_LABEL, "Owner confirmed · SIM out · IMEI matches · no EMI/lock");
+  assert.deepEqual(K.CHECK_KEYS, ["ownership", "simRemoved", "imeiMatches", "noFinanceLock"]);
+});
+
+test("one hand-over confirm sends all four flags the server checks", () => {
+  assert.deepEqual(K.handoverChecks(true), { ownership: true, simRemoved: true, imeiMatches: true, noFinanceLock: true });
+  assert.deepEqual(K.handoverChecks(false), { ownership: false, simRemoved: false, imeiMatches: false, noFinanceLock: false });
+  const b = K.lockBody(filled({ handover: true }), head());
+  for (const k of K.CHECK_KEYS) assert.equal(b.checks[k], true, k);
+  const off = K.lockBody(filled({ handover: false }), head());
+  for (const k of K.CHECK_KEYS) assert.equal(off.checks[k], false, k);
 });
 
 test("emptyLockForm: name and mobile from the case, nothing ticked", () => {
@@ -62,7 +64,7 @@ test("emptyLockForm: name and mobile from the case, nothing ticked", () => {
   assert.equal(f.phone, "9876543210");
   assert.equal(f.idType, "");
   assert.equal(f.kym, "");
-  assert.deepEqual(f.checks, { ownership: false, simRemoved: false, imeiMatches: false, noFinanceLock: false });
+  assert.equal(f.handover, false);
   assert.equal(f.storageSeen, false);
   assert.equal(f.imeiCheckAck, false);
   assert.equal(K.emptyLockForm({ customerName: null, customerPhone: null }).name, "");
@@ -81,12 +83,11 @@ test("lockProblem: the desk's order and words, one problem at a time", () => {
     ["Enter a 10-digit Indian mobile number.", { phone: "+91 98765" }],
     ["Enter a 10-digit Indian mobile number.", { phone: "98765-43210" }],
     ["Choose the customer's ID document.", { idType: "pan" }],
-    ["Enter the last 4 characters of the ID number.", { idLast4: "12-4" }],
-    ["Enter the last 4 characters of the ID number.", { idLast4: "x9z1" }],
-    ["Do the government IMEI check (KYM) and record what it says.", { kym: "blacklisted" }],
-    ["The government register flags this phone — do not take it.", { kym: "clear" }],
-    ["Tick every hand-over check before taking the phone.", { checks: { ownership: true, simRemoved: true, imeiMatches: true, noFinanceLock: false } }],
-    ["Tick every hand-over check before taking the phone.", { checks: { ownership: true, simRemoved: true, imeiMatches: true, noFinanceLock: true } }],
+    ["Enter the ID's last 4 characters.", { idLast4: "12-4" }],
+    ["Enter the ID's last 4 characters.", { idLast4: "x9z1" }],
+    ["Do the KYM check and record it.", { kym: "blacklisted" }],
+    ["The register flags this phone — do not take it.", { kym: "clear" }],
+    ["Tick the hand-over check.", { handover: true }],
     [STORAGE, { storageSeen: true }],
     [IMEI_ACK, { imeiCheckAck: true }],
   ];
@@ -99,7 +100,7 @@ test("lockProblem: the desk's order and words, one problem at a time", () => {
 
 test("lockProblem: every flagged KYM result refuses the phone", () => {
   for (const kym of ["blacklisted", "duplicate", "in_use"] as const) {
-    assert.equal(K.lockProblem(filled({ kym }), head()), "The government register flags this phone — do not take it.");
+    assert.equal(K.lockProblem(filled({ kym }), head()), "The register flags this phone — do not take it.");
   }
 });
 
@@ -129,18 +130,15 @@ test("lockProblem: with no IMEI yet, the KYM step asks for the IMEI — its chip
   // The desk's earlier steps still come first.
   assert.equal(K.lockProblem(filled({ kym: "", idType: "" }), head({ imei: null, imeiCheck: null })), "Choose the customer's ID document.");
   // With the IMEI, the KYM step is the KYM.
-  assert.equal(K.lockProblem(filled({ kym: "" }), head()), "Do the government IMEI check (KYM) and record what it says.");
+  assert.equal(K.lockProblem(filled({ kym: "" }), head()), "Do the KYM check and record it.");
 });
 
-test("lockTicks: the desk's four, then storage and the IMEI re-read only when needed", () => {
-  assert.deepEqual(
-    K.lockTicks(head()).map((t) => t.key),
-    ["ownership", "simRemoved", "imeiMatches", "noFinanceLock"]
-  );
+test("lockTicks: one hand-over confirm, then storage and the IMEI re-read only when needed", () => {
+  assert.deepEqual(K.lockTicks(head()), [{ key: "handover", label: K.HANDOVER_LABEL, hint: K.HANDOVER_HINT }]);
   const all = K.lockTicks(head({ variantSource: "customer", variant: "512GB", imeiCheck: "invalid" }));
-  assert.deepEqual(all.slice(4), [
+  assert.deepEqual(all.slice(1), [
     { key: "storageSeen", label: "Settings › About phone shows 512GB" },
-    { key: "imeiCheckAck", label: "IMEI re-read from *#06# — it is correct" },
+    { key: "imeiCheckAck", label: "IMEI re-read on *#06#: correct" },
   ]);
 });
 
@@ -170,8 +168,8 @@ test("lockBody: imeiCheckAck and storageSeen ride along only when the server ask
 test("serverBlocker: the first server blocker, skipping the IMEI one while the screen asks for the IMEI", () => {
   assert.equal(K.serverBlocker(head()), null);
   assert.equal(K.serverBlocker(head({ lockBlockers: ["Choose the new phone."] })), "Choose the new phone.");
-  const noImei = head({ imei: null, imeiCheck: null, lockBlockers: ["Record the IMEI (dial *#06#).", "This price comes from a SAMPLE rate card. Load the partner's rate card before taking a real trade-in."] });
-  assert.equal(K.serverBlocker(noImei), "This price comes from a SAMPLE rate card. Load the partner's rate card before taking a real trade-in.");
+  const noImei = head({ imei: null, imeiCheck: null, lockBlockers: ["Record the IMEI (dial *#06#).", "No market price yet — enter a quote."] });
+  assert.equal(K.serverBlocker(noImei), "No market price yet — enter a quote.");
   assert.equal(K.serverBlocker({ ...noImei, lockBlockers: ["Record the IMEI (dial *#06#)."] }), null);
 });
 
@@ -189,12 +187,12 @@ test("lockCaption: a server blocker first — the form can't fix it — then the
 });
 
 test("kymText: the desk's words, with IMEI 2 when the case has one", () => {
-  assert.equal(K.kymText({ imei: null, imei2: null }), "Record the IMEI first: the check is an SMS of the IMEI to 14422.");
-  assert.equal(K.kymText({ imei: null, imei2: "356789012345686" }), "Record the IMEI first: the check is an SMS of the IMEI to 14422.");
-  assert.equal(K.kymText({ imei: "356789012345678", imei2: null }), "SMS “KYM 356789012345678” to 14422, or use the Sanchar Saathi app, and record the answer.");
+  assert.equal(K.kymText({ imei: null, imei2: null }), "Record the IMEI first.");
+  assert.equal(K.kymText({ imei: null, imei2: "356789012345686" }), "Record the IMEI first.");
+  assert.equal(K.kymText({ imei: "356789012345678", imei2: null }), "SMS “KYM 356789012345678” to 14422 or use Sanchar Saathi.");
   assert.equal(
     K.kymText({ imei: "356789012345678", imei2: "356789012345686" }),
-    "SMS “KYM 356789012345678” to 14422 (and again for 356789012345686), or use the Sanchar Saathi app, and record the answer."
+    "SMS “KYM 356789012345678” to 14422 (again for 356789012345686) or use Sanchar Saathi."
   );
 });
 
@@ -225,7 +223,7 @@ test("afterImeiChange: a KYM answer and the IMEI ticks never carry over to a dif
   // The first read, and a re-read with the same IMEIs: untouched (the same object).
   assert.equal(K.afterImeiChange(ticked, null, a), ticked);
   assert.equal(K.afterImeiChange(ticked, a, { ...a }), ticked);
-  const cleared = (f: LockForm) => [f.kym, f.kymRef, f.checks.imeiMatches, f.imeiCheckAck];
+  const cleared = (f: LockForm) => [f.kym, f.kymRef, f.handover, f.imeiCheckAck];
   // IMEI 1 recorded here, IMEI 1 or IMEI 2 edited on the desk, IMEI 2 removed.
   for (const now of [{ ...a, imei: "356789012345670" }, { ...a, imei2: "356789012345694" }, { ...a, imei2: null }]) {
     const f = K.afterImeiChange(ticked, a, now);
@@ -233,7 +231,7 @@ test("afterImeiChange: a KYM answer and the IMEI ticks never carry over to a dif
     // Everything else the advisor did stays.
     assert.equal(f.name, ticked.name);
     assert.equal(f.idLast4, ticked.idLast4);
-    assert.deepEqual({ ...f.checks, imeiMatches: true }, ticked.checks);
+    assert.equal(f.idType, ticked.idType);
   }
   assert.deepEqual(cleared(K.afterImeiChange(ticked, { imei: null, imei2: null }, a)), ["", "", false, false], "the IMEI was just recorded");
 });
@@ -242,4 +240,25 @@ test("kymSmsUri: the Android sms: form with the IMEI", () => {
   assert.equal(K.kymSmsUri("356789012345678"), "sms:14422?body=KYM%20356789012345678");
   assert.equal(K.kymSmsUri(" 35678901 2345678 "), "sms:14422?body=KYM%20356789012345678");
   assert.equal(K.kymSmsUri(null), "sms:14422?body=KYM%20");
+});
+
+test("mobile: typed with +91, a leading 0, spaces or dashes — accepted as the same 10 digits (the server's rule)", () => {
+  for (const typed of ["9876543210", "98765 43210", "+91 98765 43210", "91-98765-43210", "098765 43210", "+91 (987) 654-3210"]) {
+    assert.equal(K.indianMobile(typed), "9876543210", typed);
+    assert.equal(K.lockProblem(filled({ phone: typed }), head()), null, typed);
+    assert.equal(K.lockBody(filled({ phone: typed }), head()).customer.phone, "9876543210", typed);
+  }
+  for (const bad of ["", "12345", "5876543210", "+1 98765 43210", "919876543210123"]) {
+    assert.equal(K.indianMobile(bad), null, bad);
+    assert.equal(K.lockProblem(filled({ phone: bad }), head()), "Enter a 10-digit Indian mobile number.", bad);
+  }
+});
+
+test("lockProblemSpot: the line above the pill points at the card that needs attention", () => {
+  assert.equal(K.lockProblemSpot(filled(), head()), null);
+  assert.equal(K.lockProblemSpot(filled({ phone: "" }), head()), "customer");
+  assert.equal(K.lockProblemSpot(filled({ name: "" }), head()), "customer");
+  assert.equal(K.lockProblemSpot(filled({ idLast4: "" }), head()), "id");
+  assert.equal(K.lockProblemSpot(filled({ kym: "" }), head()), "kym");
+  assert.equal(K.lockProblemSpot(filled({ handover: false }), head()), "checks");
 });

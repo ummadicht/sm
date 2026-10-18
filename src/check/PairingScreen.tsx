@@ -9,6 +9,17 @@
 // camera may want a photo of Settings › About phone — this screen asks the
 // customer to open it. Pure decisions: ../diagnostics/auto/pairing.ts.
 //
+// The customer is never asked to skip it (owner, 2026-10-17): the phone stays here
+// until the camera finishes, camera grading is off for this check, or the advisor
+// taps "Continue without camera" in SwapUp Store (the server's `released`). Only an
+// older server — one that never sends `released` — still gets the 90 s "Skip the
+// camera check" (pairing.ts skipOffer).
+//
+// The handshake is tuned to GradeIQ's sweep, which waits a few seconds for the echo
+// of each colour: the echo goes out two frames after the colour is drawn, a lost one
+// is re-sent after 600 ms, /screen is polled every 350 ms once the camera page is
+// here, and leaving says "off" — so a phone that has gone can never answer "white".
+//
 // Runs in the browser build too: a web page can't set the brightness (it says
 // so) and keeps the screen on with the Wake Lock API where there is one.
 //
@@ -28,8 +39,9 @@ import { IS_WEB } from "../shared/config";
 import { QR } from "../shared/QR";
 import { Caption, Headline, Hero, Lead, Notice, PhoneImeiArt, PillButton, ScanArt, Screen, StatusLine } from "../shared/kit";
 import {
+  ECHO_RESEND_MS,
   PATTERN_FILLS,
-  POLL_MS,
+  SHOWN_OFF,
   STRIPE_PX,
   displayablePattern,
   freshNews,
@@ -37,6 +49,7 @@ import {
   newTracker,
   parseCameraLink,
   parseScreen,
+  pollEvery,
   settingsPrompt,
   skipOffer,
   trackPoll,
@@ -82,12 +95,18 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
   const { width } = useWindowDimensions();
   const [ios] = useState(onIphone);
 
-  const leave = useCallback((rec: Omit<PairingRec, "at">) => {
-    if (left.current) return;
-    left.current = true;
-    cbs.current.onBleed(false);
-    cbs.current.onDone(rec);
-  }, []);
+  const leave = useCallback(
+    (rec: Omit<PairingRec, "at">) => {
+      if (left.current) return;
+      left.current = true;
+      // Not a colour: a camera page still waiting for "white" must never take this phone's
+      // last echo for an answer once it has gone (GradeIQ keeps the last `shown`).
+      void engine.screenShown(SHOWN_OFF);
+      cbs.current.onBleed(false);
+      cbs.current.onDone(rec);
+    },
+    [engine]
+  );
 
   // Max brightness for the camera; the phone's own setting comes back afterwards.
   // (A browser can't do this — the idle screen asks the customer instead.)
@@ -153,22 +172,22 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
 
   const echo = useCallback(
     (shown: string) => {
+      if (left.current) return;
       lastEcho.current = { shown, at: Date.now() };
       void engine.screenShown(shown);
     },
     [engine]
   );
 
-  // Echo what is on screen once it has been drawn (a pattern needs a frame or two to land).
+  // Echo what is on screen once it has been drawn: two frames after the colour lands.
   useEffect(() => {
     if (!ready) return;
     drawingRef.current = drawing;
     cbs.current.onBleed(drawing !== "idle");
-    const t = setTimeout(() => echo(drawing), drawing === "idle" ? 30 : 180);
-    return () => clearTimeout(t);
+    return afterTwoFrames(() => echo(drawing));
   }, [drawing, ready, echo]);
 
-  // Poll ~700 ms (setTimeout chain: a slow answer never overlaps the next request).
+  // Poll ~700 ms, ~350 ms once the camera page is here (setTimeout chain: a slow answer never overlaps the next request).
   useEffect(() => {
     if (!ready) return;
     let alive = true;
@@ -191,10 +210,12 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
           setPoll(p);
           if (t.leave === "disabled") return leave({ outcome: "unavailable", reason: "camera grading is switched off for this store" });
           if (t.leave === "failed") return leave({ outcome: "unavailable", reason: "camera grading could not start for this check" });
+          if (t.leave === "released") return leave({ outcome: "skipped", reason: "the advisor went on without the camera" });
+          if (t.leave === "alone") return leave({ outcome: "skipped", reason: "the store's camera didn't connect" });
           if (t.leave) return leave({ outcome: t.leave, reason: null });
           const want = displayablePattern(p.pattern);
           if (want !== drawingRef.current) setDrawing(want);
-          else if (needsEcho(p, want) && (!lastEcho.current || now - lastEcho.current.at > 1500)) echo(want);
+          else if (needsEcho(p, want) && (!lastEcho.current || now - lastEcho.current.at > ECHO_RESEND_MS)) echo(want);
           setAskSettings(settingsPrompt(t.tracker, p, now));
         }
       } else if (r.status === 0) {
@@ -208,7 +229,7 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
         if (t.unavailable) return leave({ outcome: "unavailable", reason: r.message || `the store's system refused the camera check (${r.status})` });
       }
       setOffer(skipOffer(tracker.current, now, drawingRef.current !== "idle"));
-      timer = setTimeout(tick, Math.max(0, POLL_MS - (Date.now() - started)));
+      timer = setTimeout(tick, Math.max(0, pollEvery(tracker.current) - (Date.now() - started)));
     };
     void tick();
     return () => {
@@ -217,6 +238,7 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
     };
   }, [ready, engine, echo, leave]);
 
+  // An older server only (no `released`): the customer's own way out, as before.
   const skip = (why: "never-connected" | "stalled") =>
     leave({
       outcome: "skipped",
@@ -231,7 +253,7 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
       try {
         await Linking.sendIntent("android.settings.SETTINGS");
       } catch {
-        setSettingsNote("Couldn't open Settings — open it from your home screen.");
+        setSettingsNote("Open Settings from your home screen.");
       }
     }
   };
@@ -243,13 +265,14 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
       <Pattern name={drawing}>
         {offer ? (
           <View style={s.overOffer}>
-            <PillButton title="Skip the camera check" kind="outline" arrow={false} onPress={() => skip("stalled")} style={{ backgroundColor: P.surface }} />
+            <PillButton title="Skip camera" kind="outline" arrow={false} onPress={() => skip("stalled")} style={{ backgroundColor: P.surface }} />
           </View>
         ) : null}
       </Pattern>
     );
 
   const connected = tracker.current.connectedAt != null;
+  const released = !!tracker.current.releaseKnown;
   // Only what the camera said since this screen mounted: photos taken before the
   // phone joined (an older store flow) leave cosmeticDone + "ok" behind, which say nothing about now.
   const news = poll ? freshNews(tracker.current, poll) : null;
@@ -257,13 +280,13 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
   const statusLine = (() => {
     if (!ready) return "One moment…";
     if (trouble === "offline") return "Waiting for Wi‑Fi…";
-    if (trouble === "busy") return "The store's system is busy — this carries on by itself.";
-    if (poll?.state === "pending") return "Getting the camera check ready…";
-    if (askSettings) return "The camera is waiting for the Settings photo.";
-    if (news?.cosmeticDone) return "Photos accepted — finishing the camera check…";
-    if (retake) return "The advisor is retaking the photos.";
-    if (connected) return "Connected — keep this screen facing the camera.";
-    return "Waiting for the advisor's tablet…";
+    if (trouble === "busy" || poll?.unreachable) return "Store busy — this carries on by itself.";
+    if (poll?.state === "pending") return "Getting ready…";
+    if (askSettings) return "Waiting for the Settings photo.";
+    if (news?.cosmeticDone) return "Photos accepted — finishing…";
+    if (retake) return "Retaking the photos.";
+    if (connected) return "Connected — face the camera.";
+    return released ? "Moving on by itself…" : "Waiting for the advisor's tablet…";
   })();
   const qrSize = Math.max(180, Math.min(280, width - P.gutter * 2 - 40));
 
@@ -276,8 +299,8 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
             {askSettings && Platform.OS === "android" ? <PillButton title="Open Settings" onPress={() => void openAbout()} /> : null}
             {offer ? (
               <>
-                <PillButton title="Skip the camera check" kind="outline" arrow={false} onPress={() => skip(offer)} />
-                <Caption style={{ marginTop: 0 }}>The advisor then checks the screen by eye.</Caption>
+                <PillButton title="Skip camera" kind="outline" arrow={false} onPress={() => skip(offer)} />
+                <Caption style={{ marginTop: 0 }}>The advisor checks it by eye.</Caption>
               </>
             ) : null}
             <Caption style={{ marginTop: 0 }}>Trade-in {state.session.caseRef}</Caption>
@@ -287,7 +310,7 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
         {askSettings ? (
           <>
             <Headline>{ios ? "Open Settings › General › About" : "Open Settings › About phone"}</Headline>
-            <Lead>So the advisor&apos;s camera can read the model and IMEI. Then come back to this {IS_WEB ? "page" : "app"}.</Lead>
+            <Lead>For the model and IMEI — then come back.</Lead>
             <Hero>
               <PhoneImeiArt width={104} />
             </Hero>
@@ -295,12 +318,18 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
           </>
         ) : (
           <>
-            <Headline>Show this to the advisor</Headline>
-            <Lead>Their tablet scans it, photographs your phone and checks its screen (about 2 minutes).</Lead>
+            <Headline>{connected ? "Face the advisor's camera" : "Show this to the advisor"}</Headline>
+            <Lead>{connected ? "It takes the photos by itself." : "Their tablet scans it — about 2 minutes."}</Lead>
             <Hero minHeight={qrSize + 60}>
-              {link.kind === "ready" ? (
+              {/* Once the camera page is connected the code is gone: the front-glass photo must never carry it. */}
+              {connected ? (
+                <>
+                  <ScanArt width={220} />
+                  <Notice style={{ marginTop: 18, alignSelf: "stretch" }}>Keep this screen facing the advisor's camera.</Notice>
+                </>
+              ) : link.kind === "ready" ? (
                 <View style={s.qrCard}>
-                  <QR value={link.url} size={qrSize} fallback="The QR code couldn't be drawn — the advisor can open the camera from their tablet." />
+                  <QR value={link.url} size={qrSize} fallback="No QR — the advisor opens the camera instead." />
                 </View>
               ) : link.kind === "loading" ? (
                 <View style={[s.qrCard, { width: qrSize + 40, height: qrSize + 40, alignItems: "center", justifyContent: "center" }]}>
@@ -310,11 +339,11 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
               ) : (
                 <>
                   <ScanArt width={220} />
-                  <Notice style={{ marginTop: 18, alignSelf: "stretch" }}>The advisor opens the camera from their tablet — keep this screen facing it.</Notice>
+                  <Notice style={{ marginTop: 18, alignSelf: "stretch" }}>Keep this screen facing the advisor's camera.</Notice>
                 </>
               )}
             </Hero>
-            {IS_WEB ? <Notice tone="warn">Turn your brightness all the way up — this page can&apos;t do it for you.</Notice> : null}
+            {IS_WEB ? <Notice tone="warn">Turn brightness all the way up.</Notice> : null}
           </>
         )}
         <StatusLine text={statusLine} tone={trouble ? "warn" : connected ? "pass" : "muted"} style={{ marginTop: 18 }} />
@@ -323,8 +352,32 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
   );
 }
 
-/** One full-screen pattern, as GradeIQ's /v2 draws it, with its small caption. */
-function Pattern({ name, children }: { name: string; children?: React.ReactNode }) {
+/**
+ * Run `fn` once the frame drawn now and the next one are on screen (a pattern needs a
+ * frame or two to land before the camera can trust the echo). Returns a cancel. Falls
+ * back to a short timer where there is no requestAnimationFrame.
+ */
+export function afterTwoFrames(fn: () => void): () => void {
+  const raf = (globalThis as { requestAnimationFrame?: (cb: () => void) => number }).requestAnimationFrame;
+  const caf = (globalThis as { cancelAnimationFrame?: (id: number) => void }).cancelAnimationFrame;
+  if (typeof raf !== "function") {
+    const t = setTimeout(fn, 50);
+    return () => clearTimeout(t);
+  }
+  let alive = true;
+  let id = raf(() => {
+    id = raf(() => {
+      if (alive) fn();
+    });
+  });
+  return () => {
+    alive = false;
+    caf?.(id);
+  };
+}
+
+/** One full-screen pattern, as GradeIQ's /v2 draws it, with its small caption (`caption` replaces the camera's). */
+export function Pattern({ name, caption, children }: { name: string; caption?: string; children?: React.ReactNode }) {
   const [w, setW] = useState(0);
   const fill = PATTERN_FILLS[name];
   return (
@@ -338,9 +391,13 @@ function Pattern({ name, children }: { name: string; children?: React.ReactNode 
         </View>
       ) : null}
       <View style={s.capWrap} pointerEvents="none">
-        <Text style={s.cap}>
-          📷 Screen check · showing <Text style={{ fontWeight: "900" }}>{name}</Text> — keep the phone still
-        </Text>
+        {caption ? (
+          <Text style={s.cap}>{caption}</Text>
+        ) : (
+          <Text style={s.cap}>
+            📷 Screen check · <Text style={{ fontWeight: "900" }}>{name}</Text> — keep still
+          </Text>
+        )}
       </View>
       {children}
     </View>

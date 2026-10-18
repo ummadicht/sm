@@ -82,6 +82,10 @@ case "$EMBEDDED" in
   "$VARIANT|"*) echo "▸ embedded config: $EMBEDDED" ;;
   *) echo "✗ the APK's embedded config is '$EMBEDDED', not '$VARIANT' — not shipping it" >&2; exit 1 ;;
 esac
+# Refuse an APK whose words must not ship (partner name, made-up-price or demo wording) or whose
+# embedded version isn't app.json's — src/shared/buildScan.ts. The previous dist/ APK stays as it was.
+node --experimental-strip-types --no-warnings "$ROOT/scripts/check-builds.ts" apk-file "$PWD/android/app/build/outputs/apk/release/app-release.apk" "$VARIANT" \
+  || { echo "✗ not shipping it" >&2; exit 1; }
 cp android/app/build/outputs/apk/release/app-release.apk "$OUT"
 "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$OUT" | grep -m1 "Signer #1 certificate DN" || true
 # The version the APK was actually built with (app.config.js wins over app.json).
@@ -89,4 +93,7 @@ VERSION=$(APP_VARIANT=$VARIANT node -e "const c=require('./app.config.js'); cons
 SIZE=$(stat -f%z "$OUT")
 SHA=$(shasum -a 256 "$OUT" | cut -d' ' -f1)
 echo "{\"app\":\"$VARIANT\",\"version\":\"$VERSION\",\"bytes\":$SIZE,\"sha256\":\"$SHA\",\"builtAt\":\"$(date -u +%FT%TZ)\"}" > "$ROOT/dist/swapup-$VARIANT.json"
+# The APK and its manifest together, as deploy.sh will check them.
+node --experimental-strip-types --no-warnings "$ROOT/scripts/check-builds.ts" apk "$VARIANT" \
+  || { rm -f "$OUT" "$ROOT/dist/swapup-$VARIANT.json"; echo "✗ removed $OUT" >&2; exit 1; }
 echo "✓ $OUT ($((SIZE/1024/1024)) MB)"

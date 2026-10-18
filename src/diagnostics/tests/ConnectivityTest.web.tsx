@@ -84,7 +84,7 @@ export function ConnectivityTest(p: TestProps) {
 
   const type = String(d.networkType ?? "…");
   return (
-    <TestShell {...p} instructions="The phone must be online to pass. Location is recorded as evidence; indoors with no fix is not a fail by itself." autoVerdict={auto} detail={d}>
+    <TestShell {...p} instructions="Passes when the phone is online." autoVerdict={auto} detail={d}>
       <View style={s.wrap}>
         <Row
           label="Online"

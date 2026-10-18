@@ -9,20 +9,20 @@
 //
 // No React Native imports here (only fetch via shared/api), so the same code
 // runs under Node for the scratch tests. RN bindings live in check/files.ts.
-import { ApiError, createClient, Client } from "../shared/api";
+import { ApiError, createClient, type Client } from "../shared/api";
 import {
   BATTERY_HEALTH_ID,
-  BatteryRec,
-  CheckState,
-  ContractDevice,
-  Declared,
-  Detail,
-  JoinResponse,
-  Outcome,
-  PairingRec,
-  PhonePhase,
-  RemoteStatus,
-  SessionInfo,
+  type BatteryRec,
+  type CheckState,
+  type ContractDevice,
+  type Declared,
+  type Detail,
+  type JoinResponse,
+  type Outcome,
+  type PairingRec,
+  type PhonePhase,
+  type RemoteStatus,
+  type SessionInfo,
   completePending,
   declarePending,
   nextAt,
@@ -32,8 +32,13 @@ import {
   unsentCount,
 } from "./core";
 
-/** What the Identify step adds to the declaration (swapup docs/PHONE-LED-FLOW.md). */
-export type IdentifyAnswers = Pick<Declared, "imei" | "imei2" | "identityConfirmed" | "picked" | "customerName" | "customerPhone">;
+/**
+ * What the Identify step adds to the declaration (swapup docs/PHONE-LED-FLOW.md). Since
+ * 2026-10-17 the phone asks only "Which phone is this?" — and only when the store couldn't
+ * recognise it — so a current app sends `picked` or nothing. The other keys stay for a check
+ * an older app saved mid-way.
+ */
+export type IdentifyAnswers = Partial<Pick<Declared, "imei" | "imei2" | "identityConfirmed" | "picked" | "customerName" | "customerPhone">>;
 
 /** A device-side call's answer, without throwing: the screens decide what each status means. */
 export type DeviceCallResult<T> = { ok: true; body: T } | { ok: false; status: number; message: string };
@@ -75,13 +80,22 @@ function isRefusal(e: unknown): boolean {
   return e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 429 && !AUTH_LIKE.has(e.status);
 }
 
+/** A sentence the server wrote for a person — not empty, not an HTTP status line or a stack. */
+function plainSentence(m: string): boolean {
+  const t = m.trim();
+  return t.length >= 8 && t.length <= 200 && /[a-z]/i.test(t) && !/^(HTTP\b|\d{3}\b|error\b|\{|<)/i.test(t) && !/\bat \S+:\d+/.test(t);
+}
+
 export function joinErrorMessage(status: number, serverMessage: string): string {
-  // The server already speaks in plain sentences; these are fallbacks for when it doesn't.
-  if (status === 0) return serverMessage + " Make sure this phone is on the store's Wi‑Fi (the advisor can show you a Wi‑Fi QR code).";
-  if (status === 404 || status === 410) return /code/i.test(serverMessage) ? serverMessage : "That code is not valid any more. Ask the store for a new one.";
-  if (status === 409) return /phone/i.test(serverMessage) ? serverMessage + " Ask the advisor for a new code for this phone." : "This code is already being used on another phone. Ask the advisor for a new code for this phone.";
-  if (status === 429) return "Too many tries. Wait a minute, then try again.";
-  if (status >= 500) return "The store's system had a problem. Wait a moment and try again — if it keeps happening, tell the advisor.";
+  // The server already speaks in plain sentences ("Check done at … — ask the advisor for another.",
+  // "This check has ended — scan the store's QR to start again.") and they are shown as sent;
+  // these are only fallbacks for an empty or opaque answer.
+  if (status === 0) return serverMessage;
+  if (status >= 500) return "Store system problem — try again in a moment.";
+  if (plainSentence(serverMessage)) return serverMessage.trim();
+  if (status === 404 || status === 410) return "That code has expired — ask for a new one.";
+  if (status === 409) return "Code in use on another phone — ask for a new one.";
+  if (status === 429) return "Too many tries — wait a minute.";
   return serverMessage;
 }
 
@@ -103,7 +117,16 @@ export class CheckEngine {
   private failStreak = 0;
   private lastAttempt = 0;
 
-  constructor(private store: Store, private device: () => Promise<ContractDevice>, private opts: Opts) {
+  private store: Store;
+  private device: () => Promise<ContractDevice>;
+  private opts: Opts;
+
+  // Plain fields, not constructor parameter properties: node's strip-only TypeScript (the unit
+  // tests, ./engine.test.ts) can't run those.
+  constructor(store: Store, device: () => Promise<ContractDevice>, opts: Opts) {
+    this.store = store;
+    this.device = device;
+    this.opts = opts;
     this.retryMs = opts.retryMs ?? 4000;
     this.timeoutMs = opts.timeoutMs ?? 12_000;
   }
@@ -207,11 +230,11 @@ export class CheckEngine {
         ...(opts.resume ? { resume: true } : {}),
       });
     } catch (e) {
-      const err = e instanceof ApiError ? e : new ApiError(0, "Can't reach SwapUp — check the Wi‑Fi or mobile data.");
+      const err = e instanceof ApiError ? e : new ApiError(0, "Can't reach SwapUp — check the Wi‑Fi.");
       return { ok: false, status: err.status, message: joinErrorMessage(err.status, err.message) };
     }
     if (!res?.ticket || !res.session?.id) {
-      return { ok: false, status: 502, message: "The store's system sent an answer this app doesn't understand. Tell the advisor (the app may need updating)." };
+      return { ok: false, status: 502, message: "Unexpected answer — tell the advisor." };
     }
     const raw = res.session as unknown as Record<string, unknown>;
     const session: SessionInfo = {
@@ -225,9 +248,10 @@ export class CheckEngine {
       identity: parseIdentity(raw.identity),
       customerStarted: startedByCustomer(raw),
     };
-    // What this phone called itself — the Identify card's "Your phone calls itself …".
-    // The code only: a browser on an iPhone has none, and "iPhone" is not one.
-    const reported = { brand: device.brand, modelCode: device.modelCode };
+    // What this phone called itself — the picker's "couldn't tell the exact model from its code (…)".
+    // The code only: a browser on an iPhone has none, and "iPhone" is not one. `measured`:
+    // it read its own storage, which the store always takes over anything the customer says.
+    const reported = { brand: device.brand, modelCode: device.modelCode, measured: typeof device.totalDiskBytes === "number" && device.totalDiskBytes > 0 };
     const cur = this.snap.state;
     const same = !!cur && cur.session.id === session.id;
     if (same && cur) {
@@ -317,6 +341,24 @@ export class CheckEngine {
     if (r === "ended") this.setSync("ended", this.snap.state?.ended ?? null);
   }
 
+  /**
+   * The "store has your results" screen after a restart: the status — and with it the
+   * report link and the grade — is kept in memory only, so read it once more with the
+   * ticket kept for status reads. Nothing to do once it is known. Never throws: offline,
+   * or a ticket that is gone, just means the screen shows no link.
+   */
+  async readAppliedStatus(opts: { again?: boolean } = {}): Promise<void> {
+    const st = this.snap.state;
+    // `again`: read even with the status in memory — a newer report version moves the grade.
+    if (!st || st.ended !== APPLIED_MESSAGE || !st.ticket || (this.snap.remote && !opts.again)) return;
+    try {
+      const s = await this.client(st).get<RemoteStatus>("/api/device/status");
+      if (s?.status === "applied" && this.snap.state?.ticket === st.ticket) this.patch({ remote: s }); // still the same check
+    } catch {
+      /* no link this time */
+    }
+  }
+
   /** Forget the current check (to join a different code). The installId stays. */
   async forget(): Promise<void> {
     this.phase = null;
@@ -351,22 +393,20 @@ export class CheckEngine {
   }
 
   /**
-   * The Identify step is finished: its answers join the declaration (sent with
-   * the outbox, like the browser's damage questions) and the step is marked done
-   * in the same write, so a restart never asks twice or loses the answers.
+   * The Identify step is finished: its answer (the model the customer chose) joins the
+   * declaration, sent with the outbox, and the step is marked done in the same write, so a
+   * restart never asks twice or loses it. Nothing chosen ("Ask the advisor") sends
+   * nothing — there is no answer to send.
    */
   async identify(a: IdentifyAnswers): Promise<void> {
+    const said = Object.values(a).some((v) => v !== null && v !== undefined);
     await this.update((s) => {
+      const identifiedAt = s.identifiedAt ?? new Date().toISOString();
+      if (!said) return { ...s, identifiedAt };
       const base: Declared = s.declared ?? { screenCracked: null, backCracked: null, liquid: null, imei: null };
-      return {
-        ...s,
-        declared: { ...base, ...a },
-        declaredAt: nextAt(s.declaredAt),
-        declareError: null,
-        identifiedAt: s.identifiedAt ?? new Date().toISOString(),
-      };
+      return { ...s, declared: { ...base, ...a }, declaredAt: nextAt(s.declaredAt), declareError: null, identifiedAt };
     });
-    void this.flush();
+    if (said) void this.flush();
   }
 
   /** The Scan screen is over (kept on disk so a restart doesn't pair again). */
@@ -556,9 +596,8 @@ export class CheckEngine {
     }
     const err = e instanceof ApiError ? e : new ApiError(0, "Can't reach SwapUp.");
     if (err.status === 0) this.setSync("offline", "Waiting for Wi‑Fi…");
-    else if (err.status >= 500 || err.status === 429) this.setSync("busy", "The store's system didn't answer — trying again.");
-    else if (/^Request failed \(\d+\)$/.test(err.message))
-      this.setSync("rejected", `The store's system refused the results (error ${err.status}). Show this to the advisor — the app or the store system may need updating.`);
+    else if (err.status >= 500 || err.status === 429) this.setSync("busy", "No answer from the store — retrying.");
+    else if (/^Request failed \(\d+\)$/.test(err.message)) this.setSync("rejected", `Results refused (error ${err.status}) — tell the advisor.`);
     else this.setSync("rejected", err.message);
   }
 

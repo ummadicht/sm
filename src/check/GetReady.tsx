@@ -13,6 +13,7 @@ import * as Location from "expo-location";
 import { P } from "../shared/theme";
 import { Caption, ChecklistArt, Headline, Hero, Lead, QuietLink, Screen } from "../shared/kit";
 import type { CheckState } from "./core";
+import { PRIVACY_LINE } from "./copy";
 
 type Perm = "camera" | "microphone" | "location";
 const NEEDS: Record<string, Perm> = { camera: "camera", flash: "camera", speaker: "microphone", mic: "microphone", voice: "microphone", connectivity: "location" };
@@ -53,20 +54,18 @@ export function GetReady({ state, onReady, onWrongCode }: { state: CheckState; o
     <Screen
       footer={
         <>
-          <QuietLink title="Wrong store? Use another code" onPress={onWrongCode} />
+          <QuietLink title="Wrong store?" onPress={onWrongCode} />
           <Caption style={{ marginTop: 0 }}>Trade-in {state.session.caseRef}</Caption>
         </>
       }
     >
       <Headline>Testing your phone</Headline>
-      <Lead>Allow the camera, microphone and location when asked — then everything runs by itself.</Lead>
+      <Lead>Allow camera, mic and location — then it runs itself.</Lead>
       <Hero>
         <ChecklistArt width={120} ticked={1} />
         <ActivityIndicator color={P.primary} size="large" style={{ marginTop: 26 }} />
       </Hero>
-      <Caption>
-        Nothing personal is read. No photos, contacts, messages, accounts or location leave this phone — only the test results, the phone model and its storage size.
-      </Caption>
+      <Caption>{PRIVACY_LINE}</Caption>
     </Screen>
   );
 }

@@ -90,7 +90,7 @@ export function TouchTest(p: TestProps) {
   }, []);
 
   return (
-    <TestShell {...p} instructions="Drag your finger over the whole screen until every square is cleared." detail={{ cells: COLS * ROWS, cleared: COLS * ROWS - remaining, input }} bleed>
+    <TestShell {...p} instructions="Swipe until every square clears." detail={{ cells: COLS * ROWS, cleared: COLS * ROWS - remaining, input }} bleed>
       <View style={{ flex: 1 }}>
         <View style={s.hint}>
           <Text style={s.hintText}>{remaining === 0 ? "All clear ✓" : `${remaining} ${remaining === 1 ? "square" : "squares"} left`}</Text>

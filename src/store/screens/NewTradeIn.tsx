@@ -78,7 +78,7 @@ export function NewTradeIn({ api, onCancel, onCreated }: { api: StaffClient; onC
   async function create() {
     setError(null);
     if (!m.ok) {
-      setMobileErr("Enter a 10-digit mobile number, or leave it empty.");
+      setMobileErr("10 digits, or leave it empty.");
       return;
     }
     setMobileErr(null);
@@ -88,7 +88,7 @@ export function NewTradeIn({ api, onCancel, onCreated }: { api: StaffClient; onC
       if (name.trim()) body.customerName = name.trim();
       if (m.value) body.customerPhone = m.value;
       const r = await api.post<SessionLinks>("/api/test-sessions", body);
-      if (!r?.session?.id) throw new Error("The server didn't return a test session. Try again.");
+      if (!r?.session?.id) throw new Error("No test came back. Try again.");
       onCreated(r);
     } catch (e) {
       setError(errText(e));
@@ -107,10 +107,10 @@ export function NewTradeIn({ api, onCancel, onCreated }: { api: StaffClient; onC
         <ScrollView contentContainerStyle={{ padding: pad, alignItems: "center" }} keyboardShouldPersistTaps="handled">
           <View style={{ width: "100%", maxWidth: 560, gap: 16 }}>
             <H1>Who's trading in?</H1>
-            <Body muted>Start with the customer's mobile number — a returning customer's name fills in. Both are optional; you can start without them.</Body>
+            <Body muted>Both optional.</Body>
             <Card style={{ gap: 16 }}>
               <Field
-                label="Customer's mobile number"
+                label="Mobile number"
                 value={mobile}
                 onChangeText={(t) => {
                   setMobile(t);
@@ -125,17 +125,17 @@ export function NewTradeIn({ api, onCancel, onCreated }: { api: StaffClient; onC
                 error={mobileErr}
               />
 
-              {lookup.state === "busy" ? <Text style={{ color: L.muted, fontSize: 15 }}>Looking the number up…</Text> : null}
+              {lookup.state === "busy" ? <Text style={{ color: L.muted, fontSize: 15 }}>Looking up…</Text> : null}
               {found ? (
                 returning ? (
                   <Banner tone="up" title={`Returning customer · ${found.customer!.name}`}>
                     <View style={{ gap: 6 }}>
                       <Text style={{ fontSize: 16, color: L.text, lineHeight: 22 }}>
                         {history.length === 0
-                          ? "No earlier trade-ins on record."
+                          ? "No earlier trade-ins."
                           : history.length === 1
                             ? "1 earlier trade-in:"
-                            : `${history.length >= 10 ? "10 or more" : history.length} earlier trade-ins. The latest:`}
+                            : `${history.length >= 10 ? "10+" : history.length} earlier trade-ins · latest:`}
                       </Text>
                       {history[0] ? <Text style={{ fontSize: 16, color: L.ink, fontWeight: "700", lineHeight: 22 }}>{pastTradeInLine(history[0])}</Text> : null}
                     </View>
@@ -145,13 +145,13 @@ export function NewTradeIn({ api, onCancel, onCreated }: { api: StaffClient; onC
                     <Label>New customer</Label>
                     <Body muted>
                       {history.length
-                        ? `No name on record for this number, but it has ${history.length === 1 ? "1 earlier trade-in" : `${history.length} earlier trade-ins`} — latest ${pastTradeInLine(history[0])}.`
-                        : "This number hasn't traded in with you before."}
+                        ? `${history.length === 1 ? "1 earlier trade-in" : `${history.length} earlier trade-ins`} · latest ${pastTradeInLine(history[0])}`
+                        : "First trade-in."}
                     </Body>
                   </View>
                 )
               ) : null}
-              {lookup.state === "unavailable" && lookup.why ? <Text style={{ color: L.muted, fontSize: 15 }}>{`Couldn't look the number up (${lookup.why}). Type the name.`}</Text> : null}
+              {lookup.state === "unavailable" && lookup.why ? <Text style={{ color: L.muted, fontSize: 15 }}>{`Lookup failed (${lookup.why}).`}</Text> : null}
 
               <Field
                 label="Customer name"
@@ -163,10 +163,10 @@ export function NewTradeIn({ api, onCancel, onCreated }: { api: StaffClient; onC
                 onSubmitEditing={create}
                 editable={!busy}
                 placeholder="Optional"
-                hint={returning && name === found?.customer?.name ? "From their earlier trade-in — change it if it's wrong." : undefined}
+                hint={returning && name === found?.customer?.name ? "From their last trade-in." : undefined}
               />
               {error ? <Banner tone="bad" title="Couldn't start the trade-in">{error}</Banner> : null}
-              <Btn title="Start the trade-in" onPress={create} busy={busy} big />
+              <Btn title="Start" onPress={create} busy={busy} big />
               <Btn title="Back" kind="ghost" onPress={onCancel} disabled={busy} />
             </Card>
           </View>

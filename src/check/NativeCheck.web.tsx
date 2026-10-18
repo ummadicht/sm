@@ -15,3 +15,8 @@ export function NativeCheck(_props: {
 }): null {
   return null;
 }
+
+/** Native only (the browser's finish screen is ./screens.tsx DoneScreen). */
+export function NativeApplied(_props: { snap: Snapshot; onNewCheck: () => void }): null {
+  return null;
+}

@@ -17,11 +17,7 @@ export type QrMatrix = { size: number; dark: (row: number, col: number) => boole
 export type Poster = { storeName: string; code: string; joinUrl: string; qr: QrMatrix };
 
 export const POSTER_TITLE = "Check your phone for a trade-in";
-export const POSTER_STEPS = [
-  "Point your phone's camera at this code and tap the link.",
-  "Install SwapUp Check, or test in the browser (the way to test an iPhone).",
-  "Follow the steps on your phone. An advisor scans it, then confirms your price.",
-];
+export const POSTER_STEPS = ["Scan this code with your camera.", "Install SwapUp Check, or test in the browser.", "An advisor confirms your price."];
 /** Modules of white around the code: the QR standard asks for 4. */
 const QUIET = 4;
 

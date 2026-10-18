@@ -76,16 +76,14 @@ export function WebScreen({ url, title, onClose }: { url: string; title: string;
               },
             }}
           >
-            {`${failure} Check the Wi‑Fi, then try again. If it still fails, close this and tap the button again for a fresh link.`}
+            {`${failure} Check the Wi‑Fi.`}
           </Banner>
         </View>
       ) : null}
       {httpError ? (
         <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-          <Banner tone="warn" title={`The server answered with an error (${httpError})`}>
-            {httpError === 401 || httpError === 403 || httpError === 410
-              ? "The sign-in link may have expired — they last one minute. Close this and tap the button again."
-              : "Close this and try again. If it keeps happening, use the SwapUp desk on the web."}
+          <Banner tone="warn" title={`Server error (${httpError})`}>
+            {httpError === 401 || httpError === 403 || httpError === 410 ? "The link expired — close and tap again." : "Close this and try again."}
           </Banner>
         </View>
       ) : null}

@@ -43,17 +43,18 @@ export function BatteryScreen({ engine, state, onDone }: { engine: CheckEngine; 
       const r = await engine.sendBattery(shot.dataUrl);
       if (r.ok) {
         const a = readBatteryAnswer(r.body);
-        if (!a) setNote("The store's system sent an answer this app doesn't understand. Skip this step — the advisor can check the battery.");
+        if (!a) setNote("Unexpected answer — skip; the advisor checks the battery.");
         else setLast({ healthPct: a.healthPct });
       } else if (r.status === 404 || (r.status === 409 && /isn't available/i.test(r.message))) {
-        // No reader for this check (an older server, or camera grading off): not the customer skipping.
+        // No reader for this check (an older server, camera grading off, or its AI service out of
+        // credit — the server says "isn't available"): not the customer skipping, and not their screenshot.
         setUnavailable(true);
       } else if (r.status === 413) {
-        setNote("That picture is too big to send. Choose the screenshot itself, not a photo of it.");
+        setNote("Too big — choose the screenshot itself.");
       } else if (r.status === 0) {
-        setNote("Couldn't send it — check the Wi‑Fi, then try again.");
+        setNote("Not sent — check the Wi‑Fi.");
       } else if (r.status >= 500 || r.status === 429) {
-        setNote("The store's system is busy. Try again in a moment.");
+        setNote("Store busy — try again soon.");
       } else {
         setNote(r.message);
       }
@@ -69,7 +70,7 @@ export function BatteryScreen({ engine, state, onDone }: { engine: CheckEngine; 
     return (
       <Screen footer={<PillButton title="Continue" onPress={leave} />}>
         <Headline>Battery health</Headline>
-        <Lead>This store&apos;s system can&apos;t read battery screenshots yet — the advisor checks the battery instead.</Lead>
+        <Lead>Can&apos;t read screenshots now — the advisor checks the battery.</Lead>
         <Hero>
           <BatteryArt width={180} level={0.6} />
         </Hero>
@@ -84,7 +85,7 @@ export function BatteryScreen({ engine, state, onDone }: { engine: CheckEngine; 
           <>
             <PillButton title="Continue" onPress={leave} disabled={busy} />
             <PillButton
-              title={busy ? "Reading the screenshot…" : "Choose a different screenshot"}
+              title={busy ? "Reading…" : "Choose another"}
               kind="outline"
               arrow={false}
               onPress={() => void choose()}
@@ -93,7 +94,7 @@ export function BatteryScreen({ engine, state, onDone }: { engine: CheckEngine; 
           </>
         ) : (
           <>
-            <PillButton title={busy ? "Reading the screenshot…" : last ? "Choose another screenshot" : "Choose screenshot"} onPress={() => void choose()} busy={busy} />
+            <PillButton title={busy ? "Reading…" : last ? "Choose another" : "Choose screenshot"} onPress={() => void choose()} busy={busy} />
             <QuietLink title="Skip" onPress={leave} disabled={busy} />
           </>
         )
@@ -101,7 +102,7 @@ export function BatteryScreen({ engine, state, onDone }: { engine: CheckEngine; 
     >
       <Headline>Battery health</Headline>
       <Lead>
-        Open <Text style={s.strong}>{guide.path}</Text>. Take a screenshot of it, then choose it here.
+        Screenshot <Text style={s.strong}>{guide.path}</Text>, then choose it.
       </Lead>
       {guide.alt ? (
         <Caption center={false} style={{ marginTop: 8 }}>
@@ -109,7 +110,7 @@ export function BatteryScreen({ engine, state, onDone }: { engine: CheckEngine; 
         </Caption>
       ) : null}
       <Caption center={false} style={{ marginTop: 6 }}>
-        To take a screenshot: {guide.screenshot.charAt(0).toLowerCase() + guide.screenshot.slice(1)}
+        Screenshot: {guide.screenshot.charAt(0).toLowerCase() + guide.screenshot.slice(1)}
       </Caption>
       <Hero minHeight={150}>
         <BatteryArt width={190} level={read != null ? read / 100 : 0.62} />
@@ -124,7 +125,7 @@ export function BatteryScreen({ engine, state, onDone }: { engine: CheckEngine; 
       </Hero>
       {last && read == null ? <Notice tone="warn">Couldn&apos;t read it — try a clearer screenshot.</Notice> : null}
       {note ? <Notice tone="warn" style={{ marginTop: 12 }}>{note}</Notice> : null}
-      <Caption>Only the screenshot you choose is sent — nothing else on this phone.</Caption>
+      <Caption>Only this screenshot is sent.</Caption>
     </Screen>
   );
 }

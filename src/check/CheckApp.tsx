@@ -3,16 +3,18 @@
 // store's session and streams every result to the store through the persistent
 // outbox in ./engine.
 //
-// The phone leads, in GradeIQ v2's order (swapup docs/PHONE-LED-FLOW.md):
-// Identify › Scan › Test › Result.
-// Native (the APK): Identify, then the Scan QR for the advisor's tablet (the
-// camera photographs the phone and sweeps its screen), the battery screenshot,
-// then every test runs by itself (./NativeCheck.tsx, docs/AUTO-TESTS.md).
+// The phone leads, in three steps (owner, 2026-10-17: "Reduce the flow"): Scan › Test › Done.
+// Native (the APK): the Scan QR for the advisor's tablet (the camera photographs the phone and
+// sweeps its screen, one pass) — "Is this your phone?" first only when the store couldn't name
+// it exactly — then the battery screenshot (only when the store has no other reading of it;
+// skippable), then every test runs by itself (./NativeCheck.tsx, docs/AUTO-TESTS.md), then Done.
 //
 // The same code runs in a browser at /app/check/ (the join page's "Test in this
-// browser" link, and the only way to test an iPhone): welcome, then the same
-// Identify, Scan (no brightness control there) and battery steps, then the
-// interactive flow — damage questions, guided tests (./screens.tsx). There the
+// browser" link, and the only way to test an iPhone): welcome (consent), then the same
+// Identify (a phone not named exactly only), Scan (no brightness control there) and
+// battery steps, then the guided tests (./screens.tsx). No damage questions and no
+// "was the screen clean?": the camera checks the condition, and the advisor
+// certifies what it couldn't while this screen shows the colours. There the
 // code comes from ?code= in the page URL, progress lives in localStorage
 // (./files.web.ts) and the device facts come from the browser (./deviceInfo.web.ts).
 import "../shared/platform"; // browser shims (Alert, BackHandler) — a no-op on native
@@ -26,13 +28,15 @@ import { DEFAULT_SERVER, CLIENT_VERSION, IS_WEB } from "../shared/config";
 import { APPLIED_MESSAGE, CheckEngine, joinErrorMessage } from "./engine";
 import { fileStore, storageIsPersistent } from "./files";
 import { contractDevice } from "./deviceInfo";
-import { parseJoinTarget, phaseFor, resumeStep, type BatteryRec, type PairingRec } from "./core";
-import { DoneScreen, EndedScreen, JoinScreen, QuestionsScreen, RunnerScreen, WelcomeScreen, supportedPlan } from "./screens";
-import { NativeCheck } from "./NativeCheck";
+import { displayAfterScan, parseJoinTarget, phaseFor, resumeStep, type BatteryRec, type PairingRec } from "./core";
+import { DoneScreen, EndedScreen, JoinScreen, RunnerScreen, WelcomeScreen, supportedPlan } from "./screens";
+import { NativeApplied, NativeCheck } from "./NativeCheck";
 import { IdentifyScreen } from "./IdentifyScreen";
-import { PairingScreen } from "./PairingScreen";
+import { Pattern, PairingScreen } from "./PairingScreen";
+import { useResultColours } from "./ResultColours";
 import { BatteryScreen } from "./BatteryScreen";
 import { Railed } from "./StepRail";
+import { APPLIED_POLL_MS, donePollMs } from "./report";
 
 const EDGES = ["top", "left", "right", "bottom"] as const;
 
@@ -58,8 +62,7 @@ function NoStorageBar() {
   return (
     <View style={{ paddingVertical: 10, paddingHorizontal: 20, backgroundColor: P.warnBg }}>
       <Text style={{ color: "#8A4B00", fontSize: 14, lineHeight: 20, fontWeight: "600" }}>
-        This browser isn't saving your progress (private browsing or blocked site data). Keep this page open until you finish — results
-        already sent to the store are safe.
+        Progress isn't saved here — keep this page open.
       </Text>
     </View>
   );
@@ -224,7 +227,7 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
   // Tests the app cannot run here are reported as such — never silently missing.
   // Only once the tests are reached (Identify, Scan and the battery step come
   // first). Browser flow; the native flow does its own bookkeeping in NativeCheck.
-  const testing = step === "questions" || step === "runner" || step === "done";
+  const testing = step === "runner" || step === "done";
   useEffect(() => {
     if (!IS_WEB || !state || state.ended || !state.consentAt || !testing) return;
     for (const p of unsupported) if (!state.results[p.id]) void engine.record(p.id, "unsupported", { reason: "not available in this app" });
@@ -251,15 +254,18 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
     if (step === "done" && state && !state.completeAt) void engine.finish();
   }, [engine, step, state]);
 
-  // On the Done screen, ask the store every few seconds whether it has applied the results.
+  // On the Done screen, ask the store every few seconds whether it has applied the results —
+  // every 1.5 s while the advisor is checking the screen by eye.
   useEffect(() => {
     if (step !== "done") return;
     let t: ReturnType<typeof setTimeout>;
     let alive = true;
     const tick = async () => {
       const r = await engine.pollStatus();
-      if (!alive || r?.status === "applied") return;
-      t = setTimeout(tick, 4000);
+      // Ended (cancelled, expired): nothing more to read. Applied: on, slowly — a newer report
+      // version moves the grade its link already opens (./report.ts donePollMs).
+      if (!alive || engine.getSnapshot().state?.ended) return;
+      t = setTimeout(tick, donePollMs(r));
     };
     void tick();
     return () => {
@@ -267,6 +273,20 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
       clearTimeout(t);
     };
   }, [engine, step]);
+
+  // Ended because the store applied the results: read the status now when it isn't in memory
+  // (the app was restarted on that screen), then again every 15 s while the screen is open — a
+  // newer report version moves the grade its link already opens.
+  const endedApplied = state?.ended === APPLIED_MESSAGE;
+  const haveRemote = !!snap.remote;
+  useEffect(() => {
+    if (endedApplied && !haveRemote) void engine.readAppliedStatus();
+  }, [engine, endedApplied, haveRemote]);
+  useEffect(() => {
+    if (!endedApplied) return;
+    const t = setInterval(() => void engine.readAppliedStatus({ again: true }), APPLIED_POLL_MS);
+    return () => clearInterval(t);
+  }, [engine, endedApplied]);
 
   // Android back: never drop out of a running test by accident (the runner has its own Pause).
   useEffect(() => {
@@ -279,6 +299,21 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
     void engine.finish();
   }, [engine, rerun]);
 
+  // The browser's scan is over: as natively, `display` is "not tested" with the reason when
+  // the camera didn't run — the camera's sweep or the advisor's certification decide it.
+  const scanDone = useCallback(
+    async (r: Omit<PairingRec, "at">) => {
+      await engine.setPairing({ ...r, at: new Date().toISOString() });
+      const cur = engine.getSnapshot().state;
+      const d = cur ? displayAfterScan(r, cur.session.plan.map((p) => p.id), cur.results) : null;
+      if (d) await engine.record("display", "skip", d);
+    },
+    [engine]
+  );
+
+  // The result screen's colours (browser): a camera page that comes back, or the advisor's check by eye.
+  const colours = useResultColours(engine, snap, IS_WEB && step === "done" && !paused && snap.remote?.status !== "applied", onBleed);
+
   if (!snap.ready) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: P.bg }}>
@@ -287,7 +322,20 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
     );
   }
 
-  if (state?.ended) return <EndedScreen message={state.ended} applied={state.ended === APPLIED_MESSAGE} onNew={() => void engine.forget()} />;
+  if (state?.ended) {
+    // Applied is a finish: the same Done screen as when it happens live (it reads the grade
+    // and the report link from snap.remote once readAppliedStatus has it). Anything else ended the check.
+    if (state.ended === APPLIED_MESSAGE) {
+      return IS_WEB ? (
+        <Railed at="done">
+          <DoneScreen snap={snap} onRerun={() => {}} onNewCheck={() => void engine.forget()} />
+        </Railed>
+      ) : (
+        <NativeApplied snap={snap} onNewCheck={() => void engine.forget()} />
+      );
+    }
+    return <EndedScreen message={state.ended} onNew={() => void engine.forget()} />;
+  }
 
   if (!state || paused) {
     if (state && paused) {
@@ -325,38 +373,23 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
   switch (step) {
     case "welcome":
       return (
-        <Railed at="identify">
+        <Railed at="scan">
           <WelcomeScreen state={state} onConsent={() => void engine.consent()} onLeave={() => void engine.forget()} />
         </Railed>
       );
     case "identify":
       return (
-        <Railed at="identify">
+        <Railed at="scan">
           <IdentifyScreen engine={engine} state={state} onDone={(a) => void engine.identify(a)} onWrongCode={() => void engine.forget()} />
         </Railed>
       );
     case "scan":
-      // A browser shows the camera's patterns too; skipped or not, the display
-      // test below still runs here, so nothing is recorded for it on a skip.
-      return (
-        <PairingScreen
-          key={state.session.id}
-          engine={engine}
-          state={state}
-          onBleed={onBleed}
-          onDone={(r: Omit<PairingRec, "at">) => void engine.setPairing({ ...r, at: new Date().toISOString() })}
-        />
-      );
+      // A browser shows the camera's patterns too (it can't set the brightness; it says so).
+      return <PairingScreen key={state.session.id} engine={engine} state={state} onBleed={onBleed} onDone={(r: Omit<PairingRec, "at">) => void scanDone(r)} />;
     case "battery":
       return (
         <Railed at="test">
           <BatteryScreen engine={engine} state={state} onDone={(b: Omit<BatteryRec, "at">) => void engine.setBattery({ ...b, at: new Date().toISOString() })} />
-        </Railed>
-      );
-    case "questions":
-      return (
-        <Railed at="test">
-          <QuestionsScreen initial={state.declared} askImei={!state.identifiedAt} onDone={(d) => void engine.declare(d)} />
         </Railed>
       );
     case "runner":
@@ -373,8 +406,9 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
       );
     case "done":
     default:
+      if (colours) return <Pattern name={colours.name} caption={colours.caption} />;
       return (
-        <Railed at="result">
+        <Railed at="done">
           <DoneScreen
             snap={snap}
             onRerun={(ids) => setRerun(ids)}

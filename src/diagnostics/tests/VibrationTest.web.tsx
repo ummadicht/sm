@@ -40,12 +40,12 @@ export function VibrationTest(p: TestProps) {
     );
   }
   return (
-    <TestShell {...p} instructions="Hold the phone loosely and tap Buzz. You should feel two strong pulses. Weak, rattling or no vibration is a fail." hideManual detail={detail}>
+    <TestShell {...p} instructions="Hold it loosely and tap Buzz." hideManual detail={detail}>
       <View style={s.wrap}>
         <BigEmoji>📳</BigEmoji>
         <Big title={tries ? "Buzz again" : "Buzz"} onPress={buzz} />
         {tries > 0 && accepted === 0 ? (
-          <Say muted center style={{ fontSize: 15 }}>The browser didn't start the vibration. Tap Buzz again.</Say>
+          <Say muted center style={{ fontSize: 15 }}>No buzz started — tap Buzz again.</Say>
         ) : null}
         {accepted > 0 ? (
           <>

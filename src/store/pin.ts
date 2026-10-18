@@ -19,12 +19,12 @@ export function pinProblem(pin: unknown): string | null {
   const d = Array.from(pin, Number);
   const step = d[1] - d[0];
   const guessable = Math.abs(step) <= 1 && d.every((x, i) => i === 0 || x - d[i - 1] === step);
-  return guessable ? "Pick a PIN that isn't a run or one repeated digit." : null;
+  return guessable ? "Not a run or one repeated digit." : null;
 }
 
 /** The "Set your PIN" / "Change my PIN" forms: a good PIN, typed the same way twice. */
 export function newPinProblem(pin: string, repeat: string): string | null {
-  return pinProblem(pin) ?? (pin === repeat ? null : "The two PINs don't match. Type the same PIN twice.");
+  return pinProblem(pin) ?? (pin === repeat ? null : "The PINs don't match.");
 }
 
 /** What a PIN box accepts while typing: digits only, at most four (a pasted "12 34" becomes "1234"). */
@@ -54,5 +54,5 @@ export function firstName(name: string): string {
 /** The name a manager gives the tablet ("Counter tablet 1"): 2–40 characters after trimming — the server's sentence. */
 export function deviceNameProblem(name: unknown): string | null {
   const n = typeof name === "string" ? name.trim() : "";
-  return n.length < 2 || n.length > 40 ? "Give the tablet a name of 2 to 40 characters, like “Counter tablet 1”." : null;
+  return n.length < 2 || n.length > 40 ? "Name: 2–40 characters." : null;
 }

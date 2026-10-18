@@ -235,17 +235,28 @@ export function Toggle({ label, value, onValueChange, hint }: { label: string; v
 }
 
 /** A row of choices (segmented control) — pills; the chosen one is outlined in black. */
-export function Segmented<T extends string>({ options, value, onChange }: { options: { value: T; label: string }[]; value: T; onChange: (v: T) => void }) {
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+  disabled = false,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+  disabled?: boolean;
+}) {
   return (
-    <View style={s.seg}>
+    <View style={[s.seg, disabled && { opacity: 0.45 }]}>
       {options.map((o) => {
         const on = o.value === value;
         return (
           <Pressable
             key={o.value}
             onPress={() => onChange(o.value)}
+            disabled={disabled}
             accessibilityRole="button"
-            accessibilityState={{ selected: on }}
+            accessibilityState={{ selected: on, disabled }}
             style={[s.segItem, on && { backgroundColor: L.surface, borderColor: L.ink }]}
           >
             <Text style={[s.segText, on && { color: L.ink }]}>{o.label}</Text>
@@ -311,6 +322,28 @@ export function Columns({ wide, children, gap = 16 }: { wide: boolean; children:
   );
 }
 
+/**
+ * "Show details ›" — the explanations a screen leaves out, closed by default (owner, 2026-10-17:
+ * "reduce the words": one headline, one sentence, the rest behind this).
+ */
+export function Details({ children, title = "Show details" }: { children: React.ReactNode; title?: string }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <View style={{ gap: 8 }}>
+      <Pressable
+        onPress={() => setOpen((x) => !x)}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        style={({ pressed }) => ({ alignSelf: "flex-start", paddingVertical: 4, opacity: pressed ? 0.6 : 1 })}
+      >
+        <Text style={{ color: L.primary, fontSize: 15, lineHeight: 20, fontWeight: "600" }}>{open ? "Hide details" : `${title} ›`}</Text>
+      </Pressable>
+      {open ? children : null}
+    </View>
+  );
+}
+
 export function KV({ label, value, tone }: { label: string; value: React.ReactNode; tone?: Tone }) {
   return (
     <View style={s.kv}>
@@ -361,8 +394,8 @@ export const STATUS: Record<SessionStatus, { label: string; tone: Tone }> = {
   opened: { label: "Page opened", tone: "fix" },
   joined: { label: "App connected", tone: "fix" },
   testing: { label: "Testing", tone: "fix" },
-  complete: { label: "Done · ready to apply", tone: "up" },
-  applied: { label: "Applied to case", tone: "up" },
+  complete: { label: "Tests done", tone: "up" },
+  applied: { label: "On the case", tone: "up" },
   expired: { label: "Expired", tone: "warn" },
   cancelled: { label: "Cancelled", tone: "muted" },
 };

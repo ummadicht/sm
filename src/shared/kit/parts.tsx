@@ -40,16 +40,24 @@ function Check({ color }: { color: string }) {
   );
 }
 
-/** One choice in a list (brand, model, storage). */
-export function Option({ title, selected, onPress }: { title: string; selected: boolean; onPress: () => void }) {
+/** One choice in a list (brand, model, storage). `hint`: a quiet line under the title (what a confirm covers). */
+export function Option({ title, hint, selected, onPress }: { title: string; hint?: string; selected: boolean; onPress: () => void }) {
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityState={{ selected }}
-      style={({ pressed }) => [s.option, selected && s.optionOn, pressed && { backgroundColor: P.surface2 }]}
+      accessibilityHint={hint}
+      style={({ pressed }) => [s.option, selected && s.optionOn, pressed && { backgroundColor: P.surface2 }, hint ? { paddingVertical: 12 } : null]}
     >
-      <Text style={s.optionText}>{title}</Text>
+      {hint ? (
+        <View style={{ flex: 1, gap: 4 }}>
+          <Text style={[s.optionText, { flex: 0 }]}>{title}</Text>
+          <Text style={{ color: P.muted, fontSize: 14, lineHeight: 20 }}>{hint}</Text>
+        </View>
+      ) : (
+        <Text style={s.optionText}>{title}</Text>
+      )}
       {selected ? <Check color={P.primary} /> : null}
     </Pressable>
   );

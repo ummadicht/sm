@@ -1,8 +1,9 @@
 // SwapUp Store — the staff app at the service-centre counter.
 //
 // Navigation is a small state machine (no router): boot → sign in → home ⇄
-// new trade-in / session → the answer → take the trade-in / settings / web desk
-// (the answer and the lock form carry the screen their Back returns to). The
+// 1 new trade-in → 2–3 the session (connect, one camera pass) → 4 the answer, which opens by
+// itself once the results are on the case (its Back goes Home) → 5 take the trade-in /
+// settings / web desk (the answer and the lock form carry the screen their Back returns to). The
 // staff token lives in the OS keystore (expo-secure-store) and is checked
 // against GET /api/me on launch; any 401 anywhere sends the app back to sign-in.
 //
@@ -58,10 +59,10 @@ type Phase =
   | { kind: "tablet"; notice?: string }
   | { kind: "in"; auth: Auth };
 
-const ENDED = "Your sign-in has ended — they last 12 hours. Sign in again.";
-const TABLET_ENDED = "That sign-in ended. Tap your name to carry on.";
-const TABLET_IDLE = "Locked after 15 minutes without a touch. Tap your name to carry on.";
-const TABLET_STOPPED = "This device is no longer the store tablet. Sign in with your username and password.";
+const ENDED = "Signed out after 12 hours. Sign in again.";
+const TABLET_ENDED = "Signed out. Tap your name.";
+const TABLET_IDLE = "Locked after 15 idle minutes. Tap your name.";
+const TABLET_STOPPED = "No longer the store tablet. Sign in again.";
 /** How often the idle clock is looked at. The clock itself is the time of the last touch. */
 const IDLE_CHECK_MS = 15_000;
 
@@ -76,7 +77,7 @@ function readUser(x: unknown): StaffUser | null {
 /** GET /api/tablet with the device token. */
 async function fetchTabletView(t: Tablet): Promise<TabletView> {
   const view = readTabletView(await createClient(t.server, { kind: "device", token: t.token }).get<unknown>("/api/tablet"));
-  if (!view) throw new ApiError(500, "The server's answer about this tablet didn't make sense.");
+  if (!view) throw new ApiError(500, "Bad answer from the server.");
   return view;
 }
 
@@ -262,7 +263,7 @@ function Root() {
     try {
       const me = await createClient(base, { kind: "bearer", token: saved.token }).get<unknown>("/api/me");
       const user = readUser(me);
-      if (!user) throw new ApiError(500, "The server's answer about your account didn't make sense.");
+      if (!user) throw new ApiError(500, "Bad answer from the server.");
       const problem = staffProblem(user);
       if (problem) {
         await clearToken();
@@ -344,7 +345,7 @@ function Root() {
     setPhase({ kind: "signin" });
   }
 
-  /** Settings → "Use this device as the store tablet": the manager's own saved sign-in goes, the names come up. */
+  /** Settings → "Make store tablet": the manager's own saved sign-in goes, the names come up. */
   async function becomeTablet(res: StoreDeviceCreated) {
     if (!auth) return;
     const info: DeviceInfo = { deviceId: res.device.id, deviceName: res.device.name, storeName: res.store.name };
@@ -447,7 +448,7 @@ function Root() {
           initialServer={server}
           initialInvite={invite}
           notice={phase.kind === "signin" ? phase.notice : undefined}
-          onBack={tablet ? { label: "‹ Back to Who's serving?", onPress: () => lock() } : undefined}
+          onBack={tablet ? { label: "‹ Who's serving?", onPress: () => lock() } : undefined}
           onSignedIn={(base, res) => {
             setInvite(undefined);
             return signedIn(base, res);
@@ -485,8 +486,8 @@ function Root() {
               links.current.set(id, l);
               setScreen({ name: "session", id, links: l });
             }}
-            onOpenWeb={openWeb({ name: "session", id: screen.id })}
-            onOffer={(caseId, ref) => setScreen({ name: "offer", caseId, ref, back: { name: "session", id: screen.id } })}
+            // The answer opens by itself once the results are on the case; its Back goes Home.
+            onOffer={(caseId, ref) => setScreen({ name: "offer", caseId, ref, back: { name: "home" } })}
           />
         );
       case "offer":
@@ -584,16 +585,12 @@ function Offline({
       <View style={{ width: "100%", maxWidth: 520, gap: 16 }}>
         <Brand />
         <H1>Can't reach SwapUp</H1>
-        <Banner tone="bad" title={tablet ? "The store tablet couldn't check in" : "Your sign-in couldn't be checked"}>
-          {`${message} (Trying ${server}.)`}
+        <Banner tone="bad" title={tablet ? "Tablet couldn't check in" : "Sign-in not checked"}>
+          {`${message} (${server})`}
         </Banner>
-        <Body muted>
-          {tablet
-            ? `This is still ${tablet.storeName ? `${tablet.storeName}'s` : "the store's"} tablet. Check the Wi‑Fi or mobile data, then try again.`
-            : "You're still signed in on this tablet. Check the Wi‑Fi or mobile data, then try again."}
-        </Body>
+        <Body muted>{tablet ? "Still the store tablet — check the Wi‑Fi." : "Still signed in — check the Wi‑Fi."}</Body>
         <Btn title="Try again" onPress={onRetry} big />
-        <Btn title={tablet ? "Sign in with username and password" : "Sign in again (or change server)"} kind="ghost" onPress={onSignIn} />
+        <Btn title="Sign in again" kind="ghost" onPress={onSignIn} />
       </View>
     </View>
   );

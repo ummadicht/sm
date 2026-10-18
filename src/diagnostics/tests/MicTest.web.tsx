@@ -115,7 +115,7 @@ export function MicTest(p: TestProps) {
 
   const level = db == null ? 0 : Math.max(0, Math.min(1, (db + 60) / 60));
   return (
-    <TestShell {...p} instructions="Blow (or speak loudly) into the bottom microphone until all five candles go out." detail={detail}>
+    <TestShell {...p} instructions="Blow into the bottom mic to put out the candles." detail={detail}>
       <View style={s.wrap}>
         <View style={s.candles}>
           {Array.from({ length: CANDLES }).map((_, i) => (
@@ -129,18 +129,18 @@ export function MicTest(p: TestProps) {
           </>
         ) : perm === "denied" ? (
           <>
-            <Say center>The microphone was blocked. Allow it for this page (tap the lock or ⓘ next to the address), then try again — or skip.</Say>
+            <Say center>Mic blocked — allow it (lock or ⓘ by the address), or skip.</Say>
             <Big title="Try again" onPress={start} />
           </>
         ) : perm === "missing" || perm === "error" ? (
           <>
-            <Say center>{perm === "missing" ? "Your browser found no microphone on this phone." : "The microphone wouldn't start."} If the test still can't hear you, press Fail.</Say>
+            <Say center>{perm === "missing" ? "No microphone found." : "The microphone wouldn't start."}</Say>
             <Big title="Try again" onPress={start} />
           </>
         ) : (
           <>
-            <Say center>Your phone will ask to use the microphone. Tap Allow.</Say>
-            <Big title={perm === "asking" ? "Starting…" : "Start the microphone"} onPress={start} busy={perm === "asking"} />
+            <Say center>When asked, tap Allow.</Say>
+            <Big title={perm === "asking" ? "Starting…" : "Start the mic"} onPress={start} busy={perm === "asking"} />
           </>
         )}
       </View>

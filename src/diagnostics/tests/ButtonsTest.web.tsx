@@ -59,7 +59,7 @@ export function ButtonsTest(p: TestProps) {
   return (
     <TestShell
       {...p}
-      instructions="Press each button on the side of the phone and tick it when the phone reacts — the volume bar shows, the screen locks (unlock it and come back). All ticked = pass."
+      instructions="Press each side button; tick it when the phone reacts."
       detail={detail}
       autoVerdict={all ? "pass" : null}
     >
@@ -70,7 +70,7 @@ export function ButtonsTest(p: TestProps) {
             <Text style={s.label}>{b}</Text>
           </Pressable>
         ))}
-        <Text style={s.note}>Your browser can't see these buttons itself, so you tick them. Locking the screen ticks itself.</Text>
+        <Text style={s.note}>Locking the screen ticks itself.</Text>
       </View>
     </TestShell>
   );

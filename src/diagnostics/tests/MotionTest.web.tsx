@@ -146,9 +146,9 @@ export function MotionTest(p: TestProps) {
   }
   if (phase === "tap" || phase === "denied") {
     return (
-      <TestShell {...p} instructions="Tilt the phone to roll the ball into the ring and hold it there." hideManual detail={{ ...detail, permission: phase === "denied" ? "denied" : "not-asked" }}>
+      <TestShell {...p} instructions="Tilt to roll the ball into the ring." hideManual detail={{ ...detail, permission: phase === "denied" ? "denied" : "not-asked" }}>
         <View style={s.wrap}>
-          {phase === "denied" ? <Say center>{MOTION_DENIED()}</Say> : <Say center>Tap Start. If your phone asks to use motion, tap Allow.</Say>}
+          {phase === "denied" ? <Say center>{MOTION_DENIED()}</Say> : <Say center>Tap Start, then Allow if asked.</Say>}
           <Big title={phase === "denied" ? "Ask again" : "Start"} onPress={ask} />
         </View>
       </TestShell>
@@ -156,7 +156,7 @@ export function MotionTest(p: TestProps) {
   }
 
   return (
-    <TestShell {...p} instructions="Tilt the phone to roll the ball into the ring and hold it there." detail={detail}>
+    <TestShell {...p} instructions="Tilt to roll the ball into the ring." detail={detail}>
       <View ref={arenaRef} style={s.arena} onLayout={(e) => setArea({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
         {area.w > 0 && (
           <>

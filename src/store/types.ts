@@ -106,6 +106,12 @@ export type TestSessionView = {
   imeiAgreement?: "match" | "differs" | "unknown" | null;
   /** GradeIQ camera step (MOBILE-API.md, "grading"). Read it only through ./grading.ts readGrading(). */
   grading?: unknown;
+  /**
+   * "Check the phone": the rows the advisor certifies (what the camera couldn't decide), the
+   * taps so far and whether the customer's phone is showing the test colours. Absent from an
+   * older server. Read it only through ./certify.ts readCertify().
+   */
+  certify?: unknown;
 };
 
 export type WifiSecurity = "WPA" | "WEP" | "nopass";

@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Alert, KeyboardAvoidingView, ScrollView, Text, View } from "react-native";
 import { APP_VERSION, DEFAULT_SERVER, IS_WEB } from "../../shared/config";
 import { StaffClient, errText } from "../staffClient";
+import { TEST_PROGRAMME, programmeBanner } from "../programme";
 import type { StaffUser, StoreDeviceCreated, WifiResponse } from "../types";
 import { Banner, Body, Btn, Card, Chip, Columns, H2, KV, Label, TopBar, useLayout, L } from "../ui";
 import { WifiForm, WifiInfo } from "./SessionParts";
@@ -70,8 +71,8 @@ export function Settings({
   }, [loadWifi]);
 
   function confirmSignOut() {
-    Alert.alert("Sign out of SwapUp Store?", "Open tests keep running on the server. You'll need your username and password to come back.", [
-      { text: "Stay signed in", style: "cancel" },
+    Alert.alert("Sign out?", "Open tests keep running.", [
+      { text: "Stay", style: "cancel" },
       { text: "Sign out", style: "destructive", onPress: onSignOut },
     ]);
   }
@@ -88,15 +89,15 @@ export function Settings({
         {user.org ? <KV label="Programme" value={user.org.name} /> : null}
         {until && !tablet ? <KV label="Sign-in lasts until" value={until} /> : null}
       </View>
-      {user.org?.demo ? <Chip text="Demo programme — sample data" tone="warn" /> : null}
+      {programmeBanner(user.org) ? <Chip text={TEST_PROGRAMME} tone="warn" /> : null}
       {tablet ? (
         <>
-          <Body muted>This is the store tablet. It goes back to “Who's serving?” when you tap Switch, and after 15 minutes without a touch.</Body>
+          <Body muted>Locks after 15 idle minutes.</Body>
           <Btn title="Switch person" kind="secondary" onPress={onSignOut} />
         </>
       ) : (
         <>
-          <Body muted>Sign-ins last 12 hours. After that the app asks for your password again.</Body>
+          <Body muted>Sign-ins last 12 hours.</Body>
           <Btn title="Sign out" kind="danger" onPress={confirmSignOut} />
         </>
       )}
@@ -111,15 +112,14 @@ export function Settings({
         <KV label="Store code" value={store.code || "—"} />
         <KV label="City" value={store.city || "—"} />
       </View>
-      <Body muted>Every trade-in you start goes on this store's cases and credit line.</Body>
+
     </Card>
   );
 
   const wifiCard = (
     <Card>
-      <H2>Store Wi‑Fi for customers</H2>
-      <Body muted>The network in the “Join our Wi‑Fi” QR code. Customers on mobile data don't need it.</Body>
-      {saved ? <Banner tone="up" title="Saved. New QR codes use it straight away." /> : null}
+      <H2>Customer Wi‑Fi</H2>
+      {saved ? <Banner tone="up" title="Saved — new QR codes use it." /> : null}
       {editing || (wifi === null && canEditWifi) ? (
         <WifiForm
           api={api}
@@ -142,7 +142,7 @@ export function Settings({
         )
       ) : wifi === null ? (
         <Banner tone="muted" title="No store Wi‑Fi saved">
-          Ask your manager to add the store Wi‑Fi in the app.
+          A manager can add it.
         </Banner>
       ) : (
         <View>
@@ -161,7 +161,7 @@ export function Settings({
             />
           ) : (
             <Body muted style={{ marginTop: 8 }}>
-              Only a store manager can change it.
+              Managers only.
             </Body>
           )}
         </View>
@@ -176,16 +176,16 @@ export function Settings({
         {api.base}
       </Text>
       {IS_WEB ? (
-        <Body muted>This page always uses the SwapUp server it was opened from.</Body>
+        <Body muted>Uses the server it was opened from.</Body>
       ) : tablet ? (
         // No "sign out" on the store tablet: it belongs to this server until a manager stops using it as the tablet.
-        <Body muted>This store tablet is set up on this server. To use another one, a manager stops using it as the store tablet first.</Body>
+        <Body muted>The store tablet stays on this server.</Body>
       ) : api.base !== DEFAULT_SERVER ? (
         <Banner tone="warn" title="Not the normal server">
-          {`This tablet is using a test server. The normal one is ${DEFAULT_SERVER}. To switch, sign out and open Advanced on the sign-in screen.`}
+          {`Normal: ${DEFAULT_SERVER} — sign out, then Advanced.`}
         </Banner>
       ) : (
-        <Body muted>To use a different server, sign out and open Advanced on the sign-in screen.</Body>
+        <Body muted>To change it: sign out, then Advanced.</Body>
       )}
       <KV label="App" value={IS_WEB ? `SwapUp Store in the browser v${APP_VERSION}` : `SwapUp Store v${APP_VERSION}`} />
     </Card>

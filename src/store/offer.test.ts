@@ -5,8 +5,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const O: typeof import("./offer") = await import("./offer" + ".ts");
+const B: typeof import("./buySell") = await import("./buySell" + ".ts");
+const G: typeof import("../shared/nameGuard") = await import("../shared/nameGuard" + ".ts");
 
-const SAMPLE = "Sample price — not a real quote.";
+/** The server's note on a PriceIQ trade-in whose data is stale (~/projects/swapup lib/domain/marketSell.ts), shown as sent. */
+const STALE_NOTE = "Refurbished market price, week 2026-W35, 52 days old.";
+/** The server's one note under the storage chips — the same sentence, from the chips' PriceIQ quotes. */
+const CHIP_NOTE = STALE_NOTE;
 const TAP_STORAGE = "Tap the storage to see the trade-in.";
 const STORAGE_TEXT = "The phone couldn't measure its storage. Settings › About phone › Storage shows it.";
 
@@ -16,7 +21,7 @@ const signals = [
   { text: "Upgrading adds only ₹16,000 over the repair.", points: "upgrade", strength: "soft" },
 ];
 
-/** Spec §3.4 after PATCH {variant:"256GB"}: org_samsung_svc, sample card, S23 Ultra, screen_cracked. */
+/** Spec §3.4 after PATCH {variant:"256GB"}: org_samsung_svc, PriceIQ trade-in, S23 Ultra, screen_cracked. */
 function priced(over: Record<string, unknown> = {}) {
   return {
     open: true,
@@ -29,7 +34,7 @@ function priced(over: Record<string, unknown> = {}) {
     repair: { amount: 34096, covered: false, basis: "book", detail: "Display + labour + GST", why: null, nothingToRepair: false, coverage: "none" },
     swap: {
       tradeIn: 18800,
-      tradeInNote: SAMPLE,
+      tradeInNote: STALE_NOTE,
       bonus: 6199,
       bonusBp: 400,
       bonusWhy: null,
@@ -58,10 +63,10 @@ function storageUnknown() {
         title: "Which storage is it?",
         text: STORAGE_TEXT,
         options: [
-          { variant: "256GB", tradeIn: 18800, sample: true },
-          { variant: "512GB", tradeIn: 20300, sample: true },
+          { variant: "256GB", tradeIn: 18800 },
+          { variant: "512GB", tradeIn: 20300 },
         ],
-        note: SAMPLE,
+        note: CHIP_NOTE,
       },
     ],
     storage: { variant: null, source: null, note: null },
@@ -91,7 +96,7 @@ test("readOffer: the §3.4 answer reads whole", () => {
   assert.equal(o.swap.bonus, 6199);
   assert.equal(o.swap.total, 24999);
   assert.equal(o.swap.total, (o.swap.tradeIn ?? 0) + (o.swap.bonus ?? 0));
-  assert.equal(o.swap.tradeInNote, SAMPLE);
+  assert.equal(o.swap.tradeInNote, STALE_NOTE);
   assert.deepEqual(o.swap.newPhone, { deviceId: "nd_s26u_256", label: "Galaxy S26 Ultra 256GB", price: 154999, suggested: true, why: "Newest Galaxy S Ultra, same storage (256GB)." });
   assert.equal(o.swap.customerPays, 130000);
   assert.equal(o.swap.customerPays, 154999 - 18800 - 6199);
@@ -99,6 +104,10 @@ test("readOffer: the §3.4 answer reads whole", () => {
   assert.deepEqual(o.actions, { repair: null, swap: null, walkAway: null });
   assert.equal(o.signals.length, 3);
   assert.deepEqual(o.caveats, ["The bonus is never a reason to upgrade."]);
+  assert.equal(o.safety, null);
+  // A swollen battery's warning is the answer's own line, in the open.
+  const swollen = read(priced({ safety: "Swollen battery is a safety risk — stop using and charging it." }));
+  assert.equal(swollen.safety, "Swollen battery is a safety risk — stop using and charging it.");
 });
 
 test("readOffer: storage unknown keeps the ask, its chips in the server's order, and the why", () => {
@@ -110,11 +119,11 @@ test("readOffer: storage unknown keeps the ask, its chips in the server's order,
   assert.equal(a.kind, "storage");
   assert.ok(a.kind === "storage");
   assert.deepEqual(a.options, [
-    { variant: "256GB", tradeIn: 18800, sample: true },
-    { variant: "512GB", tradeIn: 20300, sample: true },
+    { variant: "256GB", tradeIn: 18800 },
+    { variant: "512GB", tradeIn: 20300 },
   ]);
-  // The SAMPLE rate card's chips carry the server's note, shown under them before any tap.
-  assert.equal(a.note, SAMPLE);
+  // The chips carry the server's note, shown under them before any tap.
+  assert.equal(a.note, CHIP_NOTE);
   assert.equal(o.swap.tradeIn, null);
   assert.equal(o.swap.total, null);
   assert.equal(o.swap.why, TAP_STORAGE);
@@ -143,7 +152,7 @@ test("readOffer: bad fields become null or empty", () => {
   assert.equal(o.open, false);
   assert.equal(o.recommendation, null);
   assert.equal(o.recommended, null);
-  assert.deepEqual(o.asks, [{ kind: "storage", title: "Which storage is it?", text: STORAGE_TEXT, options: [{ variant: "128GB", tradeIn: null, sample: false }], note: null }]);
+  assert.deepEqual(o.asks, [{ kind: "storage", title: "Which storage is it?", text: STORAGE_TEXT, options: [{ variant: "128GB", tradeIn: null }], note: null }]);
   assert.deepEqual(o.storage, { variant: null, source: null, note: null });
   assert.deepEqual(o.repair, { amount: null, covered: false, basis: null, detail: null, why: null, nothingToRepair: false, coverage: "none" });
   assert.equal(o.swap.tradeIn, null);
@@ -178,29 +187,28 @@ test("readOffer: customer-typed storage carries its note", () => {
   assert.deepEqual(o.storage, { variant: "512GB", source: "customer", note });
 });
 
-test("readOffer: the storage ask's sample flag and note — only what the server says", () => {
+test("readOffer: the storage chips are a size and its price; the note is only what the server says", () => {
   const ask = (options: unknown[], note?: unknown) => {
     const a = read(priced({ asks: [{ kind: "storage", title: "Which storage is it?", text: STORAGE_TEXT, options, ...(note === undefined ? {} : { note }) }] })).asks[0];
     assert.ok(a.kind === "storage");
     return a;
   };
-  // Sizes from the model's list with no quote yet: no price, never a sample, no note.
-  const bare = ask([{ variant: "256GB", tradeIn: null, sample: false }, { variant: "512GB", tradeIn: null, sample: false }], null);
-  assert.deepEqual(bare.options.map((x) => x.sample), [false, false]);
+  // Sizes from the model's list with no quote yet: no price, no note.
+  const bare = ask([{ variant: "256GB", tradeIn: null }, { variant: "512GB", tradeIn: null }], null);
+  assert.deepEqual(bare.options, [{ variant: "256GB", tradeIn: null }, { variant: "512GB", tradeIn: null }]);
   assert.equal(bare.note, null);
-  // A real rate card: priced, not sample, no note.
-  assert.equal(ask([{ variant: "256GB", tradeIn: 18800, sample: false }], null).note, null);
-  // An older server sends neither: read as not-sample with no note — the app never writes the note itself.
-  const old = ask([{ variant: "256GB", tradeIn: 18800 }]);
-  assert.deepEqual(old.options, [{ variant: "256GB", tradeIn: 18800, sample: false }]);
-  assert.equal(old.note, null);
-  // Only an explicit true is a sample; a blank note is none.
-  assert.deepEqual(ask([{ variant: "256GB", tradeIn: 18800, sample: "yes" }], "  ").options[0].sample, false);
-  assert.equal(ask([{ variant: "256GB", tradeIn: 18800, sample: true }], "  ").note, null);
+  // A priced chip with no note: none is added — the app never writes the note itself.
+  assert.equal(ask([{ variant: "256GB", tradeIn: 18800 }]).note, null);
+  // The server's note is read as sent; a blank one is none.
+  assert.equal(ask([{ variant: "256GB", tradeIn: 18800 }], CHIP_NOTE).note, CHIP_NOTE);
+  assert.equal(ask([{ variant: "256GB", tradeIn: 18800 }], "  ").note, null);
+  // An older server's extra flag on a chip (its placeholder-card marker) is accepted and dropped: a chip is only its size and price.
+  const old = ask([{ variant: "256GB", tradeIn: 18800, sample: true }, { variant: "512GB", tradeIn: null, sample: false }]);
+  assert.deepEqual(old.options, [{ variant: "256GB", tradeIn: 18800 }, { variant: "512GB", tradeIn: null }]);
 });
 
 test("readOffer: a phone that measured a size not on file — the server's words, not 'couldn't measure', and no chip", () => {
-  const text = "The phone measures 1TB, which isn't a size on file. Check Settings › About phone, and enter the Cashify quote on the full case if it's really 1TB.";
+  const text = "The phone measures 1TB, which isn't a size on file. Check Settings › About phone, and enter the partner's quote on the full case if it's really 1TB.";
   // As the server sends it (lib/domain/offer.ts): every listed size is one the phone ruled out, so none is offered, and no note.
   const o = read(
     priced({
@@ -220,9 +228,9 @@ test("readOffer: a phone that measured a size not on file — the server's words
 });
 
 test("storageHandoff: a chip-less storage ask goes to the desk's answer card when the phone measured the size, else to step 1", () => {
-  // The answer card takes the Cashify quote for the measured size (it sets the storage); step 1's chips are the sizes the phone ruled out.
-  assert.deepEqual(O.storageHandoff({ measuredStorage: "1TB" }), { title: "Enter the Cashify quote on the full case", hash: "#answer" });
-  assert.deepEqual(O.storageHandoff({ measuredStorage: null }), { title: "Choose it on the full case", hash: "#step-phone" });
+  // The answer card takes the partner's quote for the measured size (it sets the storage); step 1's chips are the sizes the phone ruled out.
+  assert.deepEqual(O.storageHandoff({ measuredStorage: "1TB" }), { title: "Enter the quote", hash: "#answer" });
+  assert.deepEqual(O.storageHandoff({ measuredStorage: null }), { title: "Choose storage", hash: "#step-phone" });
 });
 
 test("readCaseHead: the case fields the screens need; junk is null", () => {
@@ -300,22 +308,21 @@ test("recommendedBadge: only a repair or upgrade verdict, never 'nothing to repa
 test("pill: wording, and disabled with the server's reason", () => {
   const o = offer();
   assert.deepEqual(O.pill(o, "repair"), { title: "Customer will repair", disabled: false, caption: null });
-  assert.deepEqual(O.pill(o, "swap"), { title: "Swap up — take the trade-in", disabled: false, caption: null });
-  assert.deepEqual(O.pill(o, null), { title: "Tap what the customer chose", disabled: true, caption: null });
+  assert.deepEqual(O.pill(o, "swap"), { title: "Swap up", disabled: false, caption: null });
+  assert.deepEqual(O.pill(o, null), { title: "Choose one", disabled: true, caption: null });
   const closed = offer({ open: false, actions: { repair: "This case is closed.", swap: "This case is closed.", walkAway: "This case is closed." } });
   assert.deepEqual(O.pill(closed, "repair"), { title: "Customer will repair", disabled: true, caption: "This case is closed." });
-  assert.deepEqual(O.pill(read(storageUnknown()), "swap"), { title: "Swap up — take the trade-in", disabled: true, caption: TAP_STORAGE });
+  assert.deepEqual(O.pill(read(storageUnknown()), "swap"), { title: "Swap up", disabled: true, caption: TAP_STORAGE });
   assert.equal(O.pickAllowed(read(storageUnknown()), "repair"), true);
   assert.equal(O.pickAllowed(read(storageUnknown()), "swap"), false);
 });
 
 test("chipLabel: the size and its trade-in, Indian grouping", () => {
-  assert.equal(O.chipLabel({ variant: "256GB", tradeIn: 18800, sample: false }), "256GB · ₹18,800");
-  assert.equal(O.chipLabel({ variant: "512GB", tradeIn: 20300, sample: false }), "512GB · ₹20,300");
-  assert.equal(O.chipLabel({ variant: "1TB", tradeIn: 123456, sample: false }), "1TB · ₹1,23,456");
-  assert.equal(O.chipLabel({ variant: "512GB", tradeIn: null, sample: false }), "512GB");
-  // A sample chip stays short: the ask's one note under the row says "Sample price — not a real quote."
-  assert.equal(O.chipLabel({ variant: "256GB", tradeIn: 18800, sample: true }), "256GB · ₹18,800");
+  assert.equal(O.chipLabel({ variant: "256GB", tradeIn: 18800 }), "256GB · ₹18,800");
+  assert.equal(O.chipLabel({ variant: "512GB", tradeIn: 20300 }), "512GB · ₹20,300");
+  assert.equal(O.chipLabel({ variant: "1TB", tradeIn: 123456 }), "1TB · ₹1,23,456");
+  // No price for that size: the bare size, never a guessed figure.
+  assert.equal(O.chipLabel({ variant: "512GB", tradeIn: null }), "512GB");
 });
 
 test("bonusLine: trade-in + bonus with its percent, or the reason there is no bonus", () => {
@@ -335,17 +342,17 @@ test("newPhoneLine: the phone, its price and what the customer pays", () => {
 });
 
 test("vsRepairLine: more, less or the same as repairing", () => {
-  assert.equal(O.vsRepairLine(95904), "₹95,904 more than repairing today");
-  assert.equal(O.vsRepairLine(1234567), "₹12,34,567 more than repairing today");
-  assert.equal(O.vsRepairLine(-4500), "₹4,500 less than repairing");
-  assert.equal(O.vsRepairLine(0), "Same as repairing");
+  assert.equal(O.vsRepairLine(95904), "₹95,904 more than repair");
+  assert.equal(O.vsRepairLine(1234567), "₹12,34,567 more than repair");
+  assert.equal(O.vsRepairLine(-4500), "₹4,500 less than repair");
+  assert.equal(O.vsRepairLine(0), "Same as repair");
   assert.equal(O.vsRepairLine(null), null);
 });
 
 // ── the server's refusals on the answer screen ──────────────────────────────
 
 const NEW_PHONE = "Choose the new phone.";
-const EXPIRED = "Cashify quote (ref CF-88421) expired — enter today's quote.";
+const EXPIRED = "Partner quote (ref PQ-88421) expired — enter today's quote.";
 
 /** A priced phone with nothing to repair and no new phone chosen: the server refuses the swap until one is. */
 function noNewPhone() {
@@ -361,14 +368,14 @@ function noNewPhone() {
   });
 }
 
-/** A Cashify quote typed from the partner's app, now past its validity: the server asks for today's. */
-function expiredCashify() {
+/** A quote typed from the partner's app, now past its validity: the server asks for today's. */
+function expiredPartnerQuote() {
   return priced({
-    headline: "Enter the Cashify quote",
+    headline: "Enter the partner's quote",
     reason: EXPIRED,
     recommendation: "upgrade",
     recommended: "swap",
-    asks: [{ kind: "partner_quote", title: "Enter the Cashify quote", text: EXPIRED }],
+    asks: [{ kind: "partner_quote", title: "Enter the partner's quote", text: EXPIRED }],
     swap: { ...priced().swap, tradeInNote: EXPIRED },
     actions: { repair: null, swap: EXPIRED, walkAway: null },
   });
@@ -379,9 +386,9 @@ test("no new phone: the swap tile and pill are refused with the server's reason"
   assert.equal(O.pickAllowed(o, "swap"), false);
   assert.equal(O.pickAllowed(o, "repair"), false);
   assert.equal(O.defaultPick(o), null);
-  // Nothing can be chosen: the pill names the verdict's action and why — never a bare "Tap what the customer chose".
-  assert.deepEqual(O.pill(o, null), { title: "Swap up — take the trade-in", disabled: true, caption: NEW_PHONE });
-  assert.deepEqual(O.pill(o, "swap"), { title: "Swap up — take the trade-in", disabled: true, caption: NEW_PHONE });
+  // Nothing can be chosen: the pill names the verdict's action and why — never a bare "Choose one".
+  assert.deepEqual(O.pill(o, null), { title: "Swap up", disabled: true, caption: NEW_PHONE });
+  assert.deepEqual(O.pill(o, "swap"), { title: "Swap up", disabled: true, caption: NEW_PHONE });
   // The tile already carries the "Choose the new phone" link: the refusal isn't printed twice.
   assert.equal(O.swapRefusalLine(o), null);
   assert.equal(O.CHOOSE_PHONE, "Choose the new phone");
@@ -392,24 +399,24 @@ test("no new phone: the swap tile and pill are refused with the server's reason"
 
 test("pill: with nothing choosable and no verdict, the swap's reason; a choosable tile keeps 'Tap what the customer chose'", () => {
   const none = read(priced({ recommendation: "cannot_say", recommended: null, actions: { repair: "Not priced yet.", swap: TAP_STORAGE, walkAway: null } }));
-  assert.deepEqual(O.pill(none, null), { title: "Swap up — take the trade-in", disabled: true, caption: TAP_STORAGE });
+  assert.deepEqual(O.pill(none, null), { title: "Swap up", disabled: true, caption: TAP_STORAGE });
   const repairFirst = read(priced({ recommendation: "repair", recommended: "repair", actions: { repair: "Enter the repair quote.", swap: TAP_STORAGE, walkAway: null } }));
   assert.deepEqual(O.pill(repairFirst, null), { title: "Customer will repair", disabled: true, caption: "Enter the repair quote." });
   // §3.4 before the storage tap: repair can be chosen, so the pill only asks for a tap.
-  assert.deepEqual(O.pill(read(storageUnknown()), null), { title: "Tap what the customer chose", disabled: true, caption: null });
+  assert.deepEqual(O.pill(read(storageUnknown()), null), { title: "Choose one", disabled: true, caption: null });
   // An older server with no actions: nothing is allowed, and the pill says where to go.
-  assert.deepEqual(O.pill(read(priced({ actions: undefined })), null), { title: "Swap up — take the trade-in", disabled: true, caption: O.ACTION_UNKNOWN });
+  assert.deepEqual(O.pill(read(priced({ actions: undefined })), null), { title: "Swap up", disabled: true, caption: O.ACTION_UNKNOWN });
 });
 
-test("expired Cashify quote: the ask reads whole, the swap is refused, and the tile says it once", () => {
-  const o = read(expiredCashify());
-  assert.deepEqual(o.asks, [{ kind: "partner_quote", title: "Enter the Cashify quote", text: EXPIRED }]);
+test("expired partner quote: the ask reads whole, the swap is refused, and the tile says it once", () => {
+  const o = read(expiredPartnerQuote());
+  assert.deepEqual(o.asks, [{ kind: "partner_quote", title: "Enter the partner's quote", text: EXPIRED }]);
   assert.equal(o.swap.tradeInNote, EXPIRED);
   assert.equal(O.pickAllowed(o, "swap"), false);
   // The upgrade verdict's swap is refused, the repair is not: no pick, no fall-back to repair.
   assert.equal(O.defaultPick(o), null);
-  assert.deepEqual(O.pill(o, null), { title: "Tap what the customer chose", disabled: true, caption: null });
-  assert.deepEqual(O.pill(o, "swap"), { title: "Swap up — take the trade-in", disabled: true, caption: EXPIRED });
+  assert.deepEqual(O.pill(o, null), { title: "Choose one", disabled: true, caption: null });
+  assert.deepEqual(O.pill(o, "swap"), { title: "Swap up", disabled: true, caption: EXPIRED });
   // The warn-toned trade-in note already says it.
   assert.equal(O.swapRefusalLine(o), null);
 });
@@ -421,7 +428,7 @@ test("swapRefusalLine: the why under '—' isn't repeated either", () => {
 
 test("wantsReprice: an expired quote, or storage chips with no price at all — on an open case only", () => {
   const unpriced = read(
-    priced({ asks: [{ kind: "storage", title: "Which storage is it?", text: STORAGE_TEXT, options: [{ variant: "256GB", tradeIn: null, sample: false }, { variant: "512GB", tradeIn: null, sample: false }], note: null }] })
+    priced({ asks: [{ kind: "storage", title: "Which storage is it?", text: STORAGE_TEXT, options: [{ variant: "256GB", tradeIn: null }, { variant: "512GB", tradeIn: null }], note: null }] })
   );
   assert.equal(O.wantsReprice(true, false, unpriced), true);
   assert.equal(O.wantsReprice(false, false, unpriced), false, "a closed case is never re-priced");
@@ -431,10 +438,227 @@ test("wantsReprice: an expired quote, or storage chips with no price at all — 
   assert.equal(O.wantsReprice(true, false, offer()), false, "priced, nothing to ask");
   assert.equal(O.wantsReprice(true, false, read(storageUnknown())), false, "the chips already have prices");
   const onePriced = read(
-    priced({ asks: [{ kind: "storage", title: "Which storage is it?", text: STORAGE_TEXT, options: [{ variant: "256GB", tradeIn: 18800, sample: true }, { variant: "512GB", tradeIn: null, sample: false }], note: SAMPLE }] })
+    priced({ asks: [{ kind: "storage", title: "Which storage is it?", text: STORAGE_TEXT, options: [{ variant: "256GB", tradeIn: 18800 }, { variant: "512GB", tradeIn: null }], note: CHIP_NOTE }] })
   );
   assert.equal(O.wantsReprice(true, false, onePriced), false, "the partner priced one size: the bare chip is the partner's, not a missing re-price");
   const noChips = read(priced({ asks: [{ kind: "storage", title: "Which storage is it?", text: STORAGE_TEXT, options: [], note: null }] }));
   assert.equal(O.wantsReprice(true, false, noChips), false, "no sizes to price — the full case chooses it");
   assert.equal(O.wantsReprice(true, false, null), false);
+});
+
+// ── the SwapUp grade (CaseView.grading; grading spec §4.5 + the owner's letter) ─────
+
+const SHA = "3f9a0c1d" + "0".repeat(56);
+/** A graded, final Good, its report issued at Apply (spec §4.5 CaseView.grading). */
+function grading(over: Record<string, unknown> = {}) {
+  return {
+    status: "graded",
+    label: "Good (B)",
+    grade: "Good",
+    letter: "B",
+    final: true,
+    why: "Visible scratches on the screen.",
+    report: { path: "/r/AbC123_-xyz", version: 2, sha256: SHA, issuedAt: "2026-10-17T10:00:00.000Z", final: false },
+    phonecheck: { canPull: false, why: "Phonecheck isn't set up on this server: PHONECHECK_API_KEY, PHONECHECK_USERNAME and PHONECHECK_CONTRACT_CONFIRMED are not set." },
+    ...over,
+  };
+}
+const readG = (x: unknown) => {
+  const g = O.readCaseGrade(x);
+  assert.ok(g, "should read as a grading");
+  return g;
+};
+
+test("readCaseGrade: the §4.5 block reads whole", () => {
+  const g = readG(grading());
+  assert.deepEqual(g, {
+    status: "graded",
+    label: "Good (B)",
+    grade: "Good",
+    letter: "B",
+    final: true,
+    why: "Visible scratches on the screen.",
+    report: { path: "/r/AbC123_-xyz", version: 2, sha256: SHA, issuedAt: "2026-10-17T10:00:00.000Z", final: false },
+    phonecheck: { canPull: false, why: grading().phonecheck.why },
+  });
+  assert.deepEqual(O.gradeLine(g), { text: "Good (B)", provisional: false, full: "Good (B)" });
+  assert.equal(O.reportRef(g.report), "Report v2 · 3f9a0c1d");
+});
+
+test("gradeLine: the server's label is printed as sent — the app never rebuilds it", () => {
+  for (const [grade, letter] of [
+    ["Superb", "A"],
+    ["Good", "B"],
+    ["Fair", "C"],
+    ["Best Value", "D"],
+  ] as const) {
+    const g = readG(grading({ grade, letter, label: `${grade} (${letter})` }));
+    assert.equal(g.grade, grade);
+    assert.equal(g.letter, letter);
+    assert.equal(O.gradeLine(g).text, `${grade} (${letter})`);
+  }
+  // No letter added to a label that has none, and the server's letter is the one shown.
+  assert.equal(O.gradeLine(readG(grading({ label: "Good", letter: undefined }))).text, "Good");
+  assert.equal(O.gradeLine(readG(grading({ label: "Good (A)", letter: "A" }))).text, "Good (A)");
+  // Whatever the status, the label is the server's own words.
+  assert.equal(O.gradeLine(readG(grading({ status: "needs_repair", grade: null, label: "Needs repair (microphone)", final: false }))).text, "Needs repair (microphone)");
+});
+
+test("readCaseGrade: a grade and a letter only on a graded phone, and only the server's", () => {
+  const repair = readG(grading({ status: "needs_repair", grade: "Good", letter: "B", label: "Needs repair", final: false, why: "Microphone failed." }));
+  assert.equal(repair.grade, null, "a grade only when graded");
+  assert.equal(repair.letter, null);
+  assert.deepEqual(O.gradeLine(repair), { text: "Needs repair", provisional: false, full: "Needs repair" });
+  // No grade, no letter — whatever letter the server sent.
+  assert.equal(readG(grading({ grade: null, letter: "B", label: "(B)" })).letter, null);
+  // A letter that isn't A–D is none.
+  assert.equal(readG(grading({ letter: "E" })).letter, null);
+  assert.equal(readG(grading({ letter: "b" })).letter, null);
+});
+
+test("gradeLine: provisional is the server's mark, drawn once", () => {
+  const g = readG(grading({ final: false, label: "Good (B) · provisional" }));
+  assert.equal(g.final, false);
+  assert.deepEqual(O.gradeLine(g), { text: "Good (B)", provisional: true, full: "Good (B) · provisional" });
+  // `final` missing is not final.
+  assert.equal(readG(grading({ final: undefined })).final, false);
+  // A label that is nothing but the mark is printed as it is.
+  assert.deepEqual(O.gradeLine(readG(grading({ label: "· provisional" }))), { text: "· provisional", provisional: false, full: "· provisional" });
+  // Never "final" or "provisional" for a status that has no grade.
+  for (const [status, label] of [
+    ["needs_repair", "Needs repair"],
+    ["incomplete", "Not fully tested"],
+    ["cannot_grade", "Can't grade"],
+    ["not_tested", "Not tested"],
+  ]) {
+    const x = readG(grading({ status, label, grade: null, letter: null, final: true }));
+    assert.equal(x.final, false, status);
+    assert.deepEqual(O.gradeLine(x), { text: label, provisional: false, full: label }, status);
+  }
+});
+
+test("readCaseGrade: junk is null, never a throw", () => {
+  for (const bad of [null, undefined, "Good", 3, [], {}, { status: "graded" }, { label: "Good (B)" }, { status: "excellent", label: "Excellent" }, { status: "graded", label: "  " }]) {
+    assert.equal(O.readCaseGrade(bad), null, JSON.stringify(bad));
+  }
+});
+
+test("readCaseGrade: the report link — the server's relative path or its own http(s) address, nothing else", () => {
+  const path = (p: unknown) => readG(grading({ report: { path: p, version: 1, sha256: SHA, issuedAt: null, final: true } })).report?.path ?? null;
+  assert.equal(path("/r/tok"), "/r/tok");
+  assert.equal(path("/r/tok?v=3"), "/r/tok?v=3");
+  assert.equal(path("https://swapup.example.in/r/tok"), "https://swapup.example.in/r/tok");
+  for (const bad of ["//evil.example/r/tok", "javascript:alert(1)", "r/tok", "/r/to k", "/r\\tok", "", null, 4, "http://"]) assert.equal(path(bad), null, String(bad));
+  assert.equal(readG(grading({ report: null })).report, null);
+  assert.equal(readG(grading({ report: undefined })).report, null);
+  // A bad version or fingerprint is dropped, the link kept.
+  const r = readG(grading({ report: { path: "/r/tok", version: 0, sha256: "nothex", final: "yes" } })).report;
+  assert.deepEqual(r, { path: "/r/tok", version: null, sha256: null, issuedAt: null, final: false });
+  assert.equal(O.reportRef(r), null);
+  assert.equal(O.reportRef({ path: "/r/tok", version: 4, sha256: null, issuedAt: null, final: true }), "Report v4");
+  assert.equal(O.reportRef({ path: "/r/tok", version: null, sha256: SHA.toUpperCase(), issuedAt: null, final: true }), "3F9A0C1D");
+  assert.equal(readG(grading({ report: { path: "/r/tok", sha256: SHA.toUpperCase() } })).report?.sha256, SHA);
+  assert.equal(O.reportRef(null), null);
+});
+
+test("readCaseGrade: Phonecheck — only an explicit true can pull; a partner's view has none", () => {
+  assert.deepEqual(readG(grading({ phonecheck: { canPull: true, why: null } })).phonecheck, { canPull: true, why: null });
+  assert.deepEqual(readG(grading({ phonecheck: { canPull: "yes", why: "" } })).phonecheck, { canPull: false, why: null });
+  assert.equal(readG(grading({ phonecheck: null })).phonecheck, null);
+  assert.equal(readG(grading({ phonecheck: undefined })).phonecheck, null);
+});
+
+test("the notes say what the grade is, in the owner's words — never CTIA, never the partner's name", () => {
+  assert.equal(O.LETTER_NOTE, "A = Superb, B = Good, C = Fair, D = Best Value — not a CTIA grade.");
+  assert.equal(O.SCALE_NOTE, "SwapUp grade, as tested at the store — not the buyer's own inspection.");
+});
+
+test("no app-owned words name the buyback partner", () => {
+  const words = [O.SCALE_NOTE, O.LETTER_NOTE, O.ACTION_UNKNOWN, O.CHOOSE_PHONE, ...Object.values(O.PULL_TEXT), O.storageHandoff({ measuredStorage: "1TB" }).title, O.storageHandoff({ measuredStorage: null }).title];
+  for (const w of [...words, O.NO_MARKET_PRICE]) assert.equal(G.namesPartner(w), false, w);
+});
+
+test("the grade never moves a price: the answer reads the same with or without it", () => {
+  const without = read(priced());
+  for (const g of [grading(), grading({ status: "needs_repair", grade: null, label: "Needs repair" }), grading({ grade: "Best Value", label: "Best Value (D)" })]) {
+    assert.deepEqual(read({ ...priced(), grading: g }), without);
+  }
+  // And the case head doesn't carry it either.
+  const head = { id: "c", status: "quoted" };
+  assert.deepEqual(O.readCaseHead({ ...head, grading: grading() }), O.readCaseHead(head));
+});
+
+test("readPull: the outcome in the app's words, and the case to paint", () => {
+  const caseView = { id: "case_1", status: "quoted", grading: grading() };
+  assert.deepEqual(O.readPull({ case: caseView, record: { id: "pc_1" }, outcome: "attached" }), { caseView, outcome: "attached", text: O.PULL_TEXT.attached });
+  const nf = O.readPull({ case: caseView, record: null, outcome: "not_found" });
+  assert.equal(nf?.outcome, "not_found");
+  assert.match(nf?.text ?? "", /No Phonecheck results yet/);
+  assert.equal(O.readPull({ outcome: "stale" })?.caseView, null, "no case: read it again");
+  assert.equal(O.readPull({ case: { id: "x" }, outcome: "mismatch" })?.caseView, null);
+  for (const bad of [null, "attached", {}, { outcome: "teleported" }, { case: caseView }]) assert.equal(O.readPull(bad), null, JSON.stringify(bad));
+  for (const k of ["attached", "not_found", "stale", "mismatch"] as const) assert.ok(O.PULL_TEXT[k].endsWith("."), k);
+});
+
+test("readPull: the server's own note wins over the app's words; a blank or junk note doesn't", () => {
+  const caseView = { id: "case_1", status: "quoted", grading: grading() };
+  const note = "Phonecheck has no test of this IMEI on this account — test it on the station first.";
+  assert.equal(O.readPull({ case: caseView, record: null, outcome: "not_found", note })?.text, note);
+  assert.equal(O.readPull({ case: caseView, outcome: "stale", note: "Nothing new: this Phonecheck check is already on the case." })?.text, "Nothing new: this Phonecheck check is already on the case.");
+  for (const bad of [null, "", "   ", 7, {}]) assert.equal(O.readPull({ case: caseView, outcome: "attached", note: bad })?.text, O.PULL_TEXT.attached, JSON.stringify(bad));
+});
+
+// ── how the trade-in was reached (offer.swap.tradeInDetail — PriceIQ at the grade less a % per defect) ──
+
+test("tradeInDetail: the PriceIQ line and its details are read as sent; amounts signed for Show details", () => {
+  const detail = {
+    line: "Refurbished market price ₹51,399 (Good) − 2% − 2 defects · PriceIQ 2026-W35, 52 days old",
+    lines: [
+      { label: "Below the market price", pct: "2%", amount: -1028 },
+      { label: "Battery drains / swollen", pct: "9%", amount: -4625 },
+      { label: "Rear camera faulty", pct: "18%", amount: -9251 },
+      { label: "Rounded down to ₹10", pct: null, amount: -5 },
+      { label: "junk" },
+    ],
+    note: null,
+  };
+  const o = O.readOffer(priced({ swap: { ...priced().swap, tradeInNote: null, tradeInDetail: detail } }))!;
+  assert.equal(o.swap.tradeInDetail?.line, "Refurbished market price ₹51,399 (Good) − 2% − 2 defects · PriceIQ 2026-W35, 52 days old");
+  assert.deepEqual(o.swap.tradeInDetail?.lines.map((l) => [l.label, l.pct, l.amount]), [
+    ["Below the market price", "2%", -1028],
+    ["Battery drains / swollen", "9%", -4625],
+    ["Rear camera faulty", "18%", -9251],
+    ["Rounded down to ₹10", null, -5],
+  ]);
+  assert.equal(O.detailAmount(-9251, false), "−₹9,251");
+  assert.equal(O.detailAmount(16048, false), "+₹16,048");
+  assert.equal(O.detailAmount(30400, true), "₹30,400");
+});
+
+test("tradeInDetail: the rate card's fallback keeps its note; nothing to show reads as null; an older server sends none", () => {
+  const fallback = O.readOffer(
+    priced({ swap: { ...priced().swap, tradeInDetail: { line: null, lines: [{ label: "Best-condition price on the rate card", pct: null, amount: 30400 }], note: "PriceIQ has no refurbished market price for the Galaxy Z Fold6 256GB." } } })
+  )!;
+  assert.equal(fallback.swap.tradeInDetail?.line, null);
+  assert.equal(fallback.swap.tradeInDetail?.note, "PriceIQ has no refurbished market price for the Galaxy Z Fold6 256GB.");
+  assert.equal(O.readOffer(priced({ swap: { ...priced().swap, tradeInDetail: { line: null, lines: [], note: null } } }))!.swap.tradeInDetail, null);
+  assert.equal(O.readOffer(priced())!.swap.tradeInDetail, null);
+});
+
+// ── no price from anywhere (owner, 2026-10-18: PriceIQ, a rate card or a typed quote — else say so) ──
+
+test("swapWhyLine: the server's why under '—'; with none, the one no-price line; nothing beside a total", () => {
+  assert.equal(O.NO_MARKET_PRICE, "No market price yet — enter a quote.");
+  assert.equal(O.NO_MARKET_PRICE, B.NO_MARKET_PRICE, "the answer and the margin card say the same words");
+  const none = { tradeIn: null, tradeInNote: null, bonus: null, bonusBp: null, bonusWhy: null, total: null, why: null, newPhone: null, customerPays: null, vsRepair: null };
+  // The server's own why wins.
+  assert.equal(O.swapWhyLine(read(storageUnknown())), TAP_STORAGE);
+  const serverWhy = "No trade-in price yet.";
+  assert.equal(O.swapWhyLine(read(priced({ swap: { ...none, why: serverWhy } }))), serverWhy);
+  // No trade-in and no why (an older or a terse server): the app's one line, never a made-up figure.
+  const bare = read(priced({ swap: none, actions: { repair: null, swap: O.NO_MARKET_PRICE, walkAway: null } }));
+  assert.equal(O.swapWhyLine(bare), O.NO_MARKET_PRICE);
+  assert.equal(O.swapRefusalLine(bare), null, "the line is said once, not again as the refusal");
+  // A total on the tile: no why line.
+  assert.equal(O.swapWhyLine(read(priced())), null);
 });

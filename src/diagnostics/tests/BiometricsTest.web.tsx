@@ -22,7 +22,7 @@ export function BiometricsTest(p: TestProps) {
   return (
     <CantTest
       p={p}
-      reason="A web page can't use the fingerprint or face sensor without saving a passkey on your phone."
+      reason="A browser can't use the fingerprint or face sensor."
       detail={{ platformUnlockReported: platformUnlock }}
     />
   );

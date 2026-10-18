@@ -81,13 +81,11 @@ export function WebScreen({ url: rawUrl, title, onClose }: { url: string; title:
           <H1>Open {title}</H1>
           {expired ? (
             <Banner tone="warn" title="This sign-in link has expired">
-              They last one minute. Close this and tap the button again for a fresh one.
+              Close this and tap the button again — links last a minute.
             </Banner>
           ) : (
             <Card style={{ gap: 14 }}>
-              <Body>
-                Your browser stopped SwapUp from opening the desk in a new tab. Tap below to open it — this trade-in stays open here.
-              </Body>
+              <Body>New tab blocked — tap to open the desk.</Body>
               <Btn
                 title="Open in a new tab"
                 big
@@ -97,12 +95,12 @@ export function WebScreen({ url: rawUrl, title, onClose }: { url: string; title:
                 }}
               />
               {stillBlocked ? (
-                <Banner tone="warn" title="New tabs are blocked in this browser">
-                  Open it in this tab instead. To come back to the store app afterwards, use the browser's Back button.
+                <Banner tone="warn" title="New tabs are blocked">
+                  Open it here; use Back to return.
                 </Banner>
               ) : null}
-              <Btn title="Open in this tab instead" kind="secondary" onPress={() => window.location.assign(url)} />
-              <Body muted>The link signs you in to the desk and works for one minute.</Body>
+              <Btn title="Open in this tab" kind="secondary" onPress={() => window.location.assign(url)} />
+              <Body muted>The link works for one minute.</Body>
             </Card>
           )}
           <Btn title="Close" kind="ghost" onPress={onClose} />

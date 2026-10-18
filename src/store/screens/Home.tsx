@@ -5,7 +5,9 @@ import type { CreditState, CreditSummary, StaffUser, TestSessionView } from "../
 import { unwrapSession } from "../types";
 import { photosNeeded, readGrading } from "../grading";
 import { customerStarted, readPhonePhase, scanFlag, scanStage, sessionLayout } from "../phoneLed";
+import { readAutoApply } from "../flow";
 import { firstName } from "../pin";
+import { TEST_PROGRAMME, programmeBanner } from "../programme";
 import { Banner, Body, Brand, Btn, Card, Chip, Columns, Figure, H1, H2, Label, STATUS, Tone, ago, inr, toneColor, until, useLayout, L } from "../ui";
 
 const CREDIT_STATE: Record<CreditState, { label: string; tone: Tone }> = {
@@ -31,7 +33,7 @@ const CASE_STATUS: Record<string, { label: string; tone: Tone }> = {
 
 function readWaiting(x: unknown): WaitingCase[] {
   const list = x && typeof x === "object" ? (x as { cases?: unknown }).cases : null;
-  if (!Array.isArray(list)) throw new Error("The server's list of cases didn't make sense. Pull down to try again.");
+  if (!Array.isArray(list)) throw new Error("Bad case list — pull down to retry.");
   const str = (v: unknown) => (typeof v === "string" && v ? v : null);
   return list
     .map((c) => {
@@ -87,7 +89,7 @@ export function Home({
     try {
       const c = await api.get<CreditSummary>(`/api/stores/${encodeURIComponent(store.id)}/credit`);
       if (!alive.current) return;
-      if (!c || !c.position) throw new Error("The credit line came back empty. Pull down to try again.");
+      if (!c || !c.position) throw new Error("No credit line came back — pull down to retry.");
       setCredit(c);
       setCreditErr(null);
     } catch (e) {
@@ -162,7 +164,7 @@ export function Home({
   const approval =
     store.status === "pending" ? (
       <Banner tone="warn" title={`${store.name} is waiting for approval`}>
-        {`${user.org?.name ?? "Your programme"} checks new stores before they can take trade-ins. Meanwhile you can test customers' phones and see quotes. Trade-ins start once the store is approved and given a credit limit.`}
+        Tests and quotes work; trade-ins start once approved.
       </Banner>
     ) : store.status === "rejected" ? (
       <Banner tone="bad" title={`${store.name} was not approved`}>
@@ -197,7 +199,7 @@ export function Home({
   const startCard = (
     <Card style={{ gap: 12 }}>
       <H1 style={{ fontSize: 28, lineHeight: 34 }}>Customer at the counter?</H1>
-      <Body muted>Start a trade-in. You'll get a code for the customer to scan, and their phone tests itself in a few minutes.</Body>
+      <Body muted>Their phone tests itself in minutes.</Body>
       <Btn title="New customer trade-in" onPress={onNew} big />
     </Card>
   );
@@ -214,9 +216,9 @@ export function Home({
           <Body muted style={{ fontSize: 15, lineHeight: 21 }}>
             {user.name} ({user.roleLabel})
           </Body>
-          {user.org?.demo ? (
+          {programmeBanner(user.org) ? (
             <View style={{ marginTop: 4 }}>
-              <Chip text="Demo programme — sample data" tone="warn" />
+              <Chip text={TEST_PROGRAMME} tone="warn" />
             </View>
           ) : null}
         </View>
@@ -245,7 +247,7 @@ export function Home({
           </Banner>
         ) : null}
         {sessions === null && !sessionsErr ? <Body muted>Loading…</Body> : null}
-        {sessions && sessions.length === 0 ? <Body muted>No open tests. Tap “New customer trade-in” to start one.</Body> : null}
+        {sessions && sessions.length === 0 ? <Body muted>No open tests.</Body> : null}
         {sessions?.map((x) => <SessionRow key={x.id} s={x} onPress={() => onOpenSession(x.id)} />)}
       </Card>
 
@@ -296,7 +298,7 @@ function CreditBody({
       </View>
       <Chip text={st.label} tone={st.tone} />
       {p.state === "full" || p.state === "over" ? (
-        <Body style={{ color: L.bad }}>New trade-ins can't be locked until a pickup frees the line. Phone tests still work.</Body>
+        <Body style={{ color: L.bad }}>A pickup frees the line.</Body>
       ) : null}
       {credit.advice?.due ? (
         <Banner
@@ -357,17 +359,22 @@ function CaseRow({ c, onPress }: { c: WaitingCase; onPress: () => void }) {
 
 function SessionRow({ s: x, onPress }: { s: TestSessionView; onPress: () => void }) {
   const st = STATUS[x.status] ?? { label: x.status, tone: "muted" as Tone };
-  // What the advisor is needed for. Phone-led (Check 0.6.0+): the phone is showing its scan code.
-  // Otherwise photos still to take (camera grading on, no grade yet): step 1 with a two-pass server, step 3 with an older one.
+  // What the advisor is needed for: the phone is showing its scan code (phone-led), photos still
+  // to take (an older phone), the phone to check by eye before the answer opens, or Apply refused.
   const g = readGrading(x);
+  const auto = readAutoApply(x);
   const flag =
-    sessionLayout(x, g) === "scanFirst"
-      ? scanFlag(
-          scanStage({ grading: g.phase, phase: readPhonePhase(x).phase, status: x.status, deviceReady: g.deviceReady, photosDone: g.photosDone, screenDone: g.screenDone })
-        )
-      : photosNeeded(x, x.status === "joined" || x.status === "testing" || x.status === "complete")
-        ? { text: "Photos needed", tone: "warn" as Tone }
-        : null;
+    auto?.state === "waiting" && auto.for === "certify"
+      ? { text: "Check the phone", tone: "fix" as Tone }
+      : auto?.state === "refused"
+        ? { text: "Not on the case", tone: "bad" as Tone }
+        : sessionLayout(x, g) === "scanFirst"
+          ? scanFlag(
+              scanStage({ grading: g.phase, phase: readPhonePhase(x).phase, status: x.status, deviceReady: g.deviceReady, photosDone: g.photosDone, screenDone: g.screenDone })
+            )
+          : photosNeeded(x, x.status === "joined" || x.status === "testing" || x.status === "complete")
+            ? { text: "Photos needed", tone: "warn" as Tone }
+            : null;
   const model = x.summary?.model.label || [x.device?.brand, x.device?.modelName].filter(Boolean).join(" ") || null;
   const when =
     x.status === "waiting" || x.status === "opened"

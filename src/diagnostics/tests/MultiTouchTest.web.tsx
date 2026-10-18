@@ -84,7 +84,7 @@ export function MultiTouchTest(p: TestProps) {
   }
 
   return (
-    <TestShell {...p} instructions={`Place ${NEED} fingers on the pad at the same time and hold for a second.`} detail={{ maxSimultaneous: max, required: NEED, input: "touch", maxTouchPoints: touchPoints() }}>
+    <TestShell {...p} instructions={`Hold ${NEED} fingers on the pad.`} detail={{ maxSimultaneous: max, required: NEED, input: "touch", maxTouchPoints: touchPoints() }}>
       <View ref={padRef} style={[s.pad, webStyle({ touchAction: "none", userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" })]}>
         <Text style={s.count}>{pts.length}</Text>
         <Text style={s.sub}>fingers now · best {max}</Text>

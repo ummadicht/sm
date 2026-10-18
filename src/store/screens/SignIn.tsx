@@ -11,9 +11,9 @@ import { Banner, Body, Brand, Btn, Card, Field, H1, useLayout, L } from "../ui";
 /** Counter roles only — anything else is turned away with a sentence that says why. */
 export function staffProblem(u: StaffUser): string | null {
   if (u.role !== "advisor" && u.role !== "store_manager") {
-    return "The store app is for store staff. Sign in with an advisor or store manager account.";
+    return "Store staff only — use an advisor or manager account.";
   }
-  if (!u.store) return "This account isn't linked to a store yet. Ask your programme admin to add you to a store.";
+  if (!u.store) return "This account has no store yet — ask your admin.";
   return null;
 }
 
@@ -69,17 +69,17 @@ function SignInForm({
     const base = normaliseServer(server);
     if (!base) {
       setAdvanced(true);
-      setServerError("Enter the server address, like https://swapup.example.com or http://192.168.1.20:4500.");
+      setServerError("Enter the server address, e.g. https://swapup.example.com.");
       return;
     }
     if (!username.trim() || !password) {
-      setError("Enter your SwapUp username and password.");
+      setError("Enter your username and password.");
       return;
     }
     setBusy(true);
     try {
       const res = await createClient(base, null).post<TokenResponse>("/api/auth/token", { username: username.trim(), password });
-      if (!res || typeof res.token !== "string" || !res.user) throw new ApiError(0, "The server answered, but not with a sign-in. Check the server address under Advanced.");
+      if (!res || typeof res.token !== "string" || !res.user) throw new ApiError(0, "Not a sign-in answer — check the server under Advanced.");
       const problem = staffProblem(res.user);
       if (problem) throw new ApiError(403, problem);
       setPassword("");
@@ -87,10 +87,10 @@ function SignInForm({
     } catch (e) {
       let msg = errText(e);
       if (e instanceof ApiError && e.status === 0) {
-        msg += ` (Trying ${base}.)`;
-        if (base.startsWith("http://") && !IS_WEB) msg += " Make sure this tablet is on the same Wi‑Fi as that computer.";
+        msg += ` (${base})`;
+        if (base.startsWith("http://") && !IS_WEB) msg += " — same Wi‑Fi as that computer?";
       }
-      if (e instanceof ApiError && e.status === 404) msg = `${base} doesn't look like a SwapUp server (no sign-in there). Check the address under Advanced.`;
+      if (e instanceof ApiError && e.status === 404) msg = `${base} isn't a SwapUp server — check Advanced.`;
       setError(msg);
     } finally {
       setBusy(false);
@@ -109,7 +109,7 @@ function SignInForm({
           <View style={{ gap: 6 }}>
             <Brand style={{ marginBottom: 10 }} />
             <H1>Sign in to your store</H1>
-            <Body muted>Use the same username and password as the SwapUp desk on the web.</Body>
+            <Body muted>Same login as the SwapUp desk.</Body>
           </View>
 
           {notice ? <Banner tone="warn" title={notice} /> : null}
@@ -145,7 +145,7 @@ function SignInForm({
 
           <Card style={{ gap: 10 }}>
             <Text style={{ fontSize: 17, fontWeight: "800", color: L.ink }}>New to SwapUp?</Text>
-            <Btn title="Join my store with an invite code" kind="secondary" onPress={() => onSignUp("invite")} />
+            <Btn title="Join my store" kind="secondary" onPress={() => onSignUp("invite")} />
             <Btn title="Register a new store" kind="ghost" onPress={() => onSignUp("register")} />
           </Card>
 
@@ -164,7 +164,7 @@ function SignInForm({
                 autoCorrect={false}
                 keyboardType="url"
                 error={serverError}
-                hint={`For testing only. The normal server is ${DEFAULT_SERVER}`}
+                hint={`Testing only. Normal: ${DEFAULT_SERVER}`}
                 editable={!busy}
               />
               {server.trim() !== DEFAULT_SERVER ? (

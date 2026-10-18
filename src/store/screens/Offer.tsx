@@ -5,44 +5,70 @@
 //   REFURB QUOTE (what the customer pays to fix it) | TRADE-IN + BONUS — · one docked pill.
 //
 // Whatever the test couldn't fill is a one-tap ask above the numbers (storage chips with
-// each size's trade-in — and the server's "Sample price" note under them when the prices are
-// the SAMPLE rate card's — a quote, the new phone) — never a form, never a guessed size. A
-// choice the server refuses (no new phone yet, an expired Cashify quote) can't be tapped, and
-// says why. The store's own refurb cost and margin sit at the bottom, closed: "Store margin · staff only".
+// each size's trade-in — and the server's one note under them, as sent — a quote, the new
+// phone) — never a form, never a guessed size, never a made-up price. A
+// choice the server refuses (no new phone yet, an expired partner quote) can't be tapped, and
+// says why. The store's own refurb cost and margin sit at the bottom, closed: "Store margin ·
+// staff only" (./PriceCard, drawn from this screen's case and saved through its queue).
+//
+// The SwapUp grade (CaseView.grading, grading spec §5) is one line between the headline and
+// the asks — "SwapUp grade: Good (B)", the server's label as sent, " · provisional" in amber —
+// with the server's one-line why, "View report" (the public report page, in the app's browser)
+// and "Show to customer" (a QR of it, ./ReportQrSheet). Never inside the two tiles: those stay
+// the partner's money only, and the grade never moves a price. "Get Phonecheck results" shows
+// only when the server says the store can pull them (Phonecheck ships switched off).
+//
+// It is reached BY ITSELF (owner, 2026-10-17: "Reduce the flow"): the server puts the phone's
+// results on the case once its tests and the camera grade are in, and the Session screen opens
+// this. What the camera couldn't decide was certified inside the camera step before that, so
+// "Check the phone" (./CertifyCard) shows here only while a row is still open — the results went
+// on first (a manual Apply) — never as a second copy of the card.
 //
 // The server builds every number and every reason (CaseView.offer, read by ../offer.ts);
 // this screen owns the labels only. Load: GET /api/cases/<id> (an expired quote, or storage
-// chips with no price at all, is re-priced once, quietly), again quietly every 30 s and when the app returns to the front,
-// as PriceCard does. Writes go one at a time and only the newest answer is painted (the
+// chips with no price at all, is re-priced once, quietly), again quietly every 30 s and when
+// the app returns to the front. Writes go one at a time and only the newest answer is painted (the
 // desk's CaseWorkspace.run); a refusal re-reads the case and says why in the server's words.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, AppState, Pressable, ScrollView, Text, View } from "react-native";
 import { QuietLink } from "../../shared/kit";
 import {
+  type CaseGrading,
   type CaseHead,
   type Offer,
   type OfferAsk,
   type Pick as Choice,
+  type TradeInDetail,
   CHOOSE_PHONE,
   bonusLine,
   chipLabel,
   defaultPick,
+  detailAmount,
+  gradeLine,
   newPhoneLine,
   pickAllowed,
   pill,
+  readCaseGrade,
   readCaseHead,
   readOffer,
+  readPull,
   recommendedBadge,
   storageHandoff,
   swapRefusalLine,
+  swapWhyLine,
   vsRepairLine,
   wantsReprice,
 } from "../offer";
+import { type CasePrice, readCasePrice } from "../buySell";
+import { type CertifyView, answerCertify, readCertify } from "../certify";
+import { answerCertifyMode, checkedByLine } from "../flow";
+import { CheckThePhone } from "./CertifyCard";
 import { type StaffClient, absolute, errText } from "../staffClient";
 import type { Screen } from "../types";
 import { Banner, Body, Btn, Card, Chip, Figure, H1, H2, KV, L, Label, Segmented, inr, s as ui, useHead, useLayout } from "../ui";
 import { PriceCard } from "./PriceCard";
 import { COVER_LABEL, CoverSheet, NewPhoneSheet, PartnerQuoteSheet, RefurbQuoteSheet, RepairConfirmSheet, WalkAwaySheet, WhySheet } from "./OfferSheets";
+import { ReportQrSheet } from "./ReportQrSheet";
 
 const REFRESH_MS = 30_000;
 /** The answer is read at arm's length: wider than this and the lines get too long to scan. */
@@ -76,9 +102,11 @@ function readExtra(x: unknown): Extra {
   };
 }
 
-type Ready = { state: "ready"; head: CaseHead; offer: Offer | null; extra: Extra };
+/** `price`: the same case as the store-margin card reads it (../buySell.ts). */
+/** `cert`: the case's own `certify` / `certification`, as sent (../certify.ts answerCertify reads them). */
+type Ready = { state: "ready"; head: CaseHead; offer: Offer | null; grading: CaseGrading | null; price: CasePrice | null; extra: Extra; cert: { certify?: unknown; certification?: unknown } };
 type Load = { state: "loading" } | { state: "error"; text: string } | Ready;
-type SheetName = "phone" | "refurb" | "cover" | "partner" | "repair" | "walk" | null;
+type SheetName = "phone" | "refurb" | "cover" | "partner" | "repair" | "walk" | "report" | null;
 
 const OPEN = new Set(["draft", "quoted"]);
 
@@ -106,16 +134,23 @@ export function OfferScreen({
 }) {
   const { wide, pad, content } = useLayout();
   const path = `/api/cases/${encodeURIComponent(caseId)}`;
+  // Came from the test session: its "Check the phone" rows (which are needed) stand in when the case doesn't send its own.
+  const sessionId = back.name === "session" ? back.id : null;
+  const [sessionCertify, setSessionCertify] = useState<CertifyView | null>(null);
   const answerPath = `/cases/${caseId}?view=answer`;
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [pending, setPending] = useState(0);
   const [err, setErr] = useState<{ title: string; text: string } | null>(null);
   const [chosen, setChosen] = useState<Choice | null>(null);
   const [sheet, setSheet] = useState<SheetName>(null);
+  const [certifyOpen, setCertifyOpen] = useState(false);
   const [margin, setMargin] = useState(false);
   const [handoff, setHandoff] = useState(false);
   /** The storage chip just tapped, outlined until the server's answer lands. */
   const [tapped, setTapped] = useState<string | null>(null);
+  /** "Get Phonecheck results": on its way, and what came of it (the app's words for the server's outcome). */
+  const [pulling, setPulling] = useState(false);
+  const [pullNote, setPullNote] = useState<string | null>(null);
 
   const alive = useRef(true);
   useEffect(() => {
@@ -128,8 +163,10 @@ export function OfferScreen({
   /** A case from the server (GET, PATCH or /action all answer with the whole CaseView): show it. */
   const take = useCallback((r: unknown) => {
     const head = readCaseHead(r);
-    if (!head) throw new Error("The server's answer about this case didn't make sense.");
-    setLoad({ state: "ready", head, offer: readOffer((r as { offer?: unknown }).offer), extra: readExtra(r) });
+    if (!head) throw new Error("Bad answer from the server.");
+    const v = r as { offer?: unknown; grading?: unknown };
+    const o = r as { certify?: unknown; certification?: unknown };
+    setLoad({ state: "ready", head, offer: readOffer(v.offer), grading: readCaseGrade(v.grading), price: readCasePrice(r), extra: readExtra(r), cert: { certify: o.certify, certification: o.certification } });
   }, []);
 
   // ── writes: one at a time; only the newest answer is painted (the desk's CaseWorkspace.run)
@@ -196,6 +233,23 @@ export function OfferScreen({
   );
 
   useEffect(() => {
+    if (!sessionId) return;
+    let on = true;
+    api
+      .get<unknown>(`/api/test-sessions/${encodeURIComponent(sessionId)}`)
+      .then((r) => {
+        const sv = r && typeof r === "object" && "session" in (r as object) ? (r as { session: unknown }).session : r;
+        if (on) setSessionCertify(readCertify(sv));
+      })
+      .catch(() => {
+        /* no card from the session — the case's own, if it sends one */
+      });
+    return () => {
+      on = false;
+    };
+  }, [api, sessionId]);
+
+  useEffect(() => {
     void fetchCase(false);
     const sub = AppState.addEventListener("change", (st) => {
       if (st === "active") void fetchCase(true);
@@ -219,13 +273,35 @@ export function OfferScreen({
     void run(() => api.post<unknown>(`${path}/action`, { action: "reprice" }), null);
   }, [reprice, api, path, run]);
 
+  /**
+   * POST /api/cases/<id>/phonecheck {mode: "pull"} through the write queue. Its answer is
+   * {case, record, outcome}: the case is painted like any other write's, the outcome said under
+   * the grade. A refusal (not set up, an IMEI that doesn't match, too soon) is the server's words.
+   */
+  async function pullPhonecheck() {
+    if (pulling) return;
+    setPulling(true);
+    setPullNote(null);
+    const got = { text: null as string | null };
+    const e = await run(async () => {
+      const r = await api.post<unknown>(`${path}/phonecheck`, { mode: "pull" });
+      const p = readPull(r);
+      if (!p) throw new Error("Bad answer from Phonecheck.");
+      got.text = p.text;
+      return p.caseView ?? (await api.get<unknown>(path));
+    }, "No Phonecheck results");
+    if (!alive.current) return;
+    setPulling(false);
+    if (!e) setPullNote(got.text);
+  }
+
   /** The desk for what the app leaves to it (POST /api/auth/handoff, then the in-app browser). */
   async function openFull(next: string) {
     setErr(null);
     setHandoff(true);
     try {
       const r = await api.post<{ url?: string }>("/api/auth/handoff", { next });
-      if (!r?.url) throw new Error("The server didn't return a link to the case. Try again.");
+      if (!r?.url) throw new Error("No link came back. Try again.");
       onOpenWeb(absolute(api.base, r.url), `Case ${load.state === "ready" ? load.head.ref || caseRef : caseRef}`);
     } catch (e) {
       if (alive.current) setErr({ title: "Couldn't open the case", text: errText(e) });
@@ -248,15 +324,23 @@ export function OfferScreen({
               {load.text}
             </Banner>
           ) : (
-            <Body muted>Loading the answer…</Body>
+            <Body muted>Loading…</Body>
           )}
         </View>
       </View>
     );
   }
 
-  const { head, offer: o, extra } = load;
+  const { head, offer: o, grading, price, extra } = load;
+  const certify = answerCertify(load.cert, sessionCertify, sessionId);
   const ref = head.ref || caseRef;
+  // The public report page: no sign-in and no hand-off — it carries no prices.
+  const reportUrl = grading?.report ? absolute(api.base, grading.report.path) : null;
+  const viewReport = () => {
+    if (reportUrl) onOpenWeb(reportUrl, `Grade report · ${ref}`);
+  };
+  const reportSheet =
+    grading && reportUrl ? <ReportQrSheet visible={sheet === "report"} onClose={() => setSheet(null)} url={reportUrl} grading={grading} onOpen={viewReport} /> : null;
   const claimed = (o?.storage.source ?? head.variantSource) === "customer";
   const top = (
     <OfferTop
@@ -284,7 +368,7 @@ export function OfferScreen({
         {top}
         <ScrollView contentContainerStyle={[column, { padding: pad, gap: 16 }]}>
           <H1>{headline}</H1>
-          {head.status === "repair_chosen" ? <Body muted>Book it in the service centre's job system.</Body> : null}
+          {head.status === "repair_chosen" ? <Body muted>Book it in the job system.</Body> : null}
           {banner}
           {rows ? (
             <Card style={{ gap: 0 }}>
@@ -292,13 +376,20 @@ export function OfferScreen({
               <KV label="Bonus" value={inr(extra.bonusValue ?? o?.swap.bonus ?? null)} />
               <KV label="New phone" value={extra.upgradeLabel ?? o?.swap.newPhone?.label ?? "—"} />
               <KV label="Customer pays" value={inr(extra.payable ?? o?.swap.customerPays ?? null)} />
+              {grading ? <KV label="SwapUp grade" value={gradeLine(grading).full} /> : null}
+              {reportUrl ? (
+                <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 20, paddingTop: 8 }}>
+                  <TextLink title="Grade report" onPress={viewReport} />
+                  <TextLink title="Show to customer" onPress={() => setSheet("report")} />
+                </View>
+              ) : null}
             </Card>
           ) : null}
         </ScrollView>
         <View style={[column, { paddingHorizontal: pad, paddingTop: 8, paddingBottom: 14, gap: 4 }]}>
           {rows ? (
             <>
-              <Btn title="Data clearing on the full case" big busy={handoff} onPress={() => void openFull(`/cases/${caseId}`)} />
+              <Btn title="Clear the data" big busy={handoff} onPress={() => void openFull(`/cases/${caseId}`)} />
               <QuietLink title="Back to Home" onPress={onHome} />
             </>
           ) : (
@@ -308,6 +399,7 @@ export function OfferScreen({
             </>
           )}
         </View>
+        {rows ? reportSheet : null}
       </View>
     );
   }
@@ -319,7 +411,7 @@ export function OfferScreen({
         {top}
         <ScrollView contentContainerStyle={[column, { padding: pad, gap: 16 }]}>
           <H1>Price it on the full case</H1>
-          <Body muted>This SwapUp server doesn't send the answer to the app yet.</Body>
+          <Body muted>This server can't send the answer yet.</Body>
           {banner}
         </ScrollView>
         <View style={[column, { paddingHorizontal: pad, paddingTop: 8, paddingBottom: 14 }]}>
@@ -346,7 +438,7 @@ export function OfferScreen({
   const bonus = bonusLine(o);
   const phoneLine = newPhoneLine(o);
   const vs = vsRepairLine(w.vsRepair);
-  const swapWhy = w.total === null ? w.why : null;
+  const swapWhy = swapWhyLine(o);
   // The server's reason the swap can't be taken, unless the tile already says it (the why, the note, the link).
   const swapRefusal = swapRefusalLine(o);
 
@@ -361,8 +453,41 @@ export function OfferScreen({
             <WhySheet offer={o} />
           </View>
           {o.reason ? <Body muted>{o.reason}</Body> : null}
+          {/* A safety warning is never behind the "?" */}
+          {o.safety ? (
+            <Small color={L.warn} weight="600">
+              {o.safety}
+            </Small>
+          ) : null}
         </View>
         {banner}
+
+        {/* The SwapUp grade: beside the answer, never inside its tiles */}
+        {grading ? (
+          <GradeCard
+            g={grading}
+            canReport={!!reportUrl}
+            pulling={pulling}
+            note={pullNote}
+            onView={viewReport}
+            onShow={() => setSheet("report")}
+            onPull={() => void pullPhonecheck()}
+          />
+        ) : null}
+
+        {/* What the camera couldn't decide, still open — the advisor's taps, by name (the server says which rows) */}
+        {/* Tapped in full: closed, one tap to change a wrong last tap (the answer opened by itself after it) */}
+        {certify && answerCertifyMode(certify) === "change" && !certifyOpen ? (
+          <Pressable onPress={() => setCertifyOpen(true)} accessibilityRole="button" style={{ paddingVertical: 4 }}>
+            <Text style={{ color: L.fix, fontSize: 15, fontWeight: "700" }}>{checkedByLine(certify)}</Text>
+          </Pressable>
+        ) : null}
+        {certify && (answerCertifyMode(certify) === "open" || (answerCertifyMode(certify) === "change" && certifyOpen)) ? (
+          <CheckThePhone
+            view={certify}
+            onTap={(row, value) => act("certify", { row, value, ...(certify.testSessionId ? { testSessionId: certify.testSessionId } : {}) })}
+          />
+        ) : null}
 
         {/* What the answer still needs — one tap each */}
         {o.asks.map((a) => (
@@ -408,6 +533,7 @@ export function OfferScreen({
             </Figure>
             {swapWhy ? <Small>{swapWhy}</Small> : null}
             {bonus ? <Small>{bonus}</Small> : null}
+            {w.tradeInDetail ? <TradeInHow d={w.tradeInDetail} /> : null}
             {w.tradeInNote ? (
               <Small color={L.warn} weight="600">
                 {w.tradeInNote}
@@ -444,8 +570,8 @@ export function OfferScreen({
             <Text style={{ flex: 1, color: L.muted, fontSize: 16, fontWeight: "600" }}>Store margin · staff only</Text>
             <Text style={{ color: L.muted, fontSize: 22, transform: [{ rotate: margin ? "90deg" : "0deg" }] }}>›</Text>
           </Pressable>
-          {/* Re-mounted when the storage or the trade-in moves, so BUY is never stale. */}
-          {margin ? <PriceCard key={`${head.variant ?? ""}|${w.tradeIn ?? ""}`} api={api} caseId={caseId} /> : null}
+          {/* The case this screen holds: every answer from the server repaints it, so BUY is never stale. */}
+          {margin && price ? <PriceCard c={price} save={save} /> : null}
         </View>
       </ScrollView>
 
@@ -469,6 +595,7 @@ export function OfferScreen({
       <PartnerQuoteSheet visible={sheet === "partner"} onClose={() => setSheet(null)} save={save} />
       <RepairConfirmSheet visible={sheet === "repair"} onClose={() => setSheet(null)} act={act} />
       <WalkAwaySheet visible={sheet === "walk"} onClose={() => setSheet(null)} act={act} />
+      {reportSheet}
     </View>
   );
 }
@@ -496,6 +623,49 @@ function OfferTop({ title, sub, claimed, left, busy }: { title: string; sub?: st
       </View>
       {busy ? <ActivityIndicator color={L.primary} accessibilityLabel="Updating" /> : null}
     </View>
+  );
+}
+
+/**
+ * "SwapUp grade: Good (B)" and the server's one-line why, with the report's two links — and the
+ * Phonecheck pull only where the server allows it. Provisional is the amber " · provisional".
+ */
+function GradeCard({
+  g,
+  canReport,
+  pulling,
+  note,
+  onView,
+  onShow,
+  onPull,
+}: {
+  g: CaseGrading;
+  canReport: boolean;
+  pulling: boolean;
+  /** What the last Phonecheck pull came to. */
+  note: string | null;
+  onView: () => void;
+  onShow: () => void;
+  onPull: () => void;
+}) {
+  const line = gradeLine(g);
+  const canPull = g.phonecheck?.canPull === true;
+  return (
+    <Card style={{ gap: 6, padding: 16 }}>
+      <Text style={{ color: L.ink, fontSize: 18, lineHeight: 24, fontWeight: "700" }} accessibilityLabel={`SwapUp grade ${line.full}`}>
+        SwapUp grade: {line.text}
+        {line.provisional ? <Text style={{ color: L.warn }}> · provisional</Text> : null}
+      </Text>
+      {g.why ? <Small>{g.why}</Small> : null}
+      {note ? <Small color={L.ink}>{note}</Small> : null}
+      {canReport || canPull ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 20 }}>
+          {canReport ? <TextLink title="View report" onPress={onView} /> : null}
+          {canReport ? <TextLink title="Show to customer" onPress={onShow} /> : null}
+          {canPull ? <TextLink title={pulling ? "Getting Phonecheck results…" : "Get Phonecheck results"} onPress={onPull} /> : null}
+        </View>
+      ) : null}
+    </Card>
   );
 }
 
@@ -536,7 +706,7 @@ function AskCard({
           ) : (
             btn(go.title, () => onFull(go.hash), handoff)
           )}
-          {/* The server's "Sample price — not a real quote." while the chips' prices are the SAMPLE rate card's. */}
+          {/* The server's one note under the chips (e.g. how old PriceIQ's prices are), as sent. */}
           {ask.note ? (
             <Small color={L.warn} weight="600">
               {ask.note}
@@ -547,8 +717,8 @@ function AskCard({
       break;
     }
     case "partner_quote":
-      // No partner price yet, or a quote typed from the Cashify app that has expired: either way, today's goes in here.
-      control = btn("Enter the Cashify quote", () => onSheet("partner"));
+      // No partner price yet, or a quote typed from the partner's app that has expired: either way, today's goes in here.
+      control = btn("Enter the partner's quote", () => onSheet("partner"));
       break;
     case "repair_quote":
       control = btn("Enter the repair quote", () => onSheet("refurb"));
@@ -557,7 +727,7 @@ function AskCard({
       control = btn(CHOOSE_PHONE, () => onSheet("phone"));
       break;
     case "model":
-      control = btn("Choose the model on the full case", () => onFull("#step-phone"), handoff);
+      control = btn("Choose the model", () => onFull("#step-phone"), handoff);
       break;
     case "blocked":
       // A store manager resolves it on the desk.
@@ -629,6 +799,36 @@ function NothingToRepair({ wide }: { wide: boolean }) {
 
 function Small({ children, color = L.muted, weight }: { children: React.ReactNode; color?: string; weight?: "600" | "700" }) {
   return <Text style={{ color, fontSize: 14, lineHeight: 20, fontWeight: weight }}>{children}</Text>;
+}
+
+/**
+ * How the trade-in was reached, in the server's words: its one line ("Refurbished market price
+ * ₹51,399 (Good) − 2% − 2 defects · PriceIQ 2026-W35", with ", 52 days old" when the data is stale) and,
+ * behind "Show details", each step with its % and rupees — the desk's same list.
+ */
+function TradeInHow({ d }: { d: TradeInDetail }) {
+  const [open, setOpen] = useState(false);
+  const more = d.lines.length > 0 || !!d.note;
+  return (
+    <View style={{ gap: 4 }}>
+      {d.line ? <Small>{d.line}</Small> : null}
+      {more ? <TextLink title={open ? "Hide details" : "Show details"} onPress={() => setOpen((x) => !x)} /> : null}
+      {open && more ? (
+        <View style={{ gap: 4 }}>
+          {d.lines.map((l, i) => (
+            <View key={`${l.label}-${i}`} style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
+              <Text style={{ flex: 1, minWidth: 0, color: L.muted, fontSize: 13, lineHeight: 18 }}>
+                {l.label}
+                {l.pct ? ` · ${l.pct}` : ""}
+              </Text>
+              <Text style={{ color: L.muted, fontSize: 13, lineHeight: 18, fontVariant: ["tabular-nums"] }}>{detailAmount(l.amount, i === 0)}</Text>
+            </View>
+          ))}
+          {d.note ? <Text style={{ color: L.muted, fontSize: 13, lineHeight: 18 }}>{d.note}</Text> : null}
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 /** A quiet blue link inside a tile ("Change", "Cover: None · change"). */

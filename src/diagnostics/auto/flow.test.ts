@@ -14,6 +14,7 @@ const poll = (p: Partial<import("./pairing").ScreenPoll> = {}): import("./pairin
   handoffDone: false,
   connectedAt: null,
   capture: null,
+  released: null,
   ...p,
 });
 
@@ -29,7 +30,7 @@ test("pairing: parse the proxied /screen body", () => {
   assert.equal(P.parseScreen(null), null);
   assert.equal(P.parseScreen({ error: "nope" }), null);
   const s = P.parseScreen({ pattern: "white", shown: "idle", cosmeticDone: true, handoffDone: "yes", capture: { verdict: "retake", reasons: ["blur", 3] }, connectedAt: "2026-10-16T10:00:00Z", model: "x" });
-  assert.deepEqual(s, { state: null, pattern: "white", shown: "idle", cosmeticDone: true, handoffDone: false, connectedAt: "2026-10-16T10:00:00Z", capture: { verdict: "retake", reasons: ["blur"] } });
+  assert.deepEqual(s, { state: null, pattern: "white", shown: "idle", cosmeticDone: true, handoffDone: false, connectedAt: "2026-10-16T10:00:00Z", capture: { verdict: "retake", reasons: ["blur"] }, released: null, unreachable: false });
   // SwapUp's actual shape (MOBILE-API §4): state + no connectedAt.
   const su = P.parseScreen({ state: "pending", pattern: "idle", shown: null, cosmeticDone: false, handoffDone: false, capture: null });
   assert.equal(su?.state, "pending");
@@ -160,6 +161,81 @@ test("pairing: 'Finish without the screen check' only after 90 s with no store c
   assert.equal(P.skipOffer(c, 1000 + P.STALL_MS), "stalled");
   // A pattern counts as connected even if connectedAt was not relayed.
   assert.notEqual(P.trackPoll(P.newTracker(0), poll({ pattern: "black" }), 10).tracker.connectedAt, null);
+});
+
+test("pairing: the customer is never offered a skip on a server that lets the advisor release the phone", () => {
+  // The server sends `released: false` — it knows the advisor's "Continue without camera".
+  let r = P.trackPoll(P.newTracker(0), poll({ released: false }), 1000);
+  assert.equal(r.tracker.releaseKnown, true);
+  assert.equal(P.skipOffer(r.tracker, 90_000), null, "no 90 s skip: the phone waits for the camera or the advisor");
+  assert.equal(P.skipOffer(r.tracker, 10 * 60_000), null, "not even after 10 minutes");
+  const up = P.trackPoll(P.newTracker(0), poll({ released: false, pattern: "white" }), 1000).tracker;
+  assert.equal(P.skipOffer(up, 1000 + P.PATTERN_STALL_MS, true), null, "nothing drawn over a stuck colour either");
+  // The advisor lets it go, by name, in SwapUp Store.
+  r = P.trackPoll(r.tracker, poll({ released: true }), 20_000);
+  assert.equal(r.leave, "released");
+  // The camera finishing still wins when both arrive together.
+  assert.equal(P.trackPoll(r.tracker, poll({ released: true, handoffDone: true }), 21_000).leave, "handoff");
+  // Fail closed: anything but a boolean is "the server doesn't say".
+  assert.equal(P.parseScreen({ pattern: "idle", released: "yes" })?.released, null);
+  assert.equal(P.parseScreen({ pattern: "idle", released: false })?.released, false);
+  // An older server never sends the key: the customer keeps the old way out.
+  const old = P.trackPoll(P.newTracker(0), poll(), 1000).tracker;
+  assert.equal(old.releaseKnown, false);
+  assert.equal(P.skipOffer(old, 90_000), "never-connected");
+});
+
+test("pairing: the handshake fits GradeIQ's sweep — 350 ms polls once the camera is here, a lost echo re-sent after 600 ms", () => {
+  const t0 = P.trackPoll(P.newTracker(0), poll(), 500).tracker;
+  assert.equal(P.pollEvery(t0), P.POLL_MS);
+  assert.equal(P.POLL_MS, 700);
+  const t1 = P.trackPoll(t0, poll({ connectedAt: "2026-10-17T10:00:00Z" }), 1000).tracker;
+  assert.equal(P.pollEvery(t1), P.POLL_FAST_MS);
+  assert.equal(P.POLL_FAST_MS, 350);
+  assert.ok(P.ECHO_RESEND_MS <= 600, "inside GradeIQ's 4 s wait for white, with room for a second try");
+  // Leaving says something that is not a colour, so a camera still waiting for white can't take it for an answer.
+  assert.equal(P.displayablePattern(P.SHOWN_OFF), "idle");
+});
+
+test("result screen: a camera page that comes back after the scan is followed — only news, never a leftover", () => {
+  // A failed sweep left "white" on /screen; the result screen opens on it: not drawn.
+  let r = P.followPoll(P.newFollow(0), poll({ pattern: "white", connectedAt: "c1" }), 1000);
+  assert.equal(r.draw, "idle");
+  r = P.followPoll(r.follow, poll({ pattern: "white", connectedAt: "c1" }), 60_000);
+  assert.equal(r.draw, "idle", "the same leftover a minute later is still not news");
+  // The advisor retakes from the tablet: a new camera page loads (new connectedAt), then asks for colours.
+  r = P.followPoll(r.follow, poll({ pattern: "idle", connectedAt: "c2" }), 70_000);
+  assert.equal(r.follow.live, true);
+  assert.equal(r.draw, "idle");
+  r = P.followPoll(r.follow, poll({ pattern: "white", connectedAt: "c2" }), 71_000);
+  assert.equal(r.draw, "white");
+  r = P.followPoll(r.follow, poll({ pattern: "stripes", connectedAt: "c2" }), 75_000);
+  assert.equal(r.draw, "stripes");
+  // The page closes mid-sweep: a colour stuck for 90 s goes back to the result screen.
+  r = P.followPoll(r.follow, poll({ pattern: "stripes", connectedAt: "c2" }), 75_000 + P.PATTERN_STALL_MS - 1);
+  assert.equal(r.draw, "stripes");
+  r = P.followPoll(r.follow, poll({ pattern: "stripes", connectedAt: "c2" }), 75_000 + P.PATTERN_STALL_MS);
+  assert.equal(r.draw, "idle");
+  assert.equal(r.follow.live, false);
+  assert.equal(P.followPoll(r.follow, poll({ pattern: "stripes", connectedAt: "c2" }), 200_000).draw, "idle", "and that stuck colour is the new leftover");
+  // The same camera page asking for a NEW colour is news without a new connectedAt.
+  const same = P.followPoll(P.newFollow(0), poll({ pattern: "idle", connectedAt: "c1" }), 1000).follow;
+  assert.equal(P.followPoll(same, poll({ pattern: "black", connectedAt: "c1" }), 2000).draw, "black");
+  // No camera grading for this check: nothing is drawn.
+  assert.equal(P.followPoll(same, poll({ state: "failed", pattern: "white", connectedAt: "c9" }), 3000).draw, "idle");
+});
+
+test("result screen: the advisor's check by eye — the phone loops the colours itself, and stops when the store goes quiet", () => {
+  assert.deepEqual([...P.ADVISOR_COLOURS], ["white", "black", "red", "green", "blue", "stripes"]);
+  const at = (n: number) => P.colourAt(10_000, 10_000 + n * P.COLOUR_STEP_MS);
+  assert.deepEqual([0, 1, 2, 3, 4, 5].map(at), ["white", "black", "red", "green", "blue", "stripes"]);
+  assert.equal(at(6), "white", "it loops");
+  assert.equal(P.colourAt(10_000, 10_000 + P.COLOUR_STEP_MS - 1), "white");
+  assert.equal(P.colourAt(10_000, 5_000), "white", "a clock that moved back never throws");
+  for (const c of P.ADVISOR_COLOURS) assert.equal(P.displayablePattern(c), c, "every colour is one the scan screen draws too");
+  assert.equal(P.coloursOn(null, 0), false);
+  assert.equal(P.coloursOn(1000, 1000 + P.COLOURS_FRESH_MS - 1), true);
+  assert.equal(P.coloursOn(1000, 1000 + P.COLOURS_FRESH_MS), false, "no fresh word from the store: stop");
 });
 
 test("pairing: refused for 15 s straight → unavailable; a good poll resets it", () => {
@@ -328,4 +404,32 @@ test("touch: stopping is untested, never failed", () => {
   let busy = Tch.applyTouches(Tch.newTouchState(0), [0, 1, 2, 6, 7, 8], 1000);
   for (let k = 0; k < 40; k++) busy = Tch.applyTouches(busy, [1, 7], 2000 + k * 500);
   assert.notEqual(Tch.touchVerdict(busy, 30_000)?.outcome, "fail");
+});
+
+test("pairing: a server that can't read the camera service says so with released:false — the customer is never offered a skip", () => {
+  const p = P.parseScreen({ state: "ready", pattern: "idle", shown: null, cosmeticDone: false, handoffDone: false, capture: null, connectedAt: null, released: false, unreachable: true });
+  assert.equal(p?.unreachable, true);
+  const r = P.trackPoll(P.newTracker(0), p!, 500);
+  assert.equal(r.leave, null);
+  assert.equal(P.skipOffer(r.tracker, 10 * 60_000), null);
+  // The advisor lets it go even while the camera service is down.
+  const go = P.trackPoll(r.tracker, { ...p!, released: true }, 1000);
+  assert.equal(go.leave, "released");
+});
+
+test("on a server that releases the phone, a camera page that never connects lets the phone go on BY ITSELF after 5 minutes — no skip button", () => {
+  let tr = P.newTracker(0);
+  // The camera service is down: the server still answers, with `released: false`.
+  let r = P.trackPoll(tr, poll({ released: false, unreachable: true }), 1000);
+  assert.equal(r.leave, null);
+  tr = r.tracker;
+  assert.equal(P.skipOffer(tr, 10 * 60_000), null, "never a button for the customer");
+  r = P.trackPoll(tr, poll({ released: false }), P.MOVE_ON_ALONE_MS - 1);
+  assert.equal(r.leave, null);
+  r = P.trackPoll(r.tracker, poll({ released: false }), P.MOVE_ON_ALONE_MS);
+  assert.equal(r.leave, "alone");
+  // A camera page that did connect is never cut off this way.
+  let c = P.trackPoll(P.newTracker(0), poll({ released: false, connectedAt: "x", pattern: "white" }), 1000).tracker;
+  c = P.trackPoll(c, poll({ released: false, connectedAt: "x", pattern: "white" }), 2000).tracker;
+  assert.equal(P.trackPoll(c, poll({ released: false, connectedAt: "x" }), P.MOVE_ON_ALONE_MS + 5000).leave, null);
 });

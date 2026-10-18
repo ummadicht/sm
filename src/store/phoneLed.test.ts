@@ -1,7 +1,7 @@
 // node --test --experimental-strip-types --no-warnings src/store/phoneLed.test.ts
 // The phone-led flow as the store app reads it (docs/PHONE-LED-FLOW.md in the
-// server repo): which layout a session gets, where the scan is, what the customer
-// told their phone, battery health, the counter code. Same import trick as ./pin.test.ts.
+// server repo): which layout a session gets, where the scan is, the top line, the IMEI
+// check digit, the counter code. Same import trick as ./pin.test.ts.
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -67,66 +67,15 @@ test("scanStage: waiting → now → done, or skipped when the phone moved on wi
   assert.equal(F.scanStage({ ...base, status: "complete", phase: "done" }), "skipped");
 });
 
-test("scanFirstReached: Join · Identify · Scan · Test · Result", () => {
-  assert.equal(F.scanFirstReached("waiting", null, false), 0);
-  assert.equal(F.scanFirstReached("opened", null, false), 0);
-  assert.equal(F.scanFirstReached("joined", null, true), 1);
-  assert.equal(F.scanFirstReached("joined", "identify", true), 1);
-  assert.equal(F.scanFirstReached("joined", "scan", true), 2);
-  assert.equal(F.scanFirstReached("testing", "battery", true), 3);
-  assert.equal(F.scanFirstReached("testing", null, true), 3);
-  assert.equal(F.scanFirstReached("complete", "done", true), 4);
-  assert.equal(F.scanFirstReached("applied", null, true), 4);
-  assert.equal(F.scanFirstReached("expired", "scan", true), 2, "stopped where it was");
-  assert.equal(F.scanFirstReached("expired", null, false), 0);
-});
-
 test("scanFirstNow: the top line follows the phone", () => {
   const v = (status: string) => ({ status, progress: { done: 3, total: 12 } });
-  assert.match(F.scanFirstNow(v("joined"), "identify", "waiting")!.text, /identifying itself/);
-  assert.match(F.scanFirstNow(v("joined"), "scan", "now")!.text, /showing its scan code.*Take photos/);
-  assert.match(F.scanFirstNow(v("testing"), "test", "done")!.text, /^Testing itself — 3 of 12 done\. The camera grade is being worked out meanwhile\.$/);
-  assert.match(F.scanFirstNow(v("testing"), "test", "skipped")!.text, /by eye/);
+  assert.match(F.scanFirstNow(v("joined"), "identify", "waiting")!.text, /Confirming which phone it is/);
+  assert.match(F.scanFirstNow(v("joined"), "scan", "now")!.text, /Scan the code on the phone.*Take photos/);
+  assert.match(F.scanFirstNow(v("testing"), "test", "done")!.text, /^Testing — 3 of 12 done; camera grade coming\.$/);
+  assert.match(F.scanFirstNow(v("testing"), "test", "skipped")!.text, /not scanned, check the phone at step 3/);
   assert.doesNotMatch(F.scanFirstNow(v("testing"), "test", "off")!.text, /camera grade/);
   assert.equal(F.scanFirstNow(v("complete"), "done", "done")!.tone, "up");
   assert.equal(F.scanFirstNow(v("applied"), "done", "done"), null, "the ordinary line says applied / expired / cancelled");
-});
-
-test("identity: what the customer told their phone, never guessed", () => {
-  assert.deepEqual(F.readIdentity(null), { imei: null, imei2: null, identityConfirmed: null, picked: null, customerName: null, customerPhone: null });
-  const id = F.readIdentity({
-    screenCracked: null,
-    imei: "490154203237518",
-    imei2: " ",
-    identityConfirmed: false,
-    picked: { modelId: "galaxy-a54", variant: "128GB" },
-    customerName: " Asha ",
-    customerPhone: "9876543210",
-  });
-  assert.equal(id.imei, "490154203237518");
-  assert.equal(id.imei2, null);
-  assert.deepEqual(id.picked, { modelId: "galaxy-a54", variant: "128GB", label: null });
-  assert.equal(id.customerName, "Asha");
-  assert.equal(F.readIdentity({ picked: { variant: "128GB" } }).picked, null, "a pick without a model is no pick");
-
-  assert.deepEqual(F.customerSays(id, "Samsung Galaxy A54", false), { text: "Not the model shown — they picked Samsung Galaxy A54 · 128GB", tone: "warn" });
-  assert.equal(F.customerSays({ ...id, identityConfirmed: null }, null, false).text, "They picked galaxy-a54 · 128GB");
-  assert.equal(F.customerSays({ ...id, picked: null, identityConfirmed: true }, null, false).tone, "up");
-  assert.match(F.customerSays({ ...id, picked: null }, null, false).text, /left the model to you/);
-  assert.equal(F.customerSays({ ...id, picked: null, identityConfirmed: null }, null, true).text, "Not answered yet");
-});
-
-test("readCaseImeis / modelLabels: the case's IMEIs and the catalogue's names", () => {
-  assert.equal(F.readCaseImeis(null), null);
-  assert.equal(F.readCaseImeis({ error: "Case not found." }), null);
-  assert.deepEqual(F.readCaseImeis({ id: "c1", imei: "490154203237518", imei2: null }), { imei: "490154203237518", imei2: null });
-  assert.deepEqual(F.readCaseImeis({ case: { imei: null, imei2: "352099001761481" } }), { imei: null, imei2: "352099001761481" });
-
-  assert.deepEqual(
-    F.modelLabels({ brands: ["Samsung"], models: [{ id: "galaxy-a54", brand: "Samsung", model: "Galaxy A54", variants: ["128GB"] }, { id: "x" }, { brand: "No id" }] }),
-    { "galaxy-a54": "Samsung Galaxy A54" }
-  );
-  assert.deepEqual(F.modelLabels(null), {});
 });
 
 test("imeiCheck: the Luhn check digit", () => {
@@ -138,39 +87,7 @@ test("imeiCheck: the Luhn check digit", () => {
   assert.equal(F.imeiCheck(null), null);
 });
 
-test("imeiMismatch: only when the typed numbers share none with the case", () => {
-  const id = (imei: string | null, imei2: string | null = null) => ({ ...F.readIdentity(null), imei, imei2 });
-  const onCase = (imei: string | null, imei2: string | null = null) => ({ imei, imei2 });
-  assert.equal(F.imeiMismatch(id("490154203237518"), null), null, "no case to compare with");
-  assert.equal(F.imeiMismatch(id("490154203237518"), onCase(null)), null, "nothing recorded on the case");
-  assert.equal(F.imeiMismatch(id(null), onCase("490154203237518")), null, "nothing typed");
-  assert.equal(F.imeiMismatch(id("490154203237518"), onCase("490154203237518")), null);
-  assert.equal(F.imeiMismatch(id("352099001761481", "490154203237518"), onCase("490154203237518", "352099001761481")), null, "dual SIM typed in the other order");
-  assert.deepEqual(F.imeiMismatch(id("352099001761481"), onCase("490154203237518")), { recorded: ["490154203237518"] });
-});
-
-test("batteryHealth: the screenshot's % and what it means", () => {
-  assert.equal(F.batteryHealth({}), null);
-  assert.equal(F.batteryHealth(null), null);
-  const ok = F.batteryHealth({ battery_health: { outcome: "pass", detail: { healthPct: 87, method: "battery screenshot read by GradeIQ" } } })!;
-  assert.deepEqual(ok, { pct: 87, outcome: "pass", method: "battery screenshot read by GradeIQ", earlier: [] });
-  assert.deepEqual(F.batteryLine(ok), { text: "87%", tone: "up" });
-  const low = F.batteryHealth({ battery_health: { outcome: "fail", detail: { healthPct: 72.4 } } })!;
-  assert.deepEqual(F.batteryLine(low), { text: "72% — below 80%", tone: "bad" });
-  const unread = F.batteryHealth({ battery_health: { outcome: "skip", detail: { healthPct: null } } })!;
-  assert.equal(unread.pct, null);
-  assert.equal(F.batteryLine(unread).tone, "muted");
-  assert.equal(F.batteryHealth({ battery_health: { outcome: "fail", detail: { healthPct: 0 } } })!.pct, null, "0 % is unreadable, not a dead battery");
-  // A seller who tried several screenshots: the earlier readings stay in view, and a pass is no longer plain green.
-  const retried = F.batteryHealth({ battery_health: { outcome: "pass", detail: { healthPct: 91, earlier: [72, "x", 74] } } })!;
-  assert.deepEqual(retried.earlier, [72, 74]);
-  assert.deepEqual(F.batteryLine(retried), { text: "91% (earlier screenshots: 72%, 74%)", tone: "warn" });
-});
-
-test("server verdicts: imeiAgreement, customerStarted, scanFirst", () => {
-  assert.equal(F.readImeiAgreement({ imeiAgreement: "differs" }), "differs");
-  assert.equal(F.readImeiAgreement({ imeiAgreement: null }), null);
-  assert.equal(F.readImeiAgreement({}), null);
+test("server verdicts: customerStarted, scanFirst", () => {
   assert.equal(F.customerStarted({ customerStarted: true }), true);
   assert.equal(F.customerStarted({ customerStarted: "yes" }), false);
   // The server's own scanFirst counts as the phone leading, even before it posts a phase.
@@ -188,4 +105,29 @@ test("readCounterCode: the counter code answer", () => {
   assert.equal(F.readCounterCode({ error: "nope" }), null);
   assert.deepEqual(F.readCounterCode({ code: "k7m2qx", joinUrl: "https://s/j/K7M2QX" }), { code: "K7M2QX", joinUrl: "https://s/j/K7M2QX" });
   assert.deepEqual(F.readCounterCode({ code: "K7M2QX" }), { code: "K7M2QX", joinUrl: null });
+});
+
+test("colours: the phone showing the test colours is past its scan, and the session at its result", () => {
+  assert.equal(F.readPhonePhase({ phonePhase: "colours" }).phase, "colours");
+  const base = { grading: "ready" as const, status: "complete", deviceReady: false, photosDone: true, screenDone: false };
+  assert.equal(F.scanStage({ ...base, phase: "colours" }), "done");
+  assert.equal(F.scanFirstNow({ status: "testing" }, "colours", "done")?.text, "Tests done.");
+});
+
+test("screenUnchecked: a scan behind the phone whose screen the camera didn't check says so", () => {
+  assert.equal(F.screenUnchecked("done", { screenDone: true, lcdNotChecked: null }), false, "photos and the sweep done");
+  assert.equal(F.screenUnchecked("done", { screenDone: true, lcdNotChecked: "the camera never got a clear view of the lit screen" }), true, "the sweep ran without a verdict");
+  assert.equal(F.screenUnchecked("done", { screenDone: false, lcdNotChecked: null }), true, "the phone moved on before the sweep");
+  assert.equal(F.screenUnchecked("skipped", { screenDone: false, lcdNotChecked: null }), true);
+  assert.equal(F.screenUnchecked("now", { screenDone: false, lcdNotChecked: null }), false, "still to come");
+});
+
+test("release: the advisor lets a waiting phone go on — offered only when the server says so, never twice", () => {
+  assert.equal(G.readGrading({ grading: { state: "ready" } }).canRelease, false, "an older server");
+  assert.equal(G.readGrading({ grading: { state: "ready", canRelease: true } }).canRelease, true);
+  const done = G.readGrading({ grading: { state: "ready", canRelease: true, released: { by: "Asha K.", at: "2026-10-17T08:30:00Z" } } });
+  assert.deepEqual(done.released, { by: "Asha K.", at: "2026-10-17T08:30:00Z" });
+  assert.equal(done.canRelease, false);
+  assert.deepEqual(G.readGrading({ grading: { state: "ready", released: true } }).released, { by: null, at: null });
+  assert.equal(G.readGrading({ grading: { state: "ready", released: "yes" } }).released, null, "fail closed");
 });

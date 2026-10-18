@@ -8,6 +8,7 @@ import { ActivityIndicator, AppState, BackHandler, KeyboardAvoidingView, Pressab
 import { ApiError, createClient, type Client } from "../../shared/api";
 import { IS_WEB } from "../../shared/config";
 import { PIN_LENGTH, newPinProblem, pinInput } from "../pin";
+import { TEST_PROGRAMME, programmeBanner } from "../programme";
 import { errText } from "../staffClient";
 import type { TabletStaff, TabletView, TokenResponse } from "../types";
 import { Banner, Body, Brand, Btn, Card, Chip, Field, H1, H2, TopBar, useLayout, L } from "../ui";
@@ -24,7 +25,7 @@ type Picked = { person: TabletStaff; mode: "pin" | "set"; notice?: string };
 /** The unlock / set-pin answer is a sign-in; anything else (a proxy page, a wrong server) is said plainly. */
 function readSignIn(r: unknown): TokenResponse {
   const o = r as Partial<TokenResponse> | null;
-  if (!o || typeof o.token !== "string" || !o.user) throw new ApiError(0, "The server answered, but not with a sign-in. Try again.");
+  if (!o || typeof o.token !== "string" || !o.user) throw new ApiError(0, "Not a sign-in answer. Try again.");
   return o as TokenResponse;
 }
 
@@ -202,9 +203,9 @@ function Grid({
             {" · "}
             {view.device.name}
           </Body>
-          {view.org?.demo ? (
+          {programmeBanner(view.org) ? (
             <View style={{ marginTop: 4 }}>
-              <Chip text="Demo programme — sample data" tone="warn" />
+              <Chip text={TEST_PROGRAMME} tone="warn" />
             </View>
           ) : null}
         </View>
@@ -213,7 +214,7 @@ function Grid({
 
         {view.staff.length === 0 ? (
           <Banner tone="muted" title="No staff on this store yet">
-            A manager can invite advisors from Settings — sign in with username and password below.
+            A manager can invite them from Settings.
           </Banner>
         ) : (
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: GAP }}>
@@ -225,11 +226,10 @@ function Grid({
 
         <View style={{ gap: 10, alignItems: "flex-start", marginTop: 6 }}>
           <Pressable onPress={onPasswordSignIn} hitSlop={10} accessibilityRole="button" style={({ pressed }) => ({ paddingVertical: 8, opacity: pressed ? 0.6 : 1 })}>
-            <Text style={{ color: L.fix, fontSize: 17, fontWeight: "700" }}>Sign in with username and password</Text>
+            <Text style={{ color: L.fix, fontSize: 17, fontWeight: "700" }}>Sign in with password</Text>
           </Pressable>
           <Body muted style={{ fontSize: 15, lineHeight: 21 }}>
-            {IS_WEB ? "Someone missing? Reload the page" : "Someone missing? Pull down to refresh"}
-            {" — or a manager can invite them from Settings."}
+            {IS_WEB ? "Someone missing? Reload the page." : "Someone missing? Pull down to refresh."}
           </Body>
         </View>
       </View>
@@ -403,7 +403,7 @@ function PinPad({
             )}
           </View>
           <Pressable onPress={onForgot} hitSlop={10} accessibilityRole="button" style={({ pressed }) => ({ paddingVertical: 8, opacity: pressed ? 0.6 : 1 })}>
-            <Text style={{ color: L.fix, fontSize: 16, fontWeight: "700", textAlign: "center" }}>Forgot your PIN? Set a new one with your password</Text>
+            <Text style={{ color: L.fix, fontSize: 16, fontWeight: "700", textAlign: "center" }}>Forgot PIN?</Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -443,7 +443,7 @@ function SetPin({
   async function submit() {
     setError(null);
     if (!password) {
-      setError("Type your SwapUp password — the one you sign in to the desk with.");
+      setError("Type your SwapUp password.");
       return;
     }
     // Same rule as the server, so a guessable PIN is turned down before the round trip.
@@ -475,7 +475,7 @@ function SetPin({
           <View style={{ width: "100%", maxWidth: 520, gap: 16 }}>
             <View style={{ gap: 6 }}>
               <H1>Set your PIN</H1>
-              <Body muted>Type your SwapUp password once, then pick a 4-digit PIN. From then on you only need the PIN on this tablet.</Body>
+              <Body muted>Your password once, then a 4-digit PIN.</Body>
             </View>
             {notice ? <Banner tone="warn" title={notice} /> : null}
             <Card style={{ gap: 16 }}>
@@ -499,7 +499,7 @@ function SetPin({
                 keyboardType="number-pad"
                 maxLength={PIN_LENGTH}
                 autoComplete="off"
-                hint="4 digits. Not one digit four times, and not a run like 1234."
+                hint="4 digits — not 1111 or 1234."
                 error={pinErr}
                 editable={!busy}
               />
@@ -516,7 +516,7 @@ function SetPin({
                 editable={!busy}
               />
               {error ? <Banner tone="bad" title="Couldn't set your PIN">{error}</Banner> : null}
-              <Btn title="Save PIN and start" onPress={submit} busy={busy} big />
+              <Btn title="Save PIN" onPress={submit} busy={busy} big />
             </Card>
           </View>
         </ScrollView>

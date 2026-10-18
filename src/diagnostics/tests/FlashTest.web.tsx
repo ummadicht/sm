@@ -101,7 +101,7 @@ export function FlashTest(p: TestProps) {
 
   const known = hasGetUserMedia() && torchKnown();
   if (!known || phase === "no-torch") {
-    const reason = hasGetUserMedia() ? "This browser can't switch on the light on the back of the phone." : "This browser can't open the camera that drives the light.";
+    const reason = hasGetUserMedia() ? "This browser can't switch on the light." : "This browser can't open the camera.";
     return (
       <TestShell {...p} instructions={reason} autoVerdict="unsupported" hideManual detail={{ ...detail, reason }}>
         <CantBody emoji={p.test.emoji} />
@@ -110,14 +110,14 @@ export function FlashTest(p: TestProps) {
   }
 
   return (
-    <TestShell {...p} instructions="The light on the back of the phone should come on instantly, steady and bright." hideManual detail={detail}>
+    <TestShell {...p} instructions="The back light should come on bright and steady." hideManual detail={detail}>
       <View style={s.wrap}>
         <LiveVideo stream={stream} hidden />
         <BigEmoji>{on ? "🔦" : "⚫"}</BigEmoji>
         {phase === "ready" ? (
           <>
             <Big title={on ? "Turn the light off" : "Turn the light on"} kind="secondary" onPress={() => setTorch(!on)} />
-            <Say center>Did the light on the back come on?</Say>
+            <Say center>Did the light come on?</Say>
             <View style={{ flexDirection: "row", gap: 10 }}>
               <Big title="No" kind="fail" onPress={() => p.onResult("fail", detail)} style={{ flex: 1 }} />
               <Big title="Yes" kind="pass" onPress={() => p.onResult("pass", detail)} style={{ flex: 1.4 }} />
@@ -125,7 +125,7 @@ export function FlashTest(p: TestProps) {
           </>
         ) : phase === "denied" ? (
           <>
-            <Say center>The camera was blocked — the light is part of it. Allow the camera for this page, then try again, or skip.</Say>
+            <Say center>Camera blocked — allow it, then try again, or skip.</Say>
             <Big title="Try again" onPress={start} />
           </>
         ) : phase === "error" ? (
@@ -136,7 +136,7 @@ export function FlashTest(p: TestProps) {
           </>
         ) : (
           <>
-            <Say center>Your phone may ask to use the camera — the light is part of it. Tap Allow.</Say>
+            <Say center>If asked for the camera, tap Allow.</Say>
             <Big title={phase === "starting" ? "Starting…" : "Turn the light on"} onPress={start} busy={phase === "starting"} />
           </>
         )}

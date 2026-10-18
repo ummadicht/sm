@@ -61,7 +61,7 @@ export function ChargingTest(p: TestProps) {
   }
   const charging = state === "charging" || state === "full";
   return (
-    <TestShell {...p} instructions="Plug a charger into the phone now. Passes by itself when the phone reports charging. Nothing after ~30 s? Wiggle the cable — then press Fail." autoVerdict={auto} detail={{ state, waitedSec: secs, method: "battery-status-api", runtime: "browser" }}>
+    <TestShell {...p} instructions="Plug a charger in now — it passes by itself." autoVerdict={auto} detail={{ state, waitedSec: secs, method: "battery-status-api", runtime: "browser" }}>
       <View style={s.wrap}>
         <Text style={s.big}>{charging ? "⚡" : "🔌"}</Text>
         <Text style={s.state}>{charging ? "Charging ✓" : state === "unplugged" ? "Plug the charger in now" : state}</Text>

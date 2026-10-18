@@ -54,7 +54,7 @@ function BluetoothWeb(p: TestProps) {
   const auto: Result | null = avail === true ? "pass" : avail === false && checks >= 2 ? "fail" : null;
   const detail = { method: "web-bluetooth getAvailability", available: avail, checks, error: err, runtime: "browser" };
   return (
-    <TestShell {...p} instructions="Checks that the phone has a working Bluetooth radio the browser can use." autoVerdict={auto} detail={detail}>
+    <TestShell {...p} instructions="Checks the Bluetooth radio." autoVerdict={auto} detail={detail}>
       <View style={s.wrap}>
         <BigEmoji>{avail ? "✅" : "🟦"}</BigEmoji>
         {avail == null ? (
@@ -65,8 +65,8 @@ function BluetoothWeb(p: TestProps) {
           <>
             <Say center>
               {checks >= 2
-                ? "Bluetooth still isn't available. If it is switched on in Settings, the radio may be faulty."
-                : "Bluetooth isn't available. Turn Bluetooth on (swipe down from the top of the screen), then tap Check again."}
+                ? "Still no Bluetooth — the radio may be faulty."
+                : "Turn Bluetooth on, then tap Check again."}
             </Say>
             <Big title="Check again" onPress={check} />
           </>
@@ -100,7 +100,7 @@ function NfcWeb(p: TestProps) {
   };
   useEffect(() => () => { done.current = true; stop(); }, []);
 
-  if (!Reader) return <CantTest p={p} reason="This browser has no access to the phone's NFC reader." />;
+  if (!Reader) return <CantTest p={p} reason="This browser can't reach NFC." />;
 
   const detail = { method: "web-nfc", detected: found, error: err, runtime: "browser" };
 
@@ -146,12 +146,12 @@ function NfcWeb(p: TestProps) {
   };
 
   if (phase === "error" && err === "NotSupportedError") {
-    return <CantTest p={p} reason="The browser can't reach an NFC reader on this phone." detail={{ error: err }} />;
+    return <CantTest p={p} reason="This browser can't reach NFC." detail={{ error: err }} />;
   }
 
   const auto: Result | null = phase === "found" ? "pass" : null;
   return (
-    <TestShell {...p} instructions="Tap Start, then hold any contactless card (bank, metro, ID) or NFC tag flat against the back of the phone, near the top." autoVerdict={auto} detail={detail}>
+    <TestShell {...p} instructions="Tap Start, then hold a contactless card to the back." autoVerdict={auto} detail={detail}>
       <View style={s.wrap}>
         <BigEmoji>{phase === "found" ? "✅" : "💳"}</BigEmoji>
         {phase === "scanning" ? (
@@ -164,8 +164,8 @@ function NfcWeb(p: TestProps) {
         ) : (
           <>
             {phase === "timeout" ? <Say center>Nothing detected in {SCAN_SECONDS} s. Move the card around the back of the phone and try again — or press Fail.</Say> : null}
-            {phase === "denied" ? <Say center>NFC was blocked for this page. Allow it (tap the lock next to the address), then try again — or skip.</Say> : null}
-            {phase === "off" ? <Say center>NFC looks switched off. Turn it on in Settings → Connected devices → NFC, then try again.</Say> : null}
+            {phase === "denied" ? <Say center>NFC blocked — allow it by the address, or skip.</Say> : null}
+            {phase === "off" ? <Say center>Turn NFC on in Settings, then try again.</Say> : null}
             {phase === "error" ? <Say center>NFC wouldn't start{err ? ` (${err})` : ""}. Try again.</Say> : null}
             <Big title={phase === "idle" ? "Start" : "Try again"} onPress={start} />
           </>

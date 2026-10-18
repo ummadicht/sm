@@ -77,7 +77,7 @@ export function SpeakerTest(p: TestProps) {
   };
 
   return (
-    <TestShell {...p} instructions="Turn the volume up (and silent mode off). Play the sound, then tap how many beeps you heard." hideManual detail={{ wrongGuesses: wrong, method: "html-audio", playError: playErr, runtime: "browser" }}>
+    <TestShell {...p} instructions="Volume up. Play it, then tap how many beeps." hideManual detail={{ wrongGuesses: wrong, method: "html-audio", playError: playErr, runtime: "browser" }}>
       <View style={s.wrap}>
         <BigEmoji>🔊</BigEmoji>
         <Big title={played ? "Play again" : "Play sound"} kind="secondary" onPress={play} />

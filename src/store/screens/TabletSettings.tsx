@@ -60,13 +60,13 @@ export function StoreTabletCard({
     setActionErr(null);
     // A tablet whose key is gone after a reload would leave an enrolled tablet that nothing holds.
     if (!canKeepDevice()) {
-      setActionErr("This browser can't keep the tablet's key after a reload. Turn off private browsing (and on an iPad, Settings › Safari › Block All Cookies), then try again.");
+      setActionErr("This browser can't keep the key — turn off private browsing.");
       return;
     }
     setEnrolling(true);
     try {
       const r = await api.post<StoreDeviceCreated>("/api/store-devices", { name: name.trim() });
-      if (!r || typeof r.deviceToken !== "string" || !r.device?.id) throw new Error("The server didn't send the tablet's key. Try again.");
+      if (!r || typeof r.deviceToken !== "string" || !r.device?.id) throw new Error("No tablet key came back. Try again.");
       await onUseAsTablet(r);
     } catch (e) {
       setActionErr(errText(e));
@@ -78,11 +78,11 @@ export function StoreTabletCard({
     setNameErr(problem);
     if (problem) return;
     Alert.alert(
-      "Use this device as the store tablet?",
-      `You'll be signed out here. From then on everyone at ${storeName} taps their name and types their PIN to use it.`,
+      "Make this the store tablet?",
+      `Staff at ${storeName} then sign in with their PIN.`,
       [
         { text: "Not now", style: "cancel" },
-        { text: "Use as store tablet", onPress: () => void enrol() },
+        { text: "Use it", onPress: () => void enrol() },
       ],
     );
   }
@@ -104,13 +104,13 @@ export function StoreTabletCard({
     }
   }
   function confirmRemove(d: StoreDevice) {
-    Alert.alert(`Remove “${d.name}”?`, "It stops working straight away. A manager can set it up again from Settings on that device.", [
+    Alert.alert(`Remove “${d.name}”?`, "It stops working at once.", [
       { text: "Keep it", style: "cancel" },
       { text: "Remove", style: "destructive", onPress: () => void revoke(d.id) },
     ]);
   }
   function confirmStop() {
-    Alert.alert("Stop using this device as the store tablet?", "Staff won't be able to pick their name here any more. This device goes back to the sign-in screen.", [
+    Alert.alert("Stop being the store tablet?", "This device goes back to sign-in.", [
       { text: "Keep it", style: "cancel" },
       {
         text: "Stop using it",
@@ -132,10 +132,10 @@ export function StoreTabletCard({
     <Card style={{ gap: 12 }}>
       <H2>{thisDevice ? "Store tablets" : "Store tablet"}</H2>
       {thisDevice ? (
-        <Body muted>{`This device is ${storeName}'s tablet${thisDevice.name ? ` (“${thisDevice.name}”)` : ""}. Staff tap their name and type their PIN. Remove a tablet that's lost or replaced — it stops working at once.`}</Body>
+        <Body muted>{`This is ${storeName}'s tablet${thisDevice.name ? ` (“${thisDevice.name}”)` : ""}.`}</Body>
       ) : (
         <>
-          <Body muted>Leave a tablet at the counter signed in for the store. Each advisor taps their name and types a 4-digit PIN — no password every day, and every trade-in still shows who did it.</Body>
+          <Body muted>Staff tap their name and type a 4-digit PIN.</Body>
           <Field
             label="Tablet name"
             value={name}
@@ -143,10 +143,10 @@ export function StoreTabletCard({
             autoCapitalize="sentences"
             maxLength={40}
             error={nameErr}
-            hint="So you can tell your tablets apart, like “Counter tablet 1”."
+            hint="e.g. “Counter tablet 1”"
             editable={!enrolling}
           />
-          <Btn title="Use this device as the store tablet" onPress={confirmEnrol} busy={enrolling} />
+          <Btn title="Make store tablet" onPress={confirmEnrol} busy={enrolling} />
         </>
       )}
 
@@ -177,7 +177,7 @@ export function StoreTabletCard({
 
       {thisDevice ? (
         <Btn
-          title="Stop using this device as the store tablet"
+          title="Stop being the tablet"
           kind="danger"
           onPress={confirmStop}
           busy={!!thisDevice.id && busyId === thisDevice.id}
@@ -225,7 +225,7 @@ export function ChangePin({ api }: { api: StaffClient }) {
     setError(null);
     setSaved(false);
     if (!password) {
-      setError("Type your SwapUp password — the one you sign in to the desk with.");
+      setError("Type your SwapUp password.");
       return;
     }
     const problem = newPinProblem(pin, repeat);
@@ -249,8 +249,8 @@ export function ChangePin({ api }: { api: StaffClient }) {
   return (
     <Card style={{ gap: 12 }}>
       <H2>My PIN</H2>
-      <Body muted>Your 4-digit PIN unlocks the store tablet: tap your name, type the PIN.</Body>
-      {saved ? <Banner tone="up" title="PIN saved. Use it on the store tablet from now on." /> : null}
+      <Body muted>Unlocks the store tablet.</Body>
+      {saved ? <Banner tone="up" title="PIN saved." /> : null}
       {open ? (
         <View style={{ gap: 16 }}>
           <Field
@@ -272,7 +272,7 @@ export function ChangePin({ api }: { api: StaffClient }) {
             keyboardType="number-pad"
             maxLength={PIN_LENGTH}
             autoComplete="off"
-            hint="4 digits. Not one digit four times, and not a run like 1234."
+            hint="4 digits — not 1111 or 1234."
             error={pinErr}
             editable={!busy}
           />

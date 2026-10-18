@@ -27,7 +27,7 @@ export function CounterQrCard({ api, storeName, canManage }: { api: StaffClient;
   const take = useCallback(
     (r: unknown): Code => {
       const c = readCounterCode(r);
-      if (!c) throw new Error("The server's answer about the counter code didn't make sense. Try again.");
+      if (!c) throw new Error("Bad answer from the server. Try again.");
       return { code: c.code, joinUrl: absolute(api.base, c.joinUrl ?? `/j/${c.code}`) };
     },
     [api.base]
@@ -62,10 +62,10 @@ export function CounterQrCard({ api, storeName, canManage }: { api: StaffClient;
   function confirmRegenerate() {
     Alert.alert(
       "Make a new counter code?",
-      "The printed QR and the old code stop starting new checks straight away (checks already running carry on). Print the new one and swap it at the counter.",
+      "The printed QR stops working at once.",
       [
-        { text: "Keep this code", style: "cancel" },
-        { text: "Make a new code", style: "destructive", onPress: regenerate },
+        { text: "Keep it", style: "cancel" },
+        { text: "New code", style: "destructive", onPress: regenerate },
       ]
     );
   }
@@ -84,13 +84,10 @@ export function CounterQrCard({ api, storeName, canManage }: { api: StaffClient;
   return (
     <Card>
       <H2>Counter QR</H2>
-      <Body muted>
-        Customers can start a trade-in on their own: they scan this with their phone's camera, and their check appears on Home under Open tests. Print it for the
-        counter.
-      </Body>
+      <Body muted>Customers scan it to start on their own.</Body>
       {renewed ? (
         <Banner tone="up" title="New code made">
-          The old printout no longer starts new checks. Print this one and swap it at the counter.
+          Print it and swap the old one.
         </Banner>
       ) : null}
       {code === undefined ? (
@@ -103,7 +100,7 @@ export function CounterQrCard({ api, storeName, canManage }: { api: StaffClient;
         )
       ) : code === null ? (
         <Banner tone="muted" title="Not on this server yet">
-          This SwapUp server doesn't have counter QR codes yet. Start trade-ins from Home as usual.
+          Start trade-ins from Home.
         </Banner>
       ) : (
         <View style={{ alignItems: "center", gap: 8 }}>
@@ -126,10 +123,10 @@ export function CounterQrCard({ api, storeName, canManage }: { api: StaffClient;
             <Btn title={PRINT_LABEL} onPress={print} busy={busy === "print"} disabled={!!busy && busy !== "print"} />
             <Text style={{ color: L.muted, fontSize: 14, lineHeight: 20 }}>{PRINT_HINT}</Text>
             <Btn title="New code" kind="secondary" onPress={confirmRegenerate} busy={busy === "new"} disabled={!!busy && busy !== "new"} style={{ marginTop: 6 }} />
-            <Text style={{ color: L.muted, fontSize: 14, lineHeight: 20 }}>Only if the printout is lost or misused — the old code stops starting new checks.</Text>
+            <Text style={{ color: L.muted, fontSize: 14, lineHeight: 20 }}>Only if the printout is lost.</Text>
           </View>
         ) : (
-          <Body muted>Only a store manager can print it or make a new code.</Body>
+          <Body muted>Managers print it.</Body>
         )
       ) : null}
       {actionErr ? <Banner tone="bad" title={actionErr.title}>{actionErr.text}</Banner> : null}

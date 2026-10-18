@@ -1,5 +1,5 @@
 // The answer screen's bottom sheets (./Offer.tsx): the new phone, the refurb quote, the
-// cover, the partner's quote typed from the Cashify app, "Customer will repair",
+// cover, the partner's quote typed from the partner's app, "Customer will repair",
 // "Customer walked away", and "Why this answer". Each sends ONE change through the
 // screen's write queue (a PATCH or an action) and closes when the server took it; a
 // refusal stays in the sheet, in the server's own words, so nothing looks saved that isn't.
@@ -32,7 +32,7 @@ type NewDevice = { id: string; brand: string; model: string; series: string; var
 /** GET /api/catalog/new-devices, read defensively: a row without an id, a model or a price is left out. */
 function readDevices(x: unknown): NewDevice[] {
   const list = x && typeof x === "object" ? (x as { devices?: unknown }).devices : null;
-  if (!Array.isArray(list)) throw new Error("The server's list of new phones didn't make sense.");
+  if (!Array.isArray(list)) throw new Error("Bad phone list from the server.");
   return list
     .map((d) => {
       const o = d && typeof d === "object" ? (d as Record<string, unknown>) : null;
@@ -134,7 +134,7 @@ export function NewPhoneSheet({
       visible={visible}
       onClose={onClose}
       title="Choose the new phone"
-      lead={current?.suggested && current.why ? `Suggested: ${current.why}` : "The bonus and what the customer pays follow the phone you choose."}
+      lead={current?.suggested && current.why ? `Suggested: ${current.why}` : "The bonus follows the phone."}
     >
       <Problem text={err} />
       {loadErr ? (
@@ -143,9 +143,9 @@ export function NewPhoneSheet({
           <QuietLink title="Try again" onPress={() => setAttempt((n) => n + 1)} />
         </View>
       ) : list === null ? (
-        <Text style={{ color: L.muted, fontSize: 16, marginTop: 14 }}>Loading the new phones…</Text>
+        <Text style={{ color: L.muted, fontSize: 16, marginTop: 14 }}>Loading…</Text>
       ) : list.length === 0 ? (
-        <Notice style={{ marginTop: 14 }}>There are no new phones in this programme's catalogue. Ask the programme to add them.</Notice>
+        <Notice style={{ marginTop: 14 }}>No new phones in the catalogue yet.</Notice>
       ) : (
         <View style={{ gap: 10, marginTop: 16 }}>
           {allSeries.length > 1 ? <Segmented options={allSeries.map((x) => ({ value: x, label: x }))} value={shown} onChange={setSeries} /> : null}
@@ -165,8 +165,14 @@ export function NewPhoneSheet({
 
 // ── refurb quote (what the CUSTOMER pays to fix it) ─────────────────────────
 
-/** Where a typed repair quote comes from. Each is longer than the server's 8-character minimum reason. */
+/** Where a typed repair quote comes from. Each is longer than the server's 8-character minimum reason (it is the reason sent). */
 export const REFURB_SOURCES = ["Bench quote at this centre", "Service centre job sheet", "Customer's quote from another shop"] as const;
+/** The chip each source shows (the full source stays the reason the server stores). */
+const REFURB_CHIP: Record<(typeof REFURB_SOURCES)[number], string> = {
+  "Bench quote at this centre": "Bench quote",
+  "Service centre job sheet": "Job sheet",
+  "Customer's quote from another shop": "Outside quote",
+};
 
 /** A manual quote's detail is `Quote: <reason>` (spec §3.2): read back the source chip and the job-sheet number. */
 function manualFrom(repair: Offer["repair"]): { amount: string; source: string; jobNo: string } {
@@ -196,7 +202,7 @@ export function RefurbQuoteSheet({ visible, onClose, repair, save }: { visible: 
   }, [visible]);
 
   const n = rupees(amount);
-  const problem = n === null ? "Enter the repair quote in whole rupees." : n > MAX_RUPEES ? "Whole rupees, up to ₹5,00,000." : !source ? "Choose where the quote comes from." : null;
+  const problem = n === null ? "Enter the quote in rupees." : n > MAX_RUPEES ? "Up to ₹5,00,000." : !source ? "Choose the source." : null;
 
   async function submit(patch: Record<string, unknown>) {
     setErr(null);
@@ -212,11 +218,11 @@ export function RefurbQuoteSheet({ visible, onClose, repair, save }: { visible: 
       visible={visible}
       onClose={onClose}
       title="Enter the repair quote"
-      lead="What fixing this phone costs the customer. It replaces SwapUp's estimate."
+      lead="What the customer pays to fix it."
       footer={
         <>
           <PillButton
-            title={busy ? "Saving…" : "Save the repair quote"}
+            title={busy ? "Saving…" : "Save quote"}
             busy={busy}
             disabled={!!problem}
             onPress={() => {
@@ -237,13 +243,12 @@ export function RefurbQuoteSheet({ visible, onClose, repair, save }: { visible: 
           keyboardType="number-pad"
           inputMode="numeric"
           placeholder="e.g. 9000"
-          hint="Whole rupees, up to ₹5,00,000."
-          error={n !== null && n > MAX_RUPEES ? "Whole rupees, up to ₹5,00,000." : null}
+          error={n !== null && n > MAX_RUPEES ? "Up to ₹5,00,000." : null}
           accessibilityLabel="Repair quote in rupees"
         />
         <View style={{ gap: 8 }}>
-          <Label>Where it comes from</Label>
-          <Segmented options={REFURB_SOURCES.map((x) => ({ value: x, label: x }))} value={source} onChange={setSource} />
+          <Label>Source</Label>
+          <Segmented options={REFURB_SOURCES.map((x) => ({ value: x, label: REFURB_CHIP[x] }))} value={source} onChange={setSource} />
         </View>
         <Field label="Job-sheet number (optional)" value={jobNo} onChangeText={(t) => setJobNo(t.slice(0, 40))} autoCapitalize="characters" autoCorrect={false} placeholder="e.g. JS-20481" />
       </View>
@@ -287,7 +292,7 @@ export function CoverSheet({ visible, onClose, coverage, save }: { visible: bool
   );
 }
 
-// ── the partner's quote, read off the Cashify app ───────────────────────────
+// ── the partner's quote, read off the partner's app ─────────────────────────
 
 export function PartnerQuoteSheet({ visible, onClose, save }: { visible: boolean; onClose: () => void; save: SaveFn }) {
   const [amount, setAmount] = useState("");
@@ -309,11 +314,11 @@ export function PartnerQuoteSheet({ visible, onClose, save }: { visible: boolean
   // The server's own sentences (updateCase, partnerQuote).
   const problem =
     n === null || n <= 0 || n > MAX_RUPEES
-      ? "Enter the partner's quote as a whole rupee amount."
+      ? "Enter the quote in rupees."
       : !refOk
-        ? "Enter the reference code the partner's app shows for this quote."
+        ? "Enter the quote's reference code."
         : rep !== null && rep < n
-          ? "The repaired value must be a whole rupee amount, at least the as-is quote."
+          ? "Repaired value must be at least the as-is price."
           : null;
 
   async function submit() {
@@ -330,8 +335,8 @@ export function PartnerQuoteSheet({ visible, onClose, save }: { visible: boolean
     <Sheet
       visible={visible}
       onClose={onClose}
-      title="Enter the Cashify quote"
-      lead="Price this phone in the Cashify app, then type its as-is price and the quote's reference code."
+      title="Enter the partner's quote"
+      lead="Price it in the partner's app, then type it here."
       footer={<PillButton title={busy ? "Saving…" : "Save the quote"} busy={busy} disabled={!!problem} onPress={() => void submit()} />}
     >
       <View style={{ gap: 16, marginTop: 18 }}>
@@ -342,8 +347,7 @@ export function PartnerQuoteSheet({ visible, onClose, save }: { visible: boolean
           onChangeText={(t) => setReference(t.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 40))}
           autoCapitalize="characters"
           autoCorrect={false}
-          placeholder="e.g. CFY-82731"
-          hint="Letters, digits and dashes, as the app shows it."
+          placeholder="e.g. PQ-82731"
         />
         <Field
           label="Repaired value (optional)"
@@ -351,7 +355,7 @@ export function PartnerQuoteSheet({ visible, onClose, save }: { visible: boolean
           onChangeText={(t) => setRepaired(rupeesInput(t))}
           keyboardType="number-pad"
           inputMode="numeric"
-          placeholder="What Cashify pays once it is repaired"
+          placeholder="Partner's repaired price"
         />
       </View>
       {(amount || reference) && problem ? <Text style={{ color: L.muted, fontSize: 14, lineHeight: 20, marginTop: 12 }}>{problem}</Text> : null}
@@ -373,7 +377,7 @@ export function RepairConfirmSheet({ visible, onClose, act }: { visible: boolean
       visible={visible}
       onClose={onClose}
       title="Customer will repair"
-      lead="This closes the case. Book the repair in the service centre's job system."
+      lead="Closes the case — book it in the job system."
       footer={
         <>
           <PillButton
@@ -413,7 +417,7 @@ export function WalkAwaySheet({ visible, onClose, act }: { visible: boolean; onC
       visible={visible}
       onClose={onClose}
       title="Customer walked away"
-      lead="This closes the case. Why, if the customer said:"
+      lead="Closes the case. Reason, if given:"
       footer={
         <>
           <PillButton

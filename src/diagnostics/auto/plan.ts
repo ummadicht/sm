@@ -2,8 +2,9 @@
 //   auto      — run by themselves, one progress bar, no questions
 //   actions   — the only two things the customer does: swipe the grid, plug in the charger
 //   notInRun  — recorded as skip "not in the automatic run" (multitouch, buttons)
-//   server    — not posted by the phone (display: GradeIQ's camera LCD sweep decides;
-//               battery_health: the server records what GradeIQ read off the screenshot)
+//   server    — not posted by the phone (display: GradeIQ's camera LCD sweep decides, or the
+//               advisor certifies it in SwapUp Store; battery_health: the server records
+//               what GradeIQ read off the screenshot). The browser check leaves them out too.
 //   unknown   — ids this app version doesn't know → "unsupported", never silently missing
 // No runtime imports — node --test runs it.
 
@@ -46,7 +47,7 @@ export type NativeStep = "identify" | "scan" | "battery" | "auto" | "actions" | 
 export type NativeProgress = {
   /** The Identify step is done (or the check began before it existed). */
   identified: boolean;
-  /** The Scan screen has ended: the camera finished, the customer skipped it, or it was unavailable. */
+  /** The Scan screen has ended: the camera finished, the advisor went on without it, or it was unavailable. */
   scanned: boolean;
   /** The battery screenshot step has ended — or this check has none. */
   battery: boolean;
@@ -54,10 +55,11 @@ export type NativeProgress = {
 
 /**
  * Where a (resumed) native check is — GradeIQ v2's order, the phone leading
- * (swapup docs/PHONE-LED-FLOW.md): Identify → Scan (the store's camera, vision
- * first) → battery screenshot → the automatic tests → the two actions → done.
- * The customer now waits on the Scan screen for the advisor; that wait is capped
- * by the 90 s "Skip the camera check" (./pairing). `display` and
+ * (swapup docs/PHONE-LED-FLOW.md): Identify (an unrecognised phone only) → Scan
+ * (the store's camera, vision first) → battery screenshot → the automatic tests →
+ * the two actions → done. The customer waits on the Scan screen for the advisor,
+ * who scans it or taps "Continue without camera" — the customer is not asked
+ * (./pairing; an older server still gets the 90 s skip). `display` and
  * `battery_health` are never waited for — the server decides them.
  */
 export function nativeStep(p: NativeProgress, results: Record<string, unknown>, plan: NativePlan): NativeStep {

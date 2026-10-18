@@ -133,7 +133,7 @@ export function AutoRunner({ all, todo, names, existing, onResult, onDone, statu
     <View style={s.root}>
       <View style={s.head}>
         <Headline>Testing your phone…</Headline>
-        <Lead>Leave it on the counter — the checks run by themselves.</Lead>
+        <Lead>Leave it on the counter.</Lead>
         <ProgressBar value={pct} style={{ marginTop: 22 }} />
         <View style={s.barRow}>
           <Text style={s.count}>

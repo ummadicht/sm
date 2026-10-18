@@ -4,7 +4,7 @@
 // (src/shared/kit): one headline, one sentence, one visual, one pill button
 // docked at the bottom, at most one quiet link; the rest goes in a sheet.
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Linking, StyleSheet, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { P } from "../shared/theme";
 import { IS_WEB } from "../shared/config";
@@ -30,13 +30,16 @@ import {
   TickArt,
   Wordmark,
 } from "../shared/kit";
-import { Big, Say } from "../diagnostics/parts";
+import { Say } from "../diagnostics/parts";
 import { TEST_COMPONENTS } from "../diagnostics/tests";
 import { testById, type FunctionalTest } from "../diagnostics/catalog";
-import type { Snapshot } from "./engine";
+import { APPLIED_MESSAGE, type Snapshot } from "./engine";
 import { ClearDataGuide } from "./ClearDataGuide";
-import { BATTERY_HEALTH_ID, checkImei, cleanCode, countResults, isValidCode, parseJoinTarget, type CheckState, type Declared, type Outcome, type PlanItem } from "./core";
+import { cleanCode, countResults, isValidCode, parseJoinTarget, type CheckState, type Outcome, type PlanItem } from "./core";
+import { SERVER_DECIDES } from "../diagnostics/auto/plan";
 import { batteryResultText } from "./battery";
+import { type CustomerReport, customerReport } from "./report";
+import { PRIVACY_LINE } from "./copy";
 
 /* ─────────────────────────── shared bits ─────────────────────────── */
 
@@ -46,19 +49,39 @@ export function SyncBadge({ snap, center }: { snap: Snapshot; center?: boolean }
   let text = "Sent to the store ✓";
   let color = P.pass;
   if (phase === "offline") {
-    text = unsent ? `Waiting for Wi‑Fi… ${unsent} result${unsent === 1 ? "" : "s"} saved on this phone` : "Waiting for Wi‑Fi…";
+    text = unsent ? `Waiting for Wi‑Fi… ${unsent} saved` : "Waiting for Wi‑Fi…";
     color = P.warn;
   } else if (phase === "sending" || unsent > 0) {
     text = "Sending to the store…";
     color = P.muted;
   } else if (phase === "rejected") {
-    text = message || "The store did not accept a result — tell the advisor.";
+    text = message || "A result was refused — tell the advisor.";
     color = P.fail;
-  } else if (phase === "ended") {
+  } else if (phase === "ended" && message !== APPLIED_MESSAGE) {
+    // Applied is a finish, not an error: the results are with the store.
     text = message || "This check has ended.";
     color = P.fail;
   }
   return <Text style={[st.sync, { color }, center && { textAlign: "center" }]}>{text}</Text>;
+}
+
+/**
+ * "See the grade report": the public grade report in the phone's own browser, once the
+ * store has applied the results (grading spec §5). It explains what was tested and why the
+ * phone got its SwapUp grade; it never shows a price. A small outline pill, not a second quiet link.
+ */
+export function ReportLink({ report, style }: { report: CustomerReport | null; style?: React.ComponentProps<typeof PillButton>["style"] }) {
+  if (!report) return null;
+  return (
+    <PillButton
+      title="See the grade report"
+      kind="outline"
+      size="sm"
+      arrow
+      onPress={() => void Linking.openURL(report.url).catch(() => {})}
+      style={{ alignSelf: "center", ...style }}
+    />
+  );
 }
 
 /* ─────────────────────────── 1. join ─────────────────────────── */
@@ -88,7 +111,7 @@ export function JoinScreen({
     if (!perm?.granted) {
       const r = await requestPerm();
       if (!r.granted) {
-        setScanNote("The camera is needed to scan the store's QR code. You can type the code instead.");
+        setScanNote("No camera access — type the code instead.");
         return;
       }
     }
@@ -107,11 +130,11 @@ export function JoinScreen({
             if (handled.current) return;
             const t = parseJoinTarget(data);
             if (!t) {
-              setScanNote("That QR code isn't a SwapUp code. Scan the one the advisor shows under “Test your phone”.");
+              setScanNote("Not a SwapUp code — scan “Test your phone”.");
               return;
             }
             if (t.kind === "wifi") {
-              setScanNote("That's the store's Wi‑Fi QR. Join it with your phone's camera app, then scan the “Test your phone” QR here.");
+              setScanNote("That's the Wi‑Fi QR — join it with your camera first.");
               return;
             }
             handled.current = true;
@@ -122,8 +145,8 @@ export function JoinScreen({
         />
         <View style={st.scanBar}>
           {scanNote ? <Notice tone="warn" style={{ marginBottom: 12 }}>{scanNote}</Notice> : null}
-          <Text style={st.scanText}>Point the camera at the QR code the advisor shows you.</Text>
-          <PillButton title="Type the code instead" kind="outline" arrow={false} onPress={() => setScanning(false)} />
+          <Text style={st.scanText}>Point at the advisor's QR code.</Text>
+          <PillButton title="Type the code" kind="outline" arrow={false} onPress={() => setScanning(false)} />
         </View>
       </View>
     );
@@ -134,22 +157,22 @@ export function JoinScreen({
       footer={
         <>
           <PillButton
-            title={busy ? "Connecting…" : typed ? "Connect" : "Scan the store's QR code"}
+            title={busy ? "Connecting…" : typed ? "Connect" : "Scan the QR code"}
             onPress={typed ? () => onJoin(code, null) : () => void startScan()}
             disabled={typed && !valid}
             busy={busy}
           />
           {typed ? (
-            <QuietLink title="Scan the QR code instead" onPress={() => void startScan()} disabled={busy} />
+            <QuietLink title="Scan instead" onPress={() => void startScan()} disabled={busy} />
           ) : (
-            <QuietLink title="No internet on this phone?" onPress={() => setWifiHelp(true)} />
+            <QuietLink title="No internet?" onPress={() => setWifiHelp(true)} />
           )}
         </>
       }
     >
       <Wordmark />
       <Headline>Connect to the store</Headline>
-      <Lead>Scan the QR code the advisor shows you, or type the 6-letter code.</Lead>
+      <Lead>Scan the advisor's QR, or type the code.</Lead>
       <Hero minHeight={150}>
         <ScanArt width={210} />
       </Hero>
@@ -172,8 +195,8 @@ export function JoinScreen({
       <Sheet
         visible={wifiHelp}
         onClose={() => setWifiHelp(false)}
-        title="No internet on this phone?"
-        lead="Ask the advisor for the store's Wi‑Fi QR code and scan it with your camera app first. Then come back here."
+        title="No internet?"
+        lead="Scan the store's Wi‑Fi QR with your camera, then come back."
         footer={<PillButton title="Got it" onPress={() => setWifiHelp(false)} />}
       />
     </Screen>
@@ -188,107 +211,26 @@ export function WelcomeScreen({ state, onConsent, onLeave }: { state: CheckState
     <Screen
       topRight={
         <HelpButton title="What happens" label="What happens in this check">
-          <Say muted>
-            Say which phone it is, let the advisor&apos;s tablet photograph it, then {n} quick tests — touch, screen, sound, cameras, charging and more. Each
-            result goes straight to the advisor, so they can price your trade-in and any repair.
-          </Say>
+          <Say muted>The store photographs your phone, then {n} quick tests run.</Say>
           <Gap h={12} />
-          <Say muted>
-            The camera and microphone tests ask for permission. A test you can&apos;t or don&apos;t want to do can be skipped — it is then marked &quot;not
-            tested&quot;, never &quot;passed&quot;.
-          </Say>
+          <Say muted>A skipped test is marked &quot;not tested&quot;, never &quot;passed&quot;.</Say>
         </HelpButton>
       }
       footer={
         <>
           <PillButton title="Start" onPress={onConsent} />
-          <QuietLink title="This isn't my store / wrong code" onPress={onLeave} />
+          <QuietLink title="Wrong store?" onPress={onLeave} />
           <Caption style={{ marginTop: 0 }}>Trade-in {state.session.caseRef}</Caption>
         </>
       }
     >
       <Wordmark store={state.session.storeName} />
       <Headline>Let&apos;s check your phone</Headline>
-      <Lead>About 5 minutes. Each result goes straight to the advisor.</Lead>
+      <Lead>About 5 minutes.</Lead>
       <Hero>
         <ChecklistArt width={130} ticked={2} />
       </Hero>
-      <Caption>
-        Nothing personal is read. No photos, contacts, messages or accounts leave this phone — only the test results, the phone model
-        {IS_WEB ? " and the battery level." : " and its storage size."}
-      </Caption>
-    </Screen>
-  );
-}
-
-/* ─────────────────────────── 3. questions ─────────────────────────── */
-
-function YesNo({ label, value, onChange }: { label: string; value: boolean | null; onChange: (v: boolean) => void }) {
-  return (
-    <View style={{ marginBottom: 20 }}>
-      <Text style={st.question}>{label}</Text>
-      <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
-        <Big title="Yes" kind={value === true ? "fail" : "secondary"} onPress={() => onChange(true)} style={{ flex: 1 }} />
-        <Big title="No" kind={value === false ? "pass" : "secondary"} onPress={() => onChange(false)} style={{ flex: 1 }} />
-      </View>
-    </View>
-  );
-}
-
-/**
- * The browser's damage questions. `askImei`: false once the Identify step has
- * asked for it — its answers (IMEI, the phone confirmed or picked, contact) are
- * kept and sent again with these, since the server keeps one declaration.
- */
-export function QuestionsScreen({ initial, askImei = true, onDone }: { initial: Declared | null; askImei?: boolean; onDone: (d: Declared) => void }) {
-  const [screen, setScreen] = useState<boolean | null>(initial?.screenCracked ?? null);
-  const [back, setBack] = useState<boolean | null>(initial?.backCracked ?? null);
-  const [liquid, setLiquid] = useState<boolean | null>(initial?.liquid ?? null);
-  const [imei, setImei] = useState(initial?.imei ?? "");
-  const ic = checkImei(imei);
-  const answered = screen !== null && back !== null && liquid !== null;
-  const imeiOk = !askImei || ic.ok !== false;
-  return (
-    <Screen
-      footer={
-        <>
-          <PillButton
-            title="Continue to the tests"
-            disabled={!answered || !imeiOk}
-            onPress={() =>
-              onDone({
-                ...initial,
-                screenCracked: screen,
-                backCracked: back,
-                liquid,
-                imei: askImei ? (ic.ok === true ? ic.imei : null) : initial?.imei ?? null,
-              })
-            }
-          />
-          {!answered ? <Caption style={{ marginTop: 0 }}>Answer the three questions to continue.</Caption> : null}
-        </>
-      }
-    >
-      <Headline>A few questions</Headline>
-      <Lead>What a phone can&apos;t test on itself.</Lead>
-      <Gap h={26} />
-      <YesNo label="Is the screen glass cracked?" value={screen} onChange={setScreen} />
-      <YesNo label="Is the back glass cracked?" value={back} onChange={setBack} />
-      <YesNo label="Has the phone been in water or other liquid?" value={liquid} onChange={setLiquid} />
-      {askImei ? (
-        <>
-          <Label style={{ marginTop: 6 }}>IMEI (optional)</Label>
-          <Caption center={false} style={{ marginTop: 0, marginBottom: 10 }}>
-            Dial *#06# — the phone shows its IMEI. Type the 15 digits, or leave it for the advisor.
-          </Caption>
-          <Field big="digits" value={imei} onChangeText={(t) => setImei(t.replace(/\D/g, "").slice(0, 15))} keyboardType="number-pad" placeholder="15 digits" accessibilityLabel="IMEI" />
-          {ic.ok === false ? (
-            <Caption center={false} tone="fail" style={{ fontWeight: "600" }}>
-              {ic.message}
-            </Caption>
-          ) : null}
-        </>
-      ) : null}
+      <Caption>{PRIVACY_LINE}</Caption>
     </Screen>
   );
 }
@@ -297,14 +239,16 @@ export function QuestionsScreen({ initial, askImei = true, onDone }: { initial: 
 
 /**
  * The plan's tests this browser can run, and the ones it can't (reported as
- * such). battery_health is neither: it is the battery screenshot step, whose
- * result the server records itself.
+ * such). The server's own are neither (../diagnostics/auto/plan.ts SERVER_DECIDES):
+ * battery_health is the battery screenshot step, whose result the server records,
+ * and display is the store camera's sweep or the advisor's certification — the
+ * customer is never asked whether the screen looked clean.
  */
 export function supportedPlan(plan: PlanItem[]): { runnable: PlanItem[]; unsupported: PlanItem[] } {
   const runnable: PlanItem[] = [];
   const unsupported: PlanItem[] = [];
   for (const p of plan) {
-    if (p.id === BATTERY_HEALTH_ID) continue;
+    if ((SERVER_DECIDES as readonly string[]).includes(p.id)) continue;
     (TEST_COMPONENTS[p.id] && testById(p.id) ? runnable : unsupported).push(p);
   }
   return { runnable, unsupported };
@@ -358,8 +302,8 @@ export function RunnerScreen({
           style={st.quit}
           accessibilityRole="button"
           onPress={() =>
-            Alert.alert("Stop testing?", "Your results so far are kept. You can carry on later from where you stopped.", [
-              { text: "Keep testing", style: "cancel" },
+            Alert.alert("Pause testing?", "Your results so far are kept.", [
+              { text: "Keep going", style: "cancel" },
               { text: "Stop", style: "destructive", onPress: onQuit },
             ])
           }
@@ -387,6 +331,12 @@ export function RunnerScreen({
 
 /* ─────────────────────────── 5. done ─────────────────────────── */
 
+/**
+ * The one finish screen. Before the store applies the results: "Checks complete". After —
+ * whether this screen saw it happen or the app was reopened on a check that ended that way
+ * (state.ended === APPLIED_MESSAGE, the status read again by engine.readAppliedStatus) — the
+ * same screen reads "The store has your results", with the SwapUp grade and the report link.
+ */
 export function DoneScreen({
   snap,
   onRerun,
@@ -399,7 +349,9 @@ export function DoneScreen({
   const s = snap.state!;
   const c = countResults(s.session.plan, s.results);
   const remote = snap.remote;
-  const applied = remote?.status === "applied";
+  const applied = remote?.status === "applied" || s.ended === APPLIED_MESSAGE;
+  // The grade and the report link, once the store has applied the results and sent them.
+  const report = applied ? customerReport(remote, s.server) : null;
   const redo = s.session.plan.filter((p) => {
     const o = s.results[p.id]?.outcome;
     return (o === "fail" || o === "skip") && TEST_COMPONENTS[p.id];
@@ -411,24 +363,30 @@ export function DoneScreen({
     { label: "Failed", value: String(c.failed), tone: c.failed ? "fail" : undefined },
     { label: "Skipped", value: String(c.skipped), tone: c.skipped ? "warn" : undefined },
   ];
-  if (c.unsupported) rows.push({ label: IS_WEB ? "Can't test in this browser" : "Can't run on this phone", value: String(c.unsupported), tone: "muted" });
-  if (photos) rows.push({ label: "Screen and glass", value: photos === "handoff" || photos === "grace" ? "checked by the store's camera" : "checked by eye", tone: "muted" });
+  if (c.unsupported) rows.push({ label: IS_WEB ? "Not in this browser" : "Not on this phone", value: String(c.unsupported), tone: "muted" });
+  if (photos) rows.push({ label: "Screen and glass", value: photos === "handoff" || photos === "grace" ? "Store camera" : "Advisor", tone: "muted" });
   if (s.battery) rows.push({ label: "Battery health", value: batteryResultText(s.battery), tone: "muted" });
+  if (report?.grade) rows.push({ label: "SwapUp grade", value: report.grade });
   return (
     <Screen
       footer={
-        <>
-          {redo.length && !applied ? (
-            <PillButton title={`Run ${redo.length === 1 ? "that test" : `those ${redo.length} tests`} again`} kind="outline" onPress={() => onRerun(redo.map((p) => p.id))} />
-          ) : null}
-          <QuietLink title="Finish and start a new check" onPress={onNewCheck} />
-        </>
+        applied ? (
+          <PillButton title="Test another phone" onPress={onNewCheck} />
+        ) : (
+          <>
+            {redo.length ? (
+              <PillButton title={`Retry ${redo.length === 1 ? "1 test" : `${redo.length} tests`}`} kind="outline" onPress={() => onRerun(redo.map((p) => p.id))} />
+            ) : null}
+            <QuietLink title="New check" onPress={onNewCheck} />
+          </>
+        )
       }
     >
       <Wordmark store={s.session.storeName} />
-      {/* Never a price or a grade letter here: the price comes from the store and can still change. */}
+      {/* Never a price here: it comes from the store and can still change. The SwapUp grade
+          shows only once the store has applied the results and graded them. */}
       <Headline>{applied ? "The store has your results" : "Checks complete"}</Headline>
-      {!applied ? <Lead>The advisor will confirm your price.</Lead> : null}
+      <Lead>{applied ? "Nothing more to do here." : "The advisor confirms your price."}</Lead>
       <Hero grow={false} minHeight={0} style={{ paddingVertical: 24 }}>
         {applied ? <TickArt width={104} /> : <ChecklistArt width={92} ticked={3} />}
       </Hero>
@@ -437,34 +395,22 @@ export function DoneScreen({
           <FactRow key={r.label} label={r.label} value={r.value} tone={r.tone} last={i === rows.length - 1} />
         ))}
       </Card>
+      <ReportLink report={report} style={{ marginTop: 14 }} />
       <Gap h={14} />
       <SyncBadge snap={snap} center />
-      {!applied ? <Caption>The advisor is reviewing your results on their screen.</Caption> : null}
+
       <ClearDataGuide applied={applied} />
-      {redo.length && !applied ? <Caption>Failed or skipped: {redo.map((p) => p.name).join(", ")}</Caption> : null}
+      {redo.length && !applied ? <Caption>To retry: {redo.map((p) => p.name).join(", ")}</Caption> : null}
     </Screen>
   );
 }
 
 /* ─────────────────────────── ended ─────────────────────────── */
 
-export function EndedScreen({ message, applied, onNew }: { message: string; applied?: boolean; onNew: () => void }) {
-  if (applied) {
-    // The store applied the results (see APPLIED_MESSAGE): a finish, not an error.
-    return (
-      <Screen footer={<PillButton title="Test another phone" onPress={onNew} />}>
-        <Wordmark />
-        <Headline>The store has your results</Headline>
-        <Lead>{message}</Lead>
-        <Hero minHeight={150}>
-          <TickArt width={120} />
-        </Hero>
-        <ClearDataGuide applied />
-      </Screen>
-    );
-  }
+/** A check that ended any other way (closed or timed out at the store). Applied is a finish: DoneScreen. */
+export function EndedScreen({ message, onNew }: { message: string; onNew: () => void }) {
   return (
-    <Screen footer={<PillButton title="Connect with a new code" onPress={onNew} />}>
+    <Screen footer={<PillButton title="New code" onPress={onNew} />}>
       <Wordmark />
       <Headline>This check has ended</Headline>
       <Notice tone="warn" style={{ marginTop: 16 }}>
@@ -479,7 +425,6 @@ export function EndedScreen({ message, applied, onNew }: { message: string; appl
 
 const st = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: P.bg },
-  question: { color: P.ink, fontSize: 17, lineHeight: 24, fontWeight: "600" },
   sync: { fontSize: 14, lineHeight: 20, fontWeight: "600" },
   scanBar: {
     position: "absolute",

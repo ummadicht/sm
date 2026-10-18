@@ -79,6 +79,13 @@ build() {
   "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 JSON
+  # ── what ships: no partner name, no made-up-price or demo wording, app.json's version
+  # (src/shared/buildScan.ts). A build that fails is removed, so deploy.sh can't upload it.
+  if ! node --experimental-strip-types --no-warnings "$ROOT/scripts/check-builds.ts" web "$VARIANT"; then
+    rm -rf "$OUT"
+    echo "✗ $NAME: removed $OUT" >&2
+    exit 1
+  fi
   echo "✓ $NAME: $(du -sh "$OUT" | cut -f1) · $BUNDLE"
 }
 

@@ -34,10 +34,10 @@ export async function chooseScreenshot(): Promise<Shot> {
   try {
     let url = await encode(a.uri, a.width, a.height, MAX_EDGE_PX, JPEG_QUALITY);
     if (url && url.length > MAX_DATA_URL_CHARS) url = await encode(a.uri, a.width, a.height, 1200, 0.45);
-    if (!url) return { kind: "error", message: "Couldn't read that picture. Choose the screenshot again." };
-    if (url.length > MAX_DATA_URL_CHARS) return { kind: "error", message: "That picture is too big to send. Choose the screenshot itself, not a photo." };
+    if (!url) return { kind: "error", message: "Couldn't read that picture — choose it again." };
+    if (url.length > MAX_DATA_URL_CHARS) return { kind: "error", message: "Too big — choose the screenshot itself." };
     return { kind: "ok", dataUrl: url };
   } catch {
-    return { kind: "error", message: "Couldn't read that picture. Choose the screenshot again." };
+    return { kind: "error", message: "Couldn't read that picture — choose it again." };
   }
 }

@@ -8,16 +8,16 @@ import { P } from "../shared/theme";
 import { Arrow, Caption, PillButton, Sheet } from "../shared/kit";
 
 const STEPS: { title: string; body: string }[] = [
-  { title: "Back up", body: "Move photos and chats to your new phone (Smart Switch) or the cloud. After the reset nothing on this phone can be recovered." },
+  { title: "Back up", body: "Smart Switch or the cloud — nothing survives the reset." },
   {
-    title: "Sign out of your accounts",
-    body: "Settings → Accounts and backup → Manage accounts → your Samsung account → Sign out. Then your Google account → Remove account. (Other phones: Settings → Passwords & accounts.)",
+    title: "Sign out of accounts",
+    body: "Settings → Accounts and backup → Manage accounts → Samsung account → Sign out; then Google → Remove. (Others: Settings → Passwords & accounts.)",
   },
   {
     title: "Factory reset",
-    body: "Settings → General management → Reset → Factory data reset → Reset. (Other phones: Settings → System → Reset options → Erase all data.)",
+    body: "Settings → General management → Reset → Factory data reset. (Others: Settings → System → Reset options → Erase all data.)",
   },
-  { title: "Show the advisor", body: "The phone restarts to a Welcome screen. The advisor checks it doesn't ask for your account." },
+  { title: "Show the advisor", body: "The advisor checks it restarts without asking for your account." },
 ];
 
 /** Android only: open a system Settings screen. Anything else just shows the steps. */
@@ -41,7 +41,7 @@ export function ClearDataGuide({ applied }: { applied: boolean }) {
   const [failed, setFailed] = useState(false);
   const android = Platform.OS === "android";
 
-  if (!applied) return <Caption style={{ marginTop: 14 }}>Trading this phone in? Don&apos;t reset it yet — the advisor still needs these results.</Caption>;
+  if (!applied) return <Caption style={{ marginTop: 14 }}>Don&apos;t reset it yet — the advisor needs these results.</Caption>;
 
   return (
     <>
@@ -53,7 +53,7 @@ export function ClearDataGuide({ applied }: { applied: boolean }) {
       >
         <View style={{ flex: 1 }}>
           <Text style={s.cardTitle}>Trading it in? Clear your phone</Text>
-          <Text style={s.cardSub}>Once you&apos;ve agreed the trade-in, you clear it yourself — the advisor never needs your passwords.</Text>
+          <Text style={s.cardSub}>The advisor never needs your passwords.</Text>
         </View>
         <Arrow color={P.ink} />
       </Pressable>
@@ -61,7 +61,7 @@ export function ClearDataGuide({ applied }: { applied: boolean }) {
         visible={open}
         onClose={() => setOpen(false)}
         title="Clear your phone"
-        lead="Once you've agreed the trade-in, you clear it yourself — the advisor never needs your passwords."
+        lead="After you agree the trade-in. The advisor never needs your passwords."
         footer={<PillButton title="Done" onPress={() => setOpen(false)} />}
       >
         <View style={{ marginTop: 18, gap: 14 }}>
@@ -85,10 +85,10 @@ export function ClearDataGuide({ applied }: { applied: boolean }) {
                 onPress={() => void openSettings("android.settings.SYNC_SETTINGS").then((ok) => setFailed(!ok))}
               />
               <PillButton title="Open Settings" kind="outline" arrow={false} onPress={() => void openSettings("android.settings.SETTINGS").then((ok) => setFailed(!ok))} />
-              {failed ? <Caption>Couldn&apos;t open Settings — open it from your home screen.</Caption> : null}
+              {failed ? <Caption>Open Settings from your home screen.</Caption> : null}
             </View>
           ) : null}
-          <Caption center={false}>Resetting also removes this app. That&apos;s expected — your results are already with the store.</Caption>
+          <Caption center={false}>Resetting removes this app — your results are safe.</Caption>
         </View>
       </Sheet>
     </>

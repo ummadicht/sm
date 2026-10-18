@@ -5,10 +5,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const B: typeof import("./buySell") = await import("./buySell" + ".ts");
+const G: typeof import("../shared/nameGuard") = await import("../shared/nameGuard" + ".ts");
 
 const priced = (amount: number, extra: Record<string, unknown> = {}) => ({ status: "priced", amount, lines: [], source: { kind: "partner_ratecard", label: "Rate card" }, ...extra });
-const market = { amount: 21119, listing: 21999, markdownBp: 400, grade: "Good", gradeWanted: "Good", listings: 2, week: "2026-W35", why: null, source: "PriceIQ · Cashify refurbished" };
-const noMarket = { amount: null, why: "PriceIQ has no Cashify refurbished price for the Galaxy S23 128GB.", source: "PriceIQ · Cashify refurbished" };
+/** CaseView.marketSell from PriceIQ's live answer: a fresh week, with its age. */
+const market = { amount: 21119, listing: 21999, markdownBp: 400, grade: "Good", gradeWanted: "Good", listings: 2, week: "2026-W41", ageDays: 6, stale: false, why: null };
+/** The server's sentence about stale data (~/projects/swapup lib/domain/marketSell.ts), shown as sent. */
+const STALE_NOTE = "Refurbished market price, week 2026-W35, 52 days old.";
+/** The same phone priced off the data on file (week 2026-W35, 52 days old on 2026-10-18). */
+const staleMarket = { ...market, week: "2026-W35", ageDays: 52, stale: true, note: STALE_NOTE };
+/** An older server: no age, no staleness, and its own source tag the app never shows. */
+const oldMarket = { amount: 21119, listing: 21999, markdownBp: 400, grade: "Good", gradeWanted: "Good", listings: 2, week: "2026-W35", why: null, source: "PriceIQ · refurbished market" };
+const noMarket = { amount: null, why: "PriceIQ has no refurbished market price for the Galaxy S23 128GB." };
 
 /** A case the way GET /api/cases/<id> answers: priced, PriceIQ sell price, SwapUp's repair estimate. */
 function caseView(over: Record<string, unknown> = {}) {
@@ -46,18 +54,68 @@ test("readCasePrice: a case reads; anything else is null", () => {
   }
 });
 
-test("buy vs sell: the partner's as-is price against PriceIQ's marked-down Cashify listing", () => {
+test("buy vs sell: the trade-in against PriceIQ's marked-down refurbished market price, with PriceIQ's week", () => {
   const m = B.priceCard(read(), "3200");
   assert.deepEqual(m.buy, { amount: 12000, note: null });
   assert.equal(m.sell.amount, 21119);
-  assert.equal(m.sell.source, "Cashify Good ₹21,999 − 4%");
+  assert.equal(m.sell.source, "Refurbished market price ₹21,999 (Good) − 4% · PriceIQ 2026-W41");
+  assert.equal(m.sell.note, null, "fresh data: no age, no warning");
   assert.deepEqual(m.refurb, { amount: 3200, problem: null });
   assert.deepEqual(m.margin, { amount: 21119 - 12000 - 3200, note: null });
 });
 
-test("sell names a lower grade when Cashify listed none at the phone's own", () => {
+test("sell names a lower grade when the market listed none at the phone's own", () => {
   const m = B.priceCard(read({ marketSell: { ...market, grade: "Fair", gradeWanted: "Good" } }), "3200");
-  assert.equal(m.sell.source, "Cashify Fair ₹21,999 − 4% · none at Good");
+  assert.equal(m.sell.source, "Refurbished market price ₹21,999 (Fair) − 4% · PriceIQ 2026-W41 · none at Good");
+  const old = B.priceCard(read({ marketSell: { ...staleMarket, note: null, grade: "Fair", gradeWanted: "Good" } }), "3200");
+  assert.equal(old.sell.source, "Refurbished market price ₹21,999 (Fair) − 4% · PriceIQ 2026-W35, 52 days old · none at Good");
+});
+
+test("stale PriceIQ data (over 14 days) keeps its price and says its age once — in the server's note when it sends one", () => {
+  const m = B.priceCard(read({ marketSell: staleMarket }), "3200");
+  assert.equal(m.sell.amount, 21119);
+  assert.equal(m.sell.source, "Refurbished market price ₹21,999 (Good) − 4% · PriceIQ 2026-W35");
+  assert.equal(m.sell.note, STALE_NOTE);
+  // No note from the server: the line carries the age, in the trade-in line's words.
+  assert.deepEqual(B.sellFigure(read({ marketSell: { ...staleMarket, note: null } })), {
+    amount: 21119,
+    note: null,
+    source: "Refurbished market price ₹21,999 (Good) − 4% · PriceIQ 2026-W35, 52 days old",
+  });
+  assert.equal(B.sellFigure(read({ marketSell: { ...market, ageDays: 1, stale: true } })).source, "Refurbished market price ₹21,999 (Good) − 4% · PriceIQ 2026-W41, 1 day old");
+  // The server says stale without an age: the line still says it is old.
+  assert.equal(B.sellFigure(read({ marketSell: { ...market, ageDays: undefined, stale: true } })).source, "Refurbished market price ₹21,999 (Good) − 4% · PriceIQ 2026-W41, over 14 days old");
+});
+
+test("the age limits: 14 days is fresh, 15 is shown with its age, 90 still prices, 91 is no price", () => {
+  const sell = (ageDays: number, over: Record<string, unknown> = {}) => B.sellFigure(read({ marketSell: { ...market, ageDays, stale: undefined }, ...over }));
+  assert.equal(sell(14).source, "Refurbished market price ₹21,999 (Good) − 4% · PriceIQ 2026-W41");
+  assert.equal(sell(15).source, "Refurbished market price ₹21,999 (Good) − 4% · PriceIQ 2026-W41, 15 days old");
+  assert.equal(sell(90).amount, 21119);
+  assert.equal(sell(90).source, "Refurbished market price ₹21,999 (Good) − 4% · PriceIQ 2026-W41, 90 days old");
+  // Over 90 days PriceIQ sets no price, whatever the server sent: the partner's repaired price, else the no-price line.
+  assert.deepEqual(sell(91), { amount: 18500, note: null, source: "Partner's repaired price" });
+  assert.deepEqual(sell(91, { repairedQuote: null }), { amount: null, note: B.NO_MARKET_PRICE, source: null });
+  assert.equal(B.STALE_AFTER_DAYS, 14);
+  assert.equal(B.NO_PRICE_AFTER_DAYS, 90);
+});
+
+test("PriceIQ unreachable: the server's last good answer stays, with its note as sent", () => {
+  const note = "PriceIQ unreachable, last answer 2026-10-18 09:12 UTC.";
+  const m = B.sellFigure(read({ marketSell: { ...market, note } }));
+  assert.deepEqual(m, { amount: 21119, note, source: "Refurbished market price ₹21,999 (Good) − 4% · PriceIQ 2026-W41" });
+  const both = `${STALE_NOTE.slice(0, -1)} · ${note}`;
+  assert.equal(B.sellFigure(read({ marketSell: { ...staleMarket, note: both } })).note, both);
+  // A blank or junk note is none.
+  for (const bad of ["  ", "", 7, null]) assert.equal(B.sellFigure(read({ marketSell: { ...market, note: bad } })).note, null, JSON.stringify(bad));
+});
+
+test("an older server: no age fields and a source tag — read, with PriceIQ's week and nothing invented", () => {
+  const m = B.priceCard(read({ marketSell: oldMarket }), "3200");
+  assert.equal(m.sell.amount, 21119);
+  assert.equal(m.sell.source, "Refurbished market price ₹21,999 (Good) − 4% · PriceIQ 2026-W35");
+  assert.equal(m.sell.note, null);
+  assert.equal(B.sellFigure(read({ marketSell: { ...oldMarket, week: undefined } })).source, "Refurbished market price ₹21,999 (Good) − 4% · PriceIQ");
 });
 
 test("no PriceIQ listing: sell falls back to the partner's repaired price, and says so", () => {
@@ -111,6 +169,8 @@ test("refurb start with no estimate: ₹0 when there are no faults (the server s
   assert.match(bench.note ?? "", /bench/);
   const unpriced = B.refurbStart(read({ repair: { status: "unpriced", customerPays: null, listTotal: null } }));
   assert.equal(unpriced.amount, null);
+  assert.equal(unpriced.note, "A part has no price — enter the refurb cost.");
+  assert.equal(B.refurbStart(read({ repair: null })).note, "No repair estimate — enter the refurb cost.");
   const other = B.refurbStart(read({ repair: null, repairNotServiced: "This centre repairs Samsung phones only." }));
   assert.equal(other.note, "This centre repairs Samsung phones only.");
 });
@@ -133,19 +193,50 @@ test("the PATCH body saves the figure as the case's refurbCost — never as the 
 test("no quote yet: Buy is — with the server's reason; margin names what is missing", () => {
   const m = B.priceCard(read({ quote: null, repairedQuote: null, marketSell: { amount: null, why: null }, device: { variant: null } }), "3200");
   assert.equal(m.buy.amount, null);
-  assert.match(m.buy.note ?? "", /storage size/);
+  assert.equal(m.buy.note, "No quote — storage missing.");
   assert.equal(m.sell.amount, null);
   assert.equal(m.margin.note, "Needs the buy price and the sell price.");
 });
 
-test("partner without a price: the partner's reason", () => {
-  const m = B.priceCard(read({ quote: { status: "unpriced", amount: null, reason: "Cashify doesn't buy this model." } }), "3200");
-  assert.deepEqual(m.buy, { amount: null, note: "Cashify doesn't buy this model." });
+test("no price from anywhere: the server's reason, else the one no-price line — never a made-up figure", () => {
+  const m = B.priceCard(read({ quote: { status: "unpriced", amount: null, reason: "The partner doesn't buy this model." } }), "3200");
+  assert.deepEqual(m.buy, { amount: null, note: "The partner doesn't buy this model." });
+  assert.equal(B.NO_MARKET_PRICE, "No market price yet — enter a quote.");
+  assert.deepEqual(B.buyFigure(read({ quote: { status: "unpriced", amount: null } })), { amount: null, note: B.NO_MARKET_PRICE });
+  assert.deepEqual(B.sellFigure(read({ marketSell: { amount: null, why: null }, repairedQuote: { status: "unpriced", amount: null } })), { amount: null, note: B.NO_MARKET_PRICE, source: null });
+  assert.deepEqual(B.sellFigure(read({ marketSell: null, repairedQuote: null })), { amount: null, note: B.NO_MARKET_PRICE, source: null });
 });
 
-test("an expired or sample quote keeps its number with a note", () => {
-  assert.deepEqual(B.buyFigure(read({ quoteExpired: true })), { amount: 12000, note: "Quote expired — re-quote on the case." });
-  assert.equal(B.buyFigure(read({ quote: priced(12000, { source: { kind: "sample" } }) })).note, "Sample price, not a real quote.");
+test("an expired quote keeps its number, with no second note (the answer's trade-in tile says it)", () => {
+  assert.deepEqual(B.buyFigure(read({ quoteExpired: true })), { amount: 12000, note: null });
+});
+
+test("an older server's placeholder-card figure (source kind 'sample') is never used as the buy price", () => {
+  // A server not yet upgraded (or rolled back) still quotes off its placeholder card: that trade-in
+  // is no price, so BUY is empty with the one no-price line, and no margin is worked out from it.
+  const legacyBuy = priced(12000, { source: { kind: "sample" } });
+  assert.deepEqual(B.buyFigure(read({ quote: legacyBuy })), { amount: null, note: B.NO_MARKET_PRICE });
+  // Whatever else the case holds: an expired one, or a PriceIQ sell price and a typed refurb cost.
+  assert.deepEqual(B.buyFigure(read({ quote: legacyBuy, quoteExpired: true })), { amount: null, note: B.NO_MARKET_PRICE });
+  const m = B.priceCard(read({ quote: legacyBuy }), "3200");
+  assert.deepEqual(m.buy, { amount: null, note: B.NO_MARKET_PRICE });
+  assert.equal(m.sell.amount, 21119);
+  assert.deepEqual(m.margin, { amount: null, note: "Needs the buy price." });
+  // Its reason is not shown either — a placeholder card's words are not the app's.
+  const legacyUnpriced = { status: "unpriced", amount: null, reason: "Placeholder card: no row for this model.", source: { kind: "sample" } };
+  assert.deepEqual(B.buyFigure(read({ quote: legacyUnpriced })), { amount: null, note: B.NO_MARKET_PRICE });
+  // A real rate-card or PriceIQ trade-in is untouched.
+  assert.deepEqual(B.buyFigure(read({ quote: priced(12000) })), { amount: 12000, note: null });
+  assert.deepEqual(B.buyFigure(read({ quote: priced(12000, { source: { kind: "priceiq" } }) })), { amount: 12000, note: null });
+});
+
+test("an older server's placeholder-card figure (source kind 'sample') is never used as the sell price", () => {
+  const legacy = priced(18500, { source: { kind: "sample" } });
+  assert.deepEqual(B.sellFigure(read({ marketSell: noMarket, repairedQuote: legacy })), { amount: null, note: noMarket.why, source: null });
+  assert.deepEqual(B.sellFigure(read({ marketSell: { amount: null, why: null }, repairedQuote: legacy })), { amount: null, note: B.NO_MARKET_PRICE, source: null });
+  assert.equal(B.priceCard(read({ marketSell: noMarket, repairedQuote: legacy }), "3200").margin.note, "Needs the sell price.");
+  // PriceIQ's own price is used whatever the repaired quote is.
+  assert.equal(B.sellFigure(read({ repairedQuote: legacy })).amount, 21119);
 });
 
 test("past the counter: read-only, no Save", () => {
@@ -161,9 +252,21 @@ test("refurbHint: the line under the box", () => {
   assert.deepEqual(B.refurbHint(c, "40.5"), { text: "Whole rupees only.", bad: true });
   assert.deepEqual(B.refurbHint(c, ""), { text: "Enter the refurb cost.", bad: false });
   assert.deepEqual(B.refurbHint(read({ repair: { status: "needs_inspection", customerPays: null, listTotal: null } }), ""), {
-    text: "Needs a look on the bench — enter your refurb cost.",
+    text: "Needs a bench diagnosis — enter the refurb cost.",
     bad: false,
   });
+});
+
+test("no line on the card names the buyback partner", () => {
+  const lines = [
+    B.sellFigure(read()).source,
+    B.sellFigure(read({ marketSell: { ...market, grade: "Fair", gradeWanted: "Good" } })).source,
+    B.sellFigure(read({ marketSell: staleMarket })).source,
+    B.sellFigure(read({ marketSell: { ...staleMarket, note: null } })).source,
+    B.sellFigure(read({ marketSell: noMarket })).source,
+    B.NO_MARKET_PRICE,
+  ];
+  for (const l of lines) assert.equal(G.namesPartner(l ?? ""), false, String(l));
 });
 
 test("marginFigure: plain arithmetic, nulls named in order", () => {

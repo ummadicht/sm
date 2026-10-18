@@ -15,12 +15,12 @@ export async function openInDefaultBrowser(url: string): Promise<OpenResult> {
     await Linking.openURL(url);
     return { ok: true, inChrome: false };
   } catch (e) {
-    return { ok: false, error: `This tablet couldn't open a browser${e instanceof Error && e.message ? ` (${e.message})` : ""}.` };
+    return { ok: false, error: `Couldn't open a browser${e instanceof Error && e.message ? ` (${e.message})` : ""}.` };
   }
 }
 
 export async function openCameraPage(url: string): Promise<OpenResult> {
-  if (!/^https?:\/\//i.test(url)) return { ok: false, error: "The camera link from the server isn't a web address. Ask your manager to check the GradeIQ settings." };
+  if (!/^https?:\/\//i.test(url)) return { ok: false, error: "Bad camera link — ask your manager." };
   if (Platform.OS === "android") {
     try {
       // The URL goes in AS IS, not encoded: Chrome takes everything after "url="
@@ -36,6 +36,6 @@ export async function openCameraPage(url: string): Promise<OpenResult> {
     await Linking.openURL(url);
     return { ok: true, inChrome: false };
   } catch (e) {
-    return { ok: false, error: `This tablet couldn't open a browser${e instanceof Error && e.message ? ` (${e.message})` : ""}. Install or enable Chrome and try again.` };
+    return { ok: false, error: `Couldn't open a browser${e instanceof Error && e.message ? ` (${e.message})` : ""} — install Chrome.` };
   }
 }

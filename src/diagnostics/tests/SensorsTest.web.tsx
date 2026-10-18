@@ -103,7 +103,7 @@ export function SensorsTest(p: TestProps) {
     return (
       <TestShell {...p} instructions="Turn the phone a half-circle for the compass." hideManual detail={{ ...detail, permission: phase === "denied" ? "denied" : "not-asked" }}>
         <View style={s.wrap}>
-          <Say center>{phase === "denied" ? MOTION_DENIED() : "Tap Start. If your phone asks to use motion and orientation, tap Allow."}</Say>
+          <Say center>{phase === "denied" ? MOTION_DENIED() : "Tap Start, then Allow if asked."}</Say>
           <Big title={phase === "denied" ? "Ask again" : "Start"} onPress={ask} />
         </View>
       </TestShell>
@@ -120,7 +120,7 @@ export function SensorsTest(p: TestProps) {
   }
 
   return (
-    <TestShell {...p} instructions="Turn the phone slowly round in a half-circle, flat in your hand, for the compass." autoVerdict={auto} detail={detail}>
+    <TestShell {...p} instructions="Turn the phone a slow half-circle, flat." autoVerdict={auto} detail={detail}>
       <View style={s.wrap}>
         <Row label="Compass" value={compass == null ? "waiting…" : `${heading ?? "…"}° · turned ${span}° (need ${NEED_DEG}°)`} tone={compassOk ? "pass" : undefined} />
         <Row label="Gyroscope" value={gyro == null ? "…" : gyro ? "reporting" : "no data from the browser"} tone={gyro ? "pass" : gyro === false ? "skip" : undefined} />

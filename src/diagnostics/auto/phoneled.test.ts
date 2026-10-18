@@ -1,6 +1,7 @@
-// The phone-led flow's pure helpers (swapup docs/PHONE-LED-FLOW.md): Identify (IMEI
-// paste, mobile, the server's identity, the model picker), the browser's step order, the
-// phase the store hears about, and the battery screenshot. They live in src/check/ but
+// The phone-led flow's pure helpers (swapup docs/PHONE-LED-FLOW.md): Identify (the
+// server's identity, the model picker — nothing else is asked), the browser's step order,
+// the phase the store hears about, the display record after the scan, and the battery
+// screenshot. They live in src/check/ but
 // are tested here so the repo's one test command (src/diagnostics/auto/*.test.ts) runs
 // them. Same import trick as ./analysis.test.ts.
 import test from "node:test";
@@ -10,9 +11,6 @@ const C: typeof import("../../check/core") = await import("../../check/core" + "
 const B: typeof import("../../check/battery") = await import("../../check/battery" + ".ts");
 
 type State = import("../../check/core").CheckState;
-
-const IMEI_A = "356938035643809";
-const IMEI_B = "356938035643817";
 
 const plan = (...ids: string[]) => ids.map((id) => ({ id, name: id, critical: false }));
 
@@ -35,31 +33,6 @@ const state = (p: Partial<State> = {}): State => ({
   ...p,
 });
 
-test("identify: the IMEIs in pasted *#06# text", () => {
-  assert.deepEqual(C.imeisFromText(`IMEI 1 ${IMEI_A} / 01`), [IMEI_A], "'IMEI 1' running into the number");
-  assert.deepEqual(C.imeisFromText(`IMEI1: ${IMEI_A}/01\nIMEI2: ${IMEI_B}/01`), [IMEI_A, IMEI_B]);
-  assert.deepEqual(C.imeisFromText(`${IMEI_A} ${IMEI_B}`), [IMEI_A, IMEI_B]);
-  assert.deepEqual(C.imeisFromText(IMEI_A + IMEI_B), [IMEI_A, IMEI_B], "two written together, both check digits good");
-  assert.deepEqual(C.imeisFromText("356938 03 564380 9"), [IMEI_A], "spaced groups joined when the check digit agrees");
-  assert.deepEqual(C.imeisFromText(`${IMEI_A}\n${IMEI_A}`), [IMEI_A], "no repeats");
-  assert.deepEqual(C.imeisFromText("3569380356438001"), [], "a 16-digit IMEISV is not an IMEI");
-  assert.deepEqual(C.imeisFromText("123456789012345"), ["123456789012345"], "15 digits as written are kept — the pill shows the bad check digit");
-  assert.deepEqual(C.imeisFromText("12345 67890 12345"), [], "a join that fails the check digit would be a guess");
-  assert.deepEqual(C.imeisFromText(""), []);
-  assert.equal(C.checkImei("123456789012345").ok, false);
-});
-
-test("identify: mobile and name are optional and tidied", () => {
-  assert.deepEqual(C.cleanMobile(""), { ok: true, value: null });
-  assert.deepEqual(C.cleanMobile("+91 98765-43210"), { ok: true, value: "9876543210" });
-  assert.deepEqual(C.cleanMobile("09876543210"), { ok: true, value: "9876543210" });
-  assert.equal(C.cleanMobile("12345").ok, false);
-  assert.equal(C.cleanMobile("5876543210").ok, false, "Indian mobiles start 6–9");
-  assert.equal(C.cleanName("   "), null);
-  assert.equal(C.cleanName("  Asha   Rao "), "Asha Rao");
-  assert.equal(C.cleanName("x".repeat(90))?.length, 60);
-});
-
 test("identify: the join response's identity — a match needs a name to confirm", () => {
   assert.equal(C.parseIdentity(undefined), null, "an older server sends none");
   assert.deepEqual(C.parseIdentity({ label: "Samsung Galaxy S23 Ultra", match: "exact", reason: "Model code SM-S918U is the Galaxy S23 Ultra.", variant: "256GB", modelId: "m1" }), {
@@ -77,11 +50,32 @@ test("identify: the join response's identity — a match needs a name to confirm
   assert.equal(none?.modelId, null);
   assert.equal(C.parseIdentity({ match: "exact", modelId: "m1" })?.match, "none", "nothing to show → nothing to confirm");
   assert.equal(C.parseIdentity({ label: "X", match: "maybe" })?.match, "none");
-  assert.equal(C.identityLine("Samsung Galaxy S23 Ultra", "256 GB"), "Samsung Galaxy S23 Ultra · 256 GB");
-  assert.equal(C.identityLine("Samsung Galaxy S23 Ultra", null), "Samsung Galaxy S23 Ultra");
 });
 
-test("identify: a counter-code session asks for mobile + name", () => {
+test("identify: an exact match is asked nothing; a family match gets 'Is this your phone?'; no match 'Which phone is this?'", () => {
+  const known: import("../../check/core").Identity = { label: "Samsung Galaxy S23 Ultra", match: "exact", reason: null, variant: null, modelId: "m1", variants: ["256GB", "512GB"] };
+  assert.equal(C.recognised(known), true);
+  assert.equal(C.recognised({ ...known, match: "family" }), false, "a regional version: the customer confirms it");
+  assert.equal(C.identifyDone(state({ session: { ...state().session, identity: { ...known, match: "family" } } })), false);
+  // The confirm card: storage only when the phone couldn't measure it.
+  assert.equal(C.confirmAsk(known), null, "exact: no card");
+  assert.equal(C.confirmAsk({ ...known, match: "none" }), null, "no match: the picker instead");
+  assert.deepEqual(C.confirmAsk({ ...known, match: "family" }), { label: "Samsung Galaxy S23 Ultra", modelId: "m1", sizes: ["256GB", "512GB"] });
+  assert.deepEqual(C.confirmAsk({ ...known, match: "family", variant: "256GB" }), { label: "Samsung Galaxy S23 Ultra · 256GB", modelId: "m1", sizes: [] }, "measured: never asked");
+  assert.deepEqual(C.confirmAsk({ ...known, match: "family", variants: [] })?.sizes, [], "the server sent no sizes (it measured, or one size)");
+  assert.deepEqual(C.confirmAsk({ ...known, match: "family", variants: ["128GB"] })?.sizes, [], "one size: nothing to ask");
+  assert.equal(C.recognised({ ...known, match: "none" }), false);
+  assert.equal(C.recognised({ ...known, label: null }), false, "nothing to name it by");
+  assert.equal(C.recognised(null), false, "an older server sends no identity");
+  const st = (identity: typeof known | null, p: Partial<State> = {}) => state({ session: { ...state().session, identity }, ...p });
+  assert.equal(C.identifyDone(st(known)), true, "no confirm card, no storage question, no IMEI: straight to the scan");
+  assert.equal(C.resumeStep(st(known), ["touch"]), "scan");
+  assert.equal(C.identifyDone(st({ ...known, match: "none" })), false);
+  assert.equal(C.resumeStep(st({ ...known, match: "none" }), ["touch"]), "identify");
+  assert.equal(C.identifyDone(st(null, { identifiedAt: "t" })), true, "picked or left to the advisor");
+});
+
+test("identify: a counter-code session is flagged for the store (and asked nothing more)", () => {
   assert.equal(C.startedByCustomer({ customerStarted: true }), true);
   assert.equal(C.startedByCustomer({ via: "counter code" }), true);
   assert.equal(C.startedByCustomer({ startedBy: "customer" }), true);
@@ -113,22 +107,38 @@ test("identify: the picker reads GET /api/device/models — brands, then a brand
   assert.deepEqual(C.filterModels(list, "pixel"), []);
 });
 
-test("steps: the browser order — welcome, Identify, Scan, battery, questions, tests, done", () => {
-  const ids = ["touch", "display"];
+test("steps: the browser order — welcome, Identify, Scan, battery, tests, done — and no damage questions", () => {
+  const ids = ["touch"];
   assert.equal(C.resumeStep(state({ consentAt: null }), ids), "welcome");
-  assert.equal(C.resumeStep(state(), ids), "identify");
-  const identified = { identifiedAt: "2026-10-17T10:01:00Z", declared: { screenCracked: null, backCracked: null, liquid: null, imei: IMEI_A, identityConfirmed: true, picked: null } };
-  assert.equal(C.resumeStep(state(identified), ids), "scan", "Identify's own declaration doesn't answer the damage questions");
+  assert.equal(C.resumeStep(state(), ids), "identify", "no identity from the server: the picker");
+  const identified = { identifiedAt: "2026-10-17T10:01:00Z" };
+  assert.equal(C.resumeStep(state(identified), ids), "scan");
   const scanned = { ...identified, pairing: { outcome: "handoff" as const, at: "2026-10-17T10:04:00Z", reason: null } };
   assert.equal(C.resumeStep(state(scanned), ids), "battery");
   const battery = { ...scanned, battery: { outcome: "read" as const, healthPct: 87, at: "2026-10-17T10:05:00Z" } };
-  assert.equal(C.resumeStep(state(battery), ids), "questions");
-  const answered = { ...battery, declared: { ...identified.declared, screenCracked: false, backCracked: false, liquid: false } };
-  assert.equal(C.resumeStep(state(answered), ids), "runner");
+  assert.equal(C.resumeStep(state(battery), ids), "runner", "straight to the tests: the customer is never asked about damage");
   const res = { outcome: "pass" as const, detail: null, at: "t" };
-  assert.equal(C.resumeStep(state({ ...answered, results: { touch: res, display: res } }), ids), "done");
+  assert.equal(C.resumeStep(state({ ...battery, results: { touch: res } }), ids), "done");
   // No battery_health in the plan (an older server): no battery step.
-  assert.equal(C.resumeStep(state({ ...scanned, session: { ...state().session, plan: plan("touch", "display") } }), ids), "questions");
+  assert.equal(C.resumeStep(state({ ...scanned, session: { ...state().session, plan: plan("touch", "display") } }), ids), "runner");
+  // A browser check an older app left on its damage questions goes on to the tests.
+  const onQuestions = state({ ...battery, declared: { screenCracked: null, backCracked: null, liquid: null, imei: null } });
+  assert.equal(C.resumeStep(onQuestions, ids), "runner");
+});
+
+test("steps: display after the scan — 'not tested' with the reason only when the camera didn't run", () => {
+  const ids = ["touch", "display"];
+  assert.deepEqual(C.displayAfterScan({ outcome: "skipped", reason: "the advisor went on without the camera" }, ids, {}), {
+    method: "store camera sweep",
+    photos: "skipped",
+    reason: "not camera-checked: the advisor went on without the camera",
+  });
+  assert.equal(C.displayAfterScan({ outcome: "unavailable", reason: null }, ids, {})?.reason, "not camera-checked: unavailable");
+  assert.equal(C.displayAfterScan({ outcome: "handoff", reason: null }, ids, {}), null, "the camera ran: its sweep decides");
+  assert.equal(C.displayAfterScan({ outcome: "grace", reason: null }, ids, {}), null);
+  assert.equal(C.displayAfterScan({ outcome: "skipped", reason: null }, ["touch"], {}), null, "no display test in the plan");
+  assert.equal(C.displayAfterScan({ outcome: "skipped", reason: null }, ids, { display: { outcome: "pass" } }), null, "already decided");
+  assert.doesNotMatch(JSON.stringify(C.displayAfterScan({ outcome: "skipped", reason: "x" }, ids, {})), /GradeIQ/, "staff and report words, no engine names");
 });
 
 test("steps: a check begun before the Identify step carries on where it was", () => {
@@ -150,7 +160,7 @@ test("steps: the phase the store hears about", () => {
   assert.equal(C.phaseFor("identify"), "identify");
   assert.equal(C.phaseFor("scan"), "scan");
   assert.equal(C.phaseFor("battery"), "battery");
-  for (const s of ["questions", "runner", "auto", "actions"]) assert.equal(C.phaseFor(s), "test");
+  for (const s of ["runner", "auto", "actions"]) assert.equal(C.phaseFor(s), "test");
   assert.equal(C.phaseFor("done"), "done");
   assert.equal(C.wantsBatteryStep(plan("touch", "battery_health")), true);
   assert.equal(C.wantsBatteryStep(plan("touch", "battery")), false, "`battery` is the level test, not the screenshot");

@@ -41,13 +41,13 @@ export function BatteryTest(p: TestProps) {
     );
   }
   return (
-    <TestShell {...p} instructions="Battery level read from the phone through the browser." autoVerdict={auto} hideManual detail={detail}>
+    <TestShell {...p} instructions="Reads the battery level." autoVerdict={auto} hideManual detail={detail}>
       <View style={s.wrap}>
         <Row label="Level" value={lvl == null ? "…" : `${lvl}%`} tone={lvl == null ? undefined : lvl < 20 ? "warn" : "pass"} />
         <Row label="State" value={st} />
         <Row label="Low power mode" value="not visible to a browser" tone="skip" />
         <Row label="Health (max capacity)" value="not exposed" tone="skip" />
-        <P muted style={{ marginTop: 12, fontSize: 13 }}>Battery health is checked by the advisor (Settings → Battery / Phonecheck).</P>
+        <P muted style={{ marginTop: 12, fontSize: 13 }}>The advisor checks battery health.</P>
       </View>
     </TestShell>
   );

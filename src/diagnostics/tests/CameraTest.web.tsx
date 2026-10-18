@@ -138,7 +138,7 @@ export function CameraTest(p: TestProps) {
       .map((sd) => `The ${LABEL[sd]} camera ${open[sd] === "reported-broken" ? "was reported not working" : "wouldn't open"}.`);
     for (const sd of ["back", "front"] as const) if (shots[sd]?.dark) notes.push(`The ${LABEL[sd]} photo is completely black.`);
     return (
-      <TestShell {...p} instructions="Check both photos: sharp, no black spots, no colour cast, no cracks showing through the lens." hideManual detail={detail}>
+      <TestShell {...p} instructions="Both photos sharp, no spots or cracks?" hideManual detail={detail}>
         <View style={{ flex: 1, gap: 10 }}>
           <View style={{ flexDirection: "row", gap: 10 }}>
             {(["back", "front"] as const).map((sd) => (
@@ -167,7 +167,7 @@ export function CameraTest(p: TestProps) {
   const side = step;
   const state = open[side];
   return (
-    <TestShell {...p} instructions={`Point the ${side === "back" ? "REAR (back)" : "FRONT (selfie)"} camera at something detailed and take a photo.`} hideManual detail={detail}>
+    <TestShell {...p} instructions={`Take a photo with the ${side === "back" ? "REAR (back)" : "FRONT (selfie)"} camera.`} hideManual detail={detail}>
       <View style={{ flex: 1, gap: 10 }}>
         <View style={s.preview}>
           <video
@@ -181,7 +181,7 @@ export function CameraTest(p: TestProps) {
             <View style={s.overlay}>
               <Text style={s.overlayText}>
                 {opening ? `Opening the ${LABEL[side]} camera…`
-                  : state === "denied" ? "The camera was blocked. Allow it for this page (tap the lock or ⓘ next to the address), then tap Try again."
+                  : state === "denied" ? "Camera blocked — allow it (lock or ⓘ by the address), then Try again."
                   : state === "wrong-side" ? `Your browser couldn't reach the ${LABEL[side]} camera.`
                   : state ? `The ${LABEL[side]} camera wouldn't open${errs[side] ? ` (${errs[side]})` : ""}.`
                   : ""}

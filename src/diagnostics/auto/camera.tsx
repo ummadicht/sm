@@ -131,7 +131,7 @@ export async function cameraStep(rig: CameraRig, say: (line: string | null) => v
     let attempts = 1;
     if (cameraNeedsRetry(rear, front)) {
       attempts = 2;
-      say("Hold the phone up so both cameras can see the room");
+      say("Hold it up so both cameras see the room");
       rig.close();
       await sleep(4000);
       const bad = (r: SideResult) => r.status !== "ok" || frameKind(r.stats) !== "scene";

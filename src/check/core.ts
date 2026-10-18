@@ -18,7 +18,7 @@ export type SessionInfo = {
   server: string;
   /** What the server made of this phone's own model code at join (phone-led flow). Absent from an older server. */
   identity?: Identity | null;
-  /** The customer started this trade-in from the store's counter code (no advisor yet), so the app also asks for a mobile number and name. */
+  /** The customer started this trade-in from the store's counter code (no advisor yet). Nothing more is asked: the advisor fills the customer in at the trade-in. */
   customerStarted?: boolean;
 };
 
@@ -30,7 +30,7 @@ export type Declared = {
   // The Identify step (swapup docs/PHONE-LED-FLOW.md). Optional: a check saved by an
   // older app, or the browser's damage questions on their own, never set them.
   imei2?: string | null;
-  /** true = "Yes, that's my phone"; false = "No"; null = nothing was shown to confirm. */
+  /** true = "Yes, it's mine"; false = "No"; null = nothing was shown to confirm. */
   identityConfirmed?: boolean | null;
   /** The customer's own pick when the phone wasn't recognised (or they said "No") — a CLAIM, never a match. */
   picked?: { modelId: string; variant: string | null } | null;
@@ -61,6 +61,16 @@ export type RemoteStatus = {
   progress?: { done: number; total: number };
   storeName?: string;
   caseRef?: string;
+  /** Once applied: the public grade report, "/r/<token>" (no prices on it). Read through ./report.ts customerReport. */
+  reportPath?: string | null;
+  /** Once applied: the SwapUp grade that report opens on ("Good (B)"), the label printed as sent. No reasons, never a price. */
+  grading?: { status: string; label: string; grade: string | null; letter: string | null; final: boolean } | null;
+  /**
+   * The advisor is checking the screen by eye in SwapUp Store ("Check the phone"): the
+   * result screen shows the test colours full-screen until this goes false. Only an
+   * explicit true counts; an older server never sends it.
+   */
+  colours?: boolean;
 };
 
 /** Everything the app keeps on disk for the current check (one session at a time). */
@@ -92,12 +102,16 @@ export type CheckState = {
    * camera page) ended. Absent = not finished yet.
    */
   pairing?: PairingRec | null;
-  /** When the Identify step was finished (phone confirmed or picked, IMEI given or skipped). Absent = not yet, or an older app. */
+  /** When the Identify step was finished (a model picked, or left to the advisor). Absent = not yet, a recognised phone (never asked), or an older app. */
   identifiedAt?: string | null;
   /** How the battery-health screenshot step ended. Absent = not yet (or no such step for this check). */
   battery?: BatteryRec | null;
-  /** What this phone said about itself when it joined — the Identify card's "Your phone calls itself …" and the battery guide. */
-  reported?: { brand: string | null; modelCode: string | null } | null;
+  /**
+   * What this phone said about itself when it joined — the picker's "We couldn't tell the
+   * exact model from its code (…)" and the battery guide. `measured`: it read its own
+   * storage size, so the picker never asks for one.
+   */
+  reported?: { brand: string | null; modelCode: string | null; measured?: boolean } | null;
 };
 
 /**
@@ -111,7 +125,8 @@ export type BatteryRec = { outcome: "read" | "unreadable" | "skipped" | "unavail
 /**
  * handoff     — the camera page said it was finished (handoffDone)
  * grace       — photos were accepted but the camera never said finished; left after 30 s (as GradeIQ's /v2 does)
- * skipped     — the customer tapped "Skip the camera check" (the store never connected / stalled)
+ * skipped     — the advisor went on without the camera (SwapUp Store, by name) — or, on an
+ *               older server, the customer tapped "Skip camera"
  * unavailable — the server refused the pairing calls (no camera grading for this check)
  */
 export type PairingRec = { outcome: "handoff" | "grace" | "skipped" | "unavailable"; at: string; reason: string | null };
@@ -215,87 +230,6 @@ export function hostOf(server: string): string {
   return m ? m[1] : server;
 }
 
-// ---------------------------------------------------------------- IMEI
-
-/** IMEI check digit (Luhn over all 15 digits) — same rule as SwapUp lib/domain/imei.ts. */
-export function imeiLuhnValid(digits: string): boolean {
-  if (!/^\d{15}$/.test(digits)) return false;
-  let sum = 0;
-  for (let i = 0; i < 15; i++) {
-    let d = Number(digits[i]);
-    if (i % 2 === 1) {
-      d *= 2;
-      if (d > 9) d -= 9;
-    }
-    sum += d;
-  }
-  return sum % 10 === 0;
-}
-
-export type ImeiCheck = { ok: true; imei: string } | { ok: false; message: string } | { ok: null };
-
-/** Validate what the customer typed. Empty = not given (fine — it's optional). */
-export function checkImei(raw: string): ImeiCheck {
-  const d = (raw || "").replace(/\D/g, "");
-  if (!d) return { ok: null };
-  if (d.length < 15) return { ok: false, message: `An IMEI has 15 digits — this has ${d.length}. Check the number on the screen after dialling *#06#.` };
-  if (d.length > 15) return { ok: false, message: `An IMEI has 15 digits — this has ${d.length}. If two numbers are shown, type only IMEI 1.` };
-  if (!imeiLuhnValid(d)) return { ok: false, message: "That number doesn't add up — one digit is probably mistyped. Check each digit against the screen." };
-  return { ok: true, imei: d };
-}
-
-/**
- * The IMEIs in pasted text — what *#06# shows, copied as it comes: "IMEI 1
- * 356938 03 564380 9 / 01", two numbers on one line, a software version after
- * a slash. A block of exactly 15 digits is an IMEI as it stands (a bad check
- * digit is then shown, not hidden). Digits split by single spaces or dashes are
- * joined only where the join makes 15 digits that pass the check digit, and a
- * 30- or 45-digit block likewise — anything else would be a guess. A 16-digit
- * IMEISV or a serial is ignored. Order kept, no repeats.
- */
-export function imeisFromText(input: string): string[] {
-  const out: string[] = [];
-  const add = (d: string) => {
-    if (!out.includes(d)) out.push(d);
-  };
-  for (const run of (input || "").match(/\d(?:[ -]?\d)*/g) ?? []) {
-    // "1 356938035643809" is "IMEI 1" running into the number, so a run is cut
-    // into its groups and 15-digit windows of consecutive groups are tried.
-    // `asWritten`: a group typed as exactly 15 digits — the only kind kept without the check digit.
-    const groups = run.split(/[ -]/).flatMap((g) =>
-      g.length > 15 && g.length % 15 === 0 ? (g.match(/\d{15}/g) ?? []).map((d) => ({ d, asWritten: false })) : [{ d: g, asWritten: g.length === 15 }]
-    );
-    let i = 0;
-    while (i < groups.length) {
-      let acc = "";
-      let end = -1;
-      for (let j = i; j < groups.length && acc.length < 15; j++) {
-        acc += groups[j].d;
-        if (acc.length === 15 && ((j === i && groups[j].asWritten) || imeiLuhnValid(acc))) end = j;
-      }
-      if (end >= 0) {
-        add(acc);
-        i = end + 1;
-      } else i++;
-    }
-  }
-  return out;
-}
-
-/** Indian mobile: 10 digits starting 6–9, with an optional +91 / 0 in front. Empty is fine (it's optional). Same rule as the store app's find-by-mobile. */
-export function cleanMobile(input: string): { ok: true; value: string | null } | { ok: false; message: string } {
-  const digits = (input || "").replace(/[\s\-().]/g, "");
-  if (!digits) return { ok: true, value: null };
-  const m = /^(?:\+?91|0)?([6-9]\d{9})$/.exec(digits);
-  return m ? { ok: true, value: m[1] } : { ok: false, message: "A mobile number has 10 digits and starts with 6, 7, 8 or 9." };
-}
-
-/** A name as typed: spaces tidied, at most 60 characters. Empty → null (it's optional). */
-export function cleanName(input: string): string | null {
-  const t = (input || "").replace(/\s+/g, " ").trim().slice(0, 60).trim();
-  return t || null;
-}
-
 // ---------------------------------------------------------------- identity (the Identify step)
 
 export type IdentityMatch = "exact" | "family" | "none";
@@ -304,10 +238,9 @@ export type IdentityMatch = "exact" | "family" | "none";
  * The join response's `identity` (swapup docs/PHONE-LED-FLOW.md): the server's
  * matchModel on the phone's own model code — by code only, never a marketing
  * name — and never a price. `reason` is the server's explanation (staff words).
- * `variants` = that model's storage sizes, so the confirm card can ask which one
- * when the phone couldn't measure it; [] from an older server, with no match, or
- * when the phone DID measure a size — even one not on file (a 1TB S23 Ultra): the
- * customer is never asked a question the phone already answered.
+ * A match means the phone is recognised and nothing is asked (identifyDone).
+ * `variants` = that model's storage sizes ([] from an older server, with no match,
+ * or when the phone measured its size); kept as sent, the customer is not asked.
  */
 export type Identity = { label: string | null; match: IdentityMatch; reason: string | null; variant: string | null; modelId: string | null; variants: string[] };
 
@@ -332,32 +265,14 @@ export function parseIdentity(raw: unknown): Identity | null {
 
 /**
  * Was this session started by the customer from the store's counter code? The
- * contract says such sessions also ask for a mobile number and a name, and that
- * the server records them `via: "counter code"`; an explicit flag is read too.
+ * server records them `via: "counter code"`; an explicit flag is read too. The
+ * phone no longer asks such a customer for a mobile number or a name — the
+ * advisor takes them on the trade-in form.
  */
 export function startedByCustomer(rawSession: unknown): boolean {
   if (!rawSession || typeof rawSession !== "object") return false;
   const r = rawSession as Record<string, unknown>;
   return r.customerStarted === true || r.startedBy === "customer" || r.via === "counter code";
-}
-
-/** "Samsung Galaxy S23 Ultra · 256 GB" — the Identify card's headline. */
-export function identityLine(label: string, variant: string | null | undefined): string {
-  return variant ? `${label} · ${variant}` : label;
-}
-
-/**
- * The confirm card's "How much storage?" (swapup offer spec A10). Asked only when
- * the phone was recognised, couldn't measure its storage, and the model comes in
- * more than one size: one size the server fills from the catalogue, and a
- * measured size always wins on the server. The answer is a CLAIM the advisor
- * checks in Settings before the trade-in, never a measurement.
- */
-export function confirmStorage(identity: Identity | null | undefined): { ask: boolean; options: string[] } {
-  if (!identity || identity.match === "none" || !identity.label || !identity.modelId || identity.variant) return { ask: false, options: [] };
-  // A check saved by an app older than `variants` has none on its identity.
-  const options = Array.isArray(identity.variants) ? identity.variants : [];
-  return options.length > 1 ? { ask: true, options } : { ask: false, options: [] };
 }
 
 /** One phone in the picker (GET /api/device/models?brand=…). No prices — the server never sends them here. */
@@ -414,9 +329,59 @@ export function wantsBatteryStep(plan: { id: string }[]): boolean {
   return plan.some((p) => p.id === BATTERY_HEALTH_ID);
 }
 
-/** The three damage questions of the browser flow have all been answered. */
+/**
+ * The three damage questions an older browser check asked have all been answered. The
+ * customer is no longer asked about condition (owner, 2026-10-17): the camera checks it,
+ * and the advisor certifies what the camera couldn't. Kept to recognise a check saved by
+ * an older app.
+ */
 export function damageAnswered(d: Declared | null | undefined): boolean {
   return !!d && d.screenCracked !== null && d.backCracked !== null && d.liquid !== null;
+}
+
+/**
+ * The store named this phone EXACTLY from its own model code: there is nothing to ask (owner,
+ * 2026-10-17: "'Is this your phone?' only when the model match is not exact"). A family match
+ * (a regional version of a model on file) gets the one-tap confirm; no match gets the picker.
+ */
+export function recognised(identity: Identity | null | undefined): boolean {
+  return !!identity && identity.match === "exact" && !!identity.label;
+}
+
+/**
+ * "Is this your phone?" — the one-tap confirm for a family match: the model the store
+ * matched, and its storage sizes ONLY when the phone couldn't measure its own (the server
+ * then sends the model's sizes; a measured phone gets none). null = no confirm card: an exact
+ * match (nothing to ask) or no match (the picker asks instead).
+ */
+export function confirmAsk(identity: Identity | null | undefined): { label: string; modelId: string | null; sizes: string[] } | null {
+  if (!identity || identity.match !== "family" || !identity.label) return null;
+  const sizes = !identity.variant && identity.modelId && identity.variants.length > 1 ? identity.variants : [];
+  return { label: identity.variant ? `${identity.label} · ${identity.variant}` : identity.label, modelId: identity.modelId, sizes };
+}
+
+/**
+ * The Identify step is behind this check. It has a screen only for a phone the store
+ * could not name exactly from its model code: "Is this your phone?" (a family match) or
+ * "Which phone is this?" (no match) — the one thing no test can tell. An exact match is
+ * never asked anything (no IMEI, no storage, no name): the advisor confirms those at the
+ * trade-in.
+ */
+export function identifyDone(st: CheckState): boolean {
+  return !!st.identifiedAt || startedBeforeIdentify(st) || recognised(st.session.identity);
+}
+
+/**
+ * What the phone records for `display` when its scan ended without the camera: "not
+ * tested", with the reason — never missing, never passed. The camera's sweep or the
+ * advisor's certification decide it on the server (its worse-of rule lets either win).
+ * null when there is nothing to record: the camera ran, the plan has no display test,
+ * or it already has a result.
+ */
+export function displayAfterScan(rec: Pick<PairingRec, "outcome" | "reason">, planIds: string[], results: Record<string, unknown>): Detail | null {
+  if (rec.outcome !== "skipped" && rec.outcome !== "unavailable") return null;
+  if (!planIds.includes("display") || results.display) return null;
+  return { method: "store camera sweep", photos: rec.outcome, reason: `not camera-checked: ${rec.reason ?? rec.outcome}` };
 }
 
 /**
@@ -431,8 +396,12 @@ export function startedBeforeIdentify(st: CheckState): boolean {
   return Object.values(st.results).some((r) => r.outcome !== "unsupported") || !!st.pairing || damageAnswered(st.declared);
 }
 
-/** What POST /api/device/phase reports, so the store's tablet can say where the customer's phone is. */
-export type PhonePhase = "identify" | "scan" | "battery" | "test" | "done";
+/**
+ * What POST /api/device/phase reports, so the store's tablet can say where the customer's
+ * phone is. "colours": on its result screen, showing the test colours for the advisor's
+ * check by eye (an older server refuses it — harmless, the phone just stops sending it).
+ */
+export type PhonePhase = "identify" | "scan" | "battery" | "test" | "done" | "colours";
 
 /** A native or browser step → the phase the store hears about. Everything that tests the phone is "test". */
 export function phaseFor(step: string): PhonePhase {
@@ -492,23 +461,23 @@ export function countResults(plan: PlanItem[], results: Record<string, ResultRec
   return c;
 }
 
-export type WebStep = "welcome" | "identify" | "scan" | "battery" | "questions" | "runner" | "done";
+export type WebStep = "welcome" | "identify" | "scan" | "battery" | "runner" | "done";
 
 /**
  * Where a (resumed) BROWSER check is. The phone-led order where a browser can
- * follow it (swapup docs/PHONE-LED-FLOW.md): welcome → Identify → Scan →
- * battery screenshot → the damage questions → the guided tests → done. A check
- * begun before the Identify step existed skips the new steps rather than
- * jumping back to them mid-run.
+ * follow it (swapup docs/PHONE-LED-FLOW.md): welcome → Identify (only for a phone
+ * the store couldn't recognise) → Scan → battery screenshot → the guided tests →
+ * done. No damage questions: the camera checks the condition and the advisor
+ * certifies what it couldn't. A check begun before the Identify step existed skips
+ * the new steps rather than jumping back to them mid-run.
  */
 export function resumeStep(st: CheckState, supportedIds: string[]): WebStep {
   if (!st.consentAt) return "welcome";
   if (!startedBeforeIdentify(st)) {
-    if (!st.identifiedAt) return "identify";
+    if (!identifyDone(st)) return "identify";
     if (!st.pairing) return "scan";
     if (wantsBatteryStep(st.session.plan) && !st.battery) return "battery";
   }
-  if (!damageAnswered(st.declared)) return "questions";
   if (supportedIds.some((id) => !st.results[id])) return "runner";
   return "done";
 }

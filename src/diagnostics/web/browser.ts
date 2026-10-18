@@ -9,7 +9,7 @@ import type { ViewStyle } from "react-native";
  * SwapUp Check app is Android-only, so an iPhone is never told "the app can".
  */
 export function cantLine(): string {
-  return isIOS() ? "Your browser can't test this — the advisor will check it by hand." : "Your browser can't test this. The SwapUp Check app can — or the advisor will check it.";
+  return isIOS() ? "Not in a browser — the advisor checks it." : "Not in a browser — the app or the advisor checks it.";
 }
 
 export function ua(): string {
@@ -75,8 +75,8 @@ export async function requestMotionAccess(): Promise<"granted" | "denied" | "not
 /** What to say when motion access was refused (the way back differs per browser). */
 export function MOTION_DENIED(): string {
   return isIOS()
-    ? "Motion access was turned down. To allow it, close Safari completely and open this page again — or skip this test."
-    : "Motion sensors are blocked for this page. Allow them (tap the lock or ⓘ next to the address → Motion sensors), then tap Ask again — or skip this test.";
+    ? "Motion blocked — reopen Safari to allow it, or skip."
+    : "Motion blocked — allow it (lock or ⓘ by the address), or skip.";
 }
 
 /* ───────────── camera / microphone ───────────── */

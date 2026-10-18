@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 
 const P: typeof import("./pin") = await import("./pin" + ".ts");
 
-const RUN = "Pick a PIN that isn't a run or one repeated digit.";
+const RUN = "Not a run or one repeated digit.";
 const SHAPE = "The PIN is 4 digits.";
 
 test("pinProblem: four digits, nothing else", () => {
@@ -30,7 +30,7 @@ test("pinProblem: straight runs up and down are refused, wrapping ones are not n
 
 test("newPinProblem: a good PIN typed twice", () => {
   assert.equal(P.newPinProblem("4826", "4826"), null);
-  assert.equal(P.newPinProblem("4826", "4862"), "The two PINs don't match. Type the same PIN twice.");
+  assert.equal(P.newPinProblem("4826", "4862"), "The PINs don't match.");
   // The PIN's own problem comes first — no point matching a PIN that can't be used.
   assert.equal(P.newPinProblem("1234", "1234"), RUN);
   assert.equal(P.newPinProblem("12", "12"), SHAPE);
@@ -61,7 +61,7 @@ test("firstName: for the Switch button", () => {
 });
 
 test("deviceNameProblem: 2 to 40 characters after trimming", () => {
-  const S = "Give the tablet a name of 2 to 40 characters, like “Counter tablet 1”.";
+  const S = "Name: 2–40 characters.";
   assert.equal(P.deviceNameProblem("Counter tablet"), null);
   assert.equal(P.deviceNameProblem("  T1  "), null);
   assert.equal(P.deviceNameProblem("x".repeat(40)), null);

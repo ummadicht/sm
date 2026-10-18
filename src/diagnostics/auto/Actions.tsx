@@ -64,7 +64,7 @@ export function TouchAction({ onResult, step, steps }: { onResult: Done; step: n
         </Eyebrow>
         <Headline size="md">Swipe over every square</Headline>
         <Lead style={{ marginTop: 6 }}>
-          {remaining === 0 ? "All clear ✓" : stuck ? `${remaining} left — swipe over the blue squares. Ones that won't clear are noted for the advisor.` : `${remaining} ${remaining === 1 ? "square" : "squares"} left`}
+          {remaining === 0 ? "All clear ✓" : stuck ? `${remaining} left — swipe the blue squares.` : `${remaining} ${remaining === 1 ? "square" : "squares"} left`}
         </Lead>
       </View>
       <View style={a.grid} onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })} onTouchStart={mark} onTouchMove={mark}>

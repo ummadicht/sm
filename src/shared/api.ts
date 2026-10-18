@@ -44,8 +44,8 @@ export function createClient(server: string, auth: Auth, timeoutMs = 15_000) {
       return data as T;
     } catch (e) {
       if (e instanceof ApiError) throw e;
-      if ((e as Error).name === "AbortError") throw new ApiError(0, "No answer from the server — check the Wi‑Fi or mobile data.");
-      throw new ApiError(0, "Can't reach SwapUp — check the Wi‑Fi or mobile data.");
+      if ((e as Error).name === "AbortError") throw new ApiError(0, "No answer — check the Wi‑Fi.");
+      throw new ApiError(0, "Can't reach SwapUp — check the Wi‑Fi.");
     } finally {
       clearTimeout(timer);
     }

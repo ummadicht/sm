@@ -8,7 +8,7 @@ import { qrMatrix } from "./qrMatrix";
 export type PrintResult = { ok: true } | { ok: false; error: string };
 
 export const PRINT_LABEL = "Print";
-export const PRINT_HINT = "Opens a print-ready page in a new tab with the browser's print dialog.";
+export const PRINT_HINT = "Opens a print page in a new tab.";
 
 const PRINT_TAB = "swapup-counter-qr";
 
@@ -19,7 +19,7 @@ export async function printCounterQr(p: { storeName: string; code: string; joinU
   } catch {
     w = null;
   }
-  if (!w) return { ok: false, error: "The browser blocked the print page. Allow pop-ups for this site, then tap Print again." };
+  if (!w) return { ok: false, error: "Pop-ups blocked — allow them, then tap Print." };
   try {
     w.document.open();
     w.document.write(posterHtml({ ...p, qr: qrMatrix(p.joinUrl) }));
@@ -36,6 +36,6 @@ export async function printCounterQr(p: { storeName: string; code: string; joinU
     }, 300);
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: `The print page couldn't be prepared${e instanceof Error && e.message ? ` (${e.message})` : ""}. Try again.` };
+    return { ok: false, error: `Couldn't make the print page${e instanceof Error && e.message ? ` (${e.message})` : ""}. Try again.` };
   }
 }

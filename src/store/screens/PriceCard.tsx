@@ -1,23 +1,21 @@
 // The STORE MARGIN card — staff only, closed by default at the bottom of the answer
 // (./Offer.tsx, "Store margin · staff only"): BUY (what the store pays the customer)
-// against SELL (what it sells for refurbished — PriceIQ's Cashify listing less 2–5%),
+// against SELL (what it sells for refurbished — PriceIQ's refurbished listing less 2–5%),
 // the STORE'S refurb cost between them, and the MARGIN they leave. The store's refurb
 // cost is not the customer's refurb quote on the answer — hence its label.
-// The numbers and their rules live in ../buySell.ts (tested under node); this file only
-// loads the case (GET /api/cases/<id>, again quietly when the app comes back to the front
-// and every 30 s), saves the refurb cost (PATCH — it moves no price) and draws it.
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Text, TextInput, View } from "react-native";
-import { type CasePrice, type Figure as Fig, priceCard, readCasePrice, refurbHint, refurbInput, refurbPatch, refurbText } from "../buySell";
-import { StaffClient, errText } from "../staffClient";
-import { Banner, Body, Btn, Card, Figure, H2, L, Label, inr, useLayout } from "../ui";
+// The numbers and their rules live in ../buySell.ts (tested under node). This card reads
+// the case the answer already holds (no fetch of its own) and saves the refurb cost through
+// the answer's write queue (a PATCH — it moves no price); the answer repaints it.
+import React, { useEffect, useRef, useState } from "react";
+import { Text, TextInput, View } from "react-native";
+import { type CasePrice, type Figure as Fig, priceCard, refurbHint, refurbInput, refurbPatch, refurbText } from "../buySell";
+import { Body, Btn, Card, Figure, H2, L, Label, inr, useLayout } from "../ui";
+import type { SaveFn } from "./OfferSheets";
 
-type Load = { state: "loading" } | { state: "error"; text: string } | { state: "ready"; c: CasePrice };
-
-export function PriceCard({ api, caseId }: { api: StaffClient; caseId: string }) {
+export function PriceCard({ c, save }: { c: CasePrice; save: SaveFn }) {
   const { wide } = useLayout();
-  const [load, setLoad] = useState<Load>({ state: "loading" });
-  const [text, setText] = useState("");
+  const start = refurbText(c);
+  const [text, setText] = useState(start);
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const alive = useRef(true);
@@ -28,90 +26,34 @@ export function PriceCard({ api, caseId }: { api: StaffClient; caseId: string })
     };
   }, []);
 
-  // What the box started from on the last load: a quiet refresh only replaces the box when the
-  // advisor hasn't typed over it.
-  const startText = useRef<string | null>(null);
-  const typedRef = useRef("");
-  typedRef.current = text;
-
-  /** A case from the server: show it, and start the refurb box from it (unless it holds the advisor's own typing). */
-  const take = useCallback((r: unknown, keepTyping = false) => {
-    const c = readCasePrice(r);
-    if (!c) throw new Error("The server's answer about this case didn't make sense.");
-    const next = refurbText(c);
-    const dirty = keepTyping && startText.current !== null && typedRef.current !== startText.current;
-    startText.current = next;
-    setLoad({ state: "ready", c });
-    if (!dirty) setText(next);
-  }, []);
-
-  const fetchCase = useCallback(
-    async (quiet = false) => {
-      if (!quiet) setLoad({ state: "loading" });
-      try {
-        const r = await api.get<unknown>(`/api/cases/${encodeURIComponent(caseId)}`);
-        if (alive.current) take(r, quiet);
-      } catch (e) {
-        // A quiet refresh that fails keeps the card as it was; the next one tries again.
-        if (alive.current && !quiet) setLoad({ state: "error", text: errText(e) });
-      }
-    },
-    [api, caseId, take]
-  );
-
+  // A newer case from the server moves the box to its new start — unless the advisor has typed over the old one.
+  const lastStart = useRef(start);
+  const typed = useRef(text);
+  typed.current = text;
   useEffect(() => {
-    void fetchCase();
-    const sub = AppState.addEventListener("change", (s) => {
-      if (s === "active") void fetchCase(true);
-    });
-    const t = setInterval(() => {
-      if (AppState.currentState === "active") void fetchCase(true);
-    }, 30_000);
-    return () => {
-      sub.remove();
-      clearInterval(t);
-    };
-  }, [fetchCase]);
+    if (start === lastStart.current) return;
+    if (typed.current === lastStart.current) setText(start);
+    lastStart.current = start;
+  }, [start]);
 
-  async function save(amount: number) {
+  async function submit(amount: number) {
     setSaveErr(null);
     setSaving(true);
-    try {
-      const r = await api.patch<unknown>(`/api/cases/${encodeURIComponent(caseId)}`, refurbPatch(amount));
-      if (alive.current) take(r);
-    } catch (e) {
-      if (alive.current) setSaveErr(errText(e));
-    } finally {
-      if (alive.current) setSaving(false);
-    }
+    const why = await save(refurbPatch(amount));
+    if (!alive.current) return;
+    setSaving(false);
+    if (why) setSaveErr(why);
   }
 
-  if (load.state !== "ready") {
-    return (
-      <Card>
-        <Label>Store margin</Label>
-        {load.state === "error" ? (
-          <Banner tone="bad" title="Couldn't load the price" action={{ title: "Try again", onPress: () => void fetchCase(false) }}>
-            {load.text}
-          </Banner>
-        ) : (
-          <Body muted>Loading the price…</Body>
-        )}
-      </Card>
-    );
-  }
-
-  const m = priceCard(load.c, text);
+  const m = priceCard(c, text);
   const savedNow = !m.locked && m.start.saved && m.refurb.amount === m.start.amount;
-  const hint = saveErr ? null : refurbHint(load.c, text);
+  const hint = saveErr ? null : refurbHint(c, text);
   const negative = (m.margin.amount ?? 0) < 0;
 
   return (
     <Card style={{ gap: 16 }}>
       <View style={{ gap: 6 }}>
-        <Label>Store margin</Label>
         <H2 style={{ fontSize: 26, lineHeight: 32 }}>Buy vs sell</H2>
-        <Body muted>What you pay the customer, against what the phone sells for once it is refurbished.</Body>
       </View>
 
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
@@ -147,7 +89,7 @@ export function PriceCard({ api, caseId }: { api: StaffClient; caseId: string })
               inputMode="numeric"
               returnKeyType="done"
               onSubmitEditing={() => {
-                if (m.canSave && m.refurb.amount !== null) void save(m.refurb.amount);
+                if (m.canSave && m.refurb.amount !== null) void submit(m.refurb.amount);
               }}
               editable={!m.locked && !saving}
               placeholder="0"
@@ -161,7 +103,7 @@ export function PriceCard({ api, caseId }: { api: StaffClient; caseId: string })
               title={savedNow ? "Saved" : "Save"}
               kind="secondary"
               onPress={() => {
-                if (m.refurb.amount !== null) void save(m.refurb.amount);
+                if (m.refurb.amount !== null) void submit(m.refurb.amount);
               }}
               busy={saving}
               disabled={!m.canSave}

@@ -1,24 +1,26 @@
 // TAKE THE TRADE-IN — only the checks the law and the money need, in the desk's words
-// (../lock.ts holds the form's rules and the payload, tested under node):
+// (../lock.ts holds the form's rules and the payload, tested under node), on ONE screen:
 //   1 the IMEI, only when the case has none (typed, or scanned off the box) → 2 the customer
 //   (prefilled, editable in place) → 3 the ID document seen and its last 4 → 4 the government
 //   IMEI check (KYM SMS to 14422, and again for IMEI 2 when the case has one; the answer only
-//   once there is an IMEI, cleared when an IMEI changes) → 5 the hand-over ticks (+ "Settings ›
-//   About phone shows …" when the customer typed the storage, + the IMEI re-read when a check
-//   digit fails) → the pill.
+//   once there is an IMEI, cleared when an IMEI changes) → 5 ONE hand-over confirm, "Owner
+//   confirmed · SIM out · IMEI matches · no EMI/lock" — the server still gets all four flags
+//   (+ "Settings › About phone shows …" when the customer typed the storage, + the IMEI re-read
+//   when a check digit fails) → the pill.
+// No money here: the answer showed it (each number once); the top line names the swap.
 // The server is the judge (lockTradeIn). The pill stays off while the server or the form has a
 // problem and says it above the pill — a server blocker first, since nothing in the form can
 // fix it; a refusal comes back in the server's words and the case is re-read.
 // On success the app goes back to the answer screen, which then shows "Traded in".
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, KeyboardAvoidingView, Linking, Platform, ScrollView, Text, View } from "react-native";
+import { AppState, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Notice, Option } from "../../shared/kit";
-import { type LockForm, afterImeiChange, emptyLockForm, kymOpen, kymSends, kymText, lockBody, lockCaption, lockProblem, lockTicks, serverBlocker, ID_TYPES, KYM } from "../lock";
+import { type LockForm, type LockSpot, afterImeiChange, emptyLockForm, kymOpen, kymSends, kymText, lockBody, lockCaption, lockProblem, lockProblemSpot, lockTicks, serverBlocker, ID_TYPES, KYM } from "../lock";
 import { type CaseHead, type Offer, readCaseHead, readOffer } from "../offer";
 import { imeiCheck } from "../phoneLed";
 import { type StaffClient, errText } from "../staffClient";
-import { Banner, Body, Btn, Card, Field, H2, KV, L, Label, Segmented, TopBar, inr, useLayout } from "../ui";
+import { Banner, Body, Btn, Card, Field, L, Label, Segmented, TopBar, useLayout } from "../ui";
 
 const IS_WEB = Platform.OS === "web";
 const MAX_W = 760;
@@ -37,6 +39,14 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
   const [locking, setLocking] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const alive = useRef(true);
+  // Where each card sits in the scroll, so the line above the pill can take the advisor to it.
+  const scroller = useRef<ScrollView>(null);
+  const spots = useRef<Partial<Record<LockSpot, number>>>({});
+  const at = (spot: LockSpot) => ({ onLayout: (e: { nativeEvent: { layout: { y: number } } }) => (spots.current[spot] = e.nativeEvent.layout.y) });
+  const goTo = (spot: LockSpot | null) => {
+    const y = spot ? spots.current[spot] : undefined;
+    if (y !== undefined) scroller.current?.scrollTo({ y: Math.max(0, y - 12), animated: true });
+  };
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -49,7 +59,7 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
 
   const take = useCallback((r: unknown) => {
     const head = readCaseHead(r);
-    if (!head) throw new Error("The server's answer about this case didn't make sense.");
+    if (!head) throw new Error("Bad answer from the server.");
     setLoad({ state: "ready", head, offer: readOffer((r as { offer?: unknown }).offer) });
     const before = imeis.current;
     imeis.current = { imei: head.imei, imei2: head.imei2 };
@@ -119,7 +129,13 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
   }
 
   const column = { alignSelf: "center" as const, width: Math.min(content, MAX_W) + pad * 2 };
-  const top = <TopBar title="Take the trade-in" subtitle={load.state === "ready" ? load.head.ref || caseRef : caseRef} left={{ label: "‹ The answer", onPress: onBack }} />;
+  // "SU-AND-00137 · Galaxy S23 Ultra 256GB → Galaxy S26 Ultra 256GB": what is being swapped, no money.
+  const swap =
+    load.state === "ready"
+      ? `${[load.head.deviceLabel, load.head.variant].filter(Boolean).join(" ") || "The customer's phone"} → ${load.offer?.swap.newPhone?.label ?? "the new phone"}`
+      : null;
+  const ref = load.state === "ready" ? load.head.ref || caseRef : caseRef;
+  const top = <TopBar title="Take the trade-in" subtitle={swap ? `${ref} · ${swap}` : ref} left={{ label: "‹ The answer", onPress: onBack }} />;
 
   if (load.state !== "ready" || !form) {
     return (
@@ -138,36 +154,29 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
     );
   }
 
-  const { head, offer: o } = load;
+  const { head } = load;
   const set = (patch: Partial<LockForm>) => setForm((f) => (f ? { ...f, ...patch } : f));
   const askImei = !head.imei;
   const typedCheck = imeiCheck(imeiText);
   const problem = lockProblem(form, head);
   const blocker = serverBlocker(head);
   const caption = lockCaption(form, head);
+  // A server blocker has no card to go to; a form problem does.
+  const spot = caption && caption === problem && !blocker ? lockProblemSpot(form, head) : null;
   const flagged = !!form.kym && form.kym !== "clear";
   const canKym = kymOpen(head);
-  const total = o?.swap.total ?? null;
-  const old = [head.deviceLabel, head.variant].filter(Boolean).join(" ") || "The customer's phone";
 
   return (
     <View style={{ flex: 1 }}>
       {top}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={IS_WEB ? undefined : "padding"}>
-        <ScrollView contentContainerStyle={[column, { padding: pad, gap: 16 }]} keyboardShouldPersistTaps="handled">
-          {/* What the customer gets */}
-          <Card style={{ gap: 4 }}>
-            <H2>{`${old} → ${o?.swap.newPhone?.label ?? "the new phone"}`}</H2>
-            <KV label="Trade-in" value={inr(o?.swap.tradeIn ?? null)} />
-            <KV label="Bonus" value={inr(o?.swap.bonus ?? null)} />
-            <KV label="Customer pays" value={inr(o?.swap.customerPays ?? null)} />
-          </Card>
-
+        <ScrollView ref={scroller} contentContainerStyle={[column, { padding: pad, gap: 16 }]} keyboardShouldPersistTaps="handled">
           {/* 1 · the IMEI, only when the case has none */}
           {askImei ? (
+            <View {...at("imei")}>
             <Card style={{ gap: 12 }}>
               <Label>IMEI</Label>
-              <Body muted>Dial *#06# on the customer's phone, or scan the IMEI barcode on its box.</Body>
+              <Body muted>Dial *#06# or scan the box.</Body>
               <Field
                 label="IMEI 1"
                 value={imeiText}
@@ -177,13 +186,13 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
                 placeholder="15 digits"
                 maxLength={15}
                 editable={!imeiBusy}
-                error={imeiErr ?? (imeiText.length === 15 && typedCheck === "bad" ? "That IMEI fails its check digit — re-read it from *#06#." : null)}
+                error={imeiErr ?? (imeiText.length === 15 && typedCheck === "bad" ? "Fails its check digit — re-read *#06#." : null)}
                 hint={imeiBusy ? "Saving…" : undefined}
                 style={{ fontVariant: ["tabular-nums"], letterSpacing: 1.5 }}
               />
               {imeiText.length === 15 && typedCheck === "bad" && !imeiBusy ? (
                 // Rare, but real: the server keeps it, and the ticks then ask for the re-read.
-                <Btn title="It is correct — record it anyway" kind="ghost" onPress={() => void saveImei(imeiText)} style={{ alignSelf: "flex-start" }} />
+                <Btn title="Record it anyway" kind="ghost" onPress={() => void saveImei(imeiText)} style={{ alignSelf: "flex-start" }} />
               ) : null}
               {!IS_WEB ? (
                 scanning ? (
@@ -200,9 +209,11 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
                 )
               ) : null}
             </Card>
+            </View>
           ) : null}
 
           {/* 2 · the customer */}
+          <View {...at("customer")}>
           <Card style={{ gap: 14 }}>
             <Label>Customer</Label>
             <Field label="Customer name" value={form.name} onChangeText={(t) => set({ name: t.slice(0, 80) })} autoComplete="off" autoCorrect={false} />
@@ -215,26 +226,30 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
               placeholder="10 digits"
             />
           </Card>
+          </View>
 
           {/* 3 · the ID document seen */}
+          <View {...at("id")}>
           <Card style={{ gap: 14 }}>
             <Label>ID document seen</Label>
             <Segmented options={ID_TYPES.map((t) => ({ value: t.id as string, label: t.label }))} value={form.idType} onChange={(v) => set({ idType: v as LockForm["idType"] })} />
             <Field
-              label="Last 4 characters of the ID number"
+              label="ID last 4"
               value={form.idLast4}
               onChangeText={(t) => set({ idLast4: t.replace(/[^A-Za-z0-9]/g, "").slice(0, 4).toUpperCase() })}
               autoCapitalize="characters"
               autoCorrect={false}
               maxLength={4}
               placeholder="e.g. 4821"
-              hint="Only these 4 characters are stored — never the full ID number or a copy of it."
+              hint="Only these 4 are stored."
             />
           </Card>
+          </View>
 
           {/* 4 · the government IMEI check */}
+          <View {...at("kym")}>
           <Card style={{ gap: 14 }}>
-            <Label>Government IMEI check (required)</Label>
+            <Label>Government IMEI check</Label>
             <Body muted>{kymText(head)}</Body>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
               {kymSends(head).map((b) => (
@@ -244,7 +259,7 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
                   kind="secondary"
                   disabled={b.disabled}
                   onPress={() => {
-                    Linking.openURL(b.uri).catch(() => setErr("This device couldn't open the SMS app. Send the SMS from the store phone."));
+                    Linking.openURL(b.uri).catch(() => setErr("No SMS app here — use the store phone."));
                   }}
                 />
               ))}
@@ -259,27 +274,17 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
                 }}
               />
             </View>
-            {flagged ? <Banner tone="bad" title="Do not take it — return it to the customer." /> : null}
-            <Field label="Reference (optional)" value={form.kymRef} onChangeText={(t) => set({ kymRef: t.slice(0, 80) })} placeholder="e.g. time of the SMS reply" />
+            {flagged ? <Banner tone="bad" title="Do not take it">Return it to the customer.</Banner> : null}
+            <Field label="Reference (optional)" value={form.kymRef} onChangeText={(t) => set({ kymRef: t.slice(0, 80) })} placeholder="e.g. SMS reply time" />
           </Card>
+          </View>
 
-          {/* 5 · the hand-over ticks — white rows on the grey, so each reads as a tap target */}
-          <View style={{ gap: 10 }}>
+          {/* 5 · ONE hand-over confirm (the four checks), then a tick only where one is needed */}
+          <View style={{ gap: 10 }} {...at("checks")}>
             <Label style={{ paddingHorizontal: 4 }}>Before you take the phone</Label>
             {lockTicks(head).map((t) => {
-              const on = t.key === "storageSeen" ? form.storageSeen : t.key === "imeiCheckAck" ? form.imeiCheckAck : form.checks[t.key];
-              return (
-                <Option
-                  key={t.key}
-                  title={t.label}
-                  selected={on}
-                  onPress={() => {
-                    if (t.key === "storageSeen") set({ storageSeen: !on });
-                    else if (t.key === "imeiCheckAck") set({ imeiCheckAck: !on });
-                    else set({ checks: { ...form.checks, [t.key]: !on } });
-                  }}
-                />
-              );
+              const on = form[t.key];
+              return <Option key={t.key} title={t.label} hint={t.hint} selected={on} onPress={() => set({ [t.key]: !on })} />;
             })}
           </View>
 
@@ -293,9 +298,16 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
 
         {/* 7 · the pill */}
         <View style={[column, { paddingHorizontal: pad, paddingTop: 8, paddingBottom: 14, gap: 8 }]}>
-          {caption ? <Text style={{ color: L.muted, fontSize: 15, lineHeight: 21, textAlign: "center" }}>{caption}</Text> : null}
+          {caption ? (
+            // What is still missing, as a link: it takes the advisor straight to that card.
+            <Pressable onPress={() => goTo(spot)} disabled={!spot} accessibilityRole={spot ? "link" : "text"} hitSlop={8}>
+              <Text style={{ color: spot ? L.primary : L.muted, fontSize: 15, lineHeight: 21, textAlign: "center", fontWeight: spot ? "600" : "400" }}>
+                {spot ? `${caption} Show me ↑` : caption}
+              </Text>
+            </Pressable>
+          ) : null}
           <Btn
-            title={total !== null ? `Take the trade-in · ${inr(total)}` : "Take the trade-in"}
+            title="Take the trade-in"
             big
             busy={locking}
             disabled={!!problem || !!blocker || imeiBusy}
@@ -333,7 +345,7 @@ function BoxScanner({ onImei, onStop }: { onImei: (imei: string) => void; onStop
   if (!perm.granted) {
     return (
       <View style={{ gap: 10 }}>
-        <Notice tone="warn">The camera is needed to scan the box. Type the IMEI instead, or allow the camera in the tablet's Settings.</Notice>
+        <Notice tone="warn">No camera access — type the IMEI instead.</Notice>
         <Btn title="Type it instead" kind="ghost" onPress={onStop} style={{ alignSelf: "flex-start" }} />
       </View>
     );
@@ -353,7 +365,7 @@ function BoxScanner({ onImei, onStop }: { onImei: (imei: string) => void; onStop
               onImei(d);
               return;
             }
-            setNote("That barcode isn't an IMEI. Point at the one labelled IMEI.");
+            setNote("Not an IMEI — scan the one labelled IMEI.");
           }}
         />
       </View>

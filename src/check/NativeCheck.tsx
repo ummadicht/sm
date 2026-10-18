@@ -1,19 +1,24 @@
-// The NATIVE SwapUp Check after joining — GradeIQ v2's order, the phone leading
-// (swapup docs/PHONE-LED-FLOW.md, app ≥ 0.6.0), with a step rail on every
-// screen: Identify · Scan · Test · Result.
-//   Identify  (is this your phone? / choose it; the IMEI from *#06#)
+// The NATIVE SwapUp Check after joining — the phone leading (swapup docs/PHONE-LED-FLOW.md,
+// app ≥ 0.6.0), with a step rail on every screen: Scan · Test · Done (owner, 2026-10-17:
+// "Reduce the flow"). The customer is asked nothing about the phone's condition: the camera
+// checks it, and the advisor certifies what the camera couldn't, by name, in SwapUp Store.
+//   Identify  (only for a phone the store couldn't name exactly: "Is this your phone?" for a
+//              regional version, "Which phone is this?" for an unknown one)
 //   → Scan    (a QR of GradeIQ's camera link; the advisor's tablet photographs the
 //              phone and sweeps its screen — vision first; GradeIQ grades the
-//              glass, body and LCD while the tests below run)
-//   → Battery (a screenshot of the battery-health page, read by GradeIQ)
+//              glass, body and LCD while the tests below run). It waits for the
+//              camera, or for the advisor to go on without it — never the customer.
+//   → Battery (a screenshot of the battery-health page, read by GradeIQ — only when the store
+//              has no other reading, e.g. an attached Phonecheck report; Skip is always there)
 //   → Get ready (the permission dialogs, then straight on)
 //   → Automatic steps (one progress bar, ticks itself)
 //   → Actions (swipe the grid, plug in the charger)
-//   → Result ("Checks complete — the advisor will confirm your price").
+//   → Result ("Checks complete — the advisor will confirm your price"). It shows the
+//              colours full-screen when asked: a camera page that comes back, or the
+//              advisor's check by eye (./ResultColours.tsx).
 // Each step is kept on disk (identifiedAt, pairing, battery, results), so a
 // restart lands where it left off; each step change is reported to the store
-// (POST /api/device/phase). The customer now waits on Scan for the advisor —
-// capped by the 90 s "Skip the camera check".
+// (POST /api/device/phase).
 // The browser build runs the same steps where it can from ../CheckApp.tsx and
 // never loads this file (Metro picks ./NativeCheck.web.tsx there).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,15 +29,17 @@ import { testById } from "../diagnostics/catalog";
 import { NOT_IN_RUN_REASON, nativeStep, partitionPlan, rerunnable, testsStarted } from "../diagnostics/auto/plan";
 import { AutoRunner } from "../diagnostics/auto/AutoRunner";
 import { ChargingAction, TouchAction } from "../diagnostics/auto/Actions";
-import { PairingScreen } from "./PairingScreen";
+import { Pattern, PairingScreen } from "./PairingScreen";
+import { useResultColours } from "./ResultColours";
 import { IdentifyScreen } from "./IdentifyScreen";
 import { BatteryScreen } from "./BatteryScreen";
 import { Railed } from "./StepRail";
 import { GetReady, askTestPermissions } from "./GetReady";
-import { SyncBadge } from "./screens";
-import { BATTERY_HEALTH_ID, countResults, phaseFor, startedBeforeIdentify, type BatteryRec, type Detail, type Outcome, type PairingRec } from "./core";
+import { ReportLink, SyncBadge } from "./screens";
+import { customerReport, donePollMs } from "./report";
+import { BATTERY_HEALTH_ID, countResults, displayAfterScan, identifyDone, phaseFor, type BatteryRec, type Detail, type Outcome, type PairingRec } from "./core";
 import { batteryResultText } from "./battery";
-import type { CheckEngine, IdentifyAnswers, Snapshot } from "./engine";
+import { APPLIED_MESSAGE, type CheckEngine, type IdentifyAnswers, type Snapshot } from "./engine";
 import { ClearDataGuide } from "./ClearDataGuide";
 
 const KEEP_AWAKE = "swapup-check-native";
@@ -75,8 +82,8 @@ export function NativeCheck({
 
   const base = nativeStep(
     {
-      // A check begun by an older app (no Identify step) carries on with its tests.
-      identified: !!st.identifiedAt || startedBeforeIdentify(st),
+      // Only an unrecognised phone has an Identify screen; a check begun by an older app carries on with its tests.
+      identified: identifyDone(st),
       scanned: !!st.pairing,
       // Only where the server asked for it (an older server has no screenshot reader).
       battery: !!st.battery || !plan.server.includes(BATTERY_HEALTH_ID),
@@ -116,7 +123,9 @@ export function NativeCheck({
     };
   }, [busy]);
 
-  // Done: tell the store "complete" once, then ask every few seconds whether it has applied the results.
+  // Done: tell the store "complete" once, then ask every few seconds whether it has applied the
+  // results — every 1.5 s while the advisor is checking the screen by eye (the colours stop
+  // soon after they tap).
   useEffect(() => {
     if (step === "done" && !st.completeAt) void engine.finish();
   }, [engine, step, st.completeAt]);
@@ -126,8 +135,10 @@ export function NativeCheck({
     let alive = true;
     const tick = async () => {
       const r = await engine.pollStatus();
-      if (!alive || r?.status === "applied") return;
-      t = setTimeout(tick, 4000);
+      // Ended (cancelled, expired): nothing more to read. Applied: on, slowly — a newer report
+      // version moves the grade its link already opens (./report.ts donePollMs).
+      if (!alive || engine.getSnapshot().state?.ended) return;
+      t = setTimeout(tick, donePollMs(r));
     };
     void tick();
     return () => {
@@ -140,18 +151,22 @@ export function NativeCheck({
     async (rec: Omit<PairingRec, "at">) => {
       await engine.setPairing({ ...rec, at: new Date().toISOString() });
       // No camera sweep will happen: say so on `display` (the server's worse-of rule
-      // still lets a later camera result win). Otherwise the phone never posts display.
+      // still lets a later camera result or the advisor's certification win). Otherwise
+      // the phone never posts display.
       const cur = engine.getSnapshot().state;
-      if ((rec.outcome === "skipped" || rec.outcome === "unavailable") && plan.server.includes("display") && cur && !cur.results.display) {
-        await engine.record("display", "skip", { method: "GradeIQ camera sweep", photos: rec.outcome, reason: `not camera-checked: ${rec.reason ?? rec.outcome}` });
-      }
+      const d = cur ? displayAfterScan(rec, plan.server, cur.results) : null;
+      if (d) await engine.record("display", "skip", d);
     },
     [engine, plan]
   );
 
+  // The result screen's colours: a camera page that comes back, or the advisor's check by eye.
+  const open = step === "done" && snap.remote?.status !== "applied";
+  const colours = useResultColours(engine, snap, open, onBleed);
+
   if (step === "identify") {
     return (
-      <Railed at="identify">
+      <Railed at="scan">
         <IdentifyScreen engine={engine} state={st} onDone={(a: IdentifyAnswers) => void engine.identify(a)} onWrongCode={onWrongCode} />
       </Railed>
     );
@@ -228,8 +243,10 @@ export function NativeCheck({
     );
   }
 
+  if (colours) return <Pattern name={colours.name} caption={colours.caption} />;
+
   return (
-    <Railed at="result">
+    <Railed at="done">
       <NativeDone
         snap={snap}
         planIds={plan}
@@ -253,6 +270,20 @@ export function NativeCheck({
   );
 }
 
+/**
+ * A check the store applied that this app was reopened on (state.ended === APPLIED_MESSAGE):
+ * the same finish screen as when it happens live — nothing more runs, nothing is re-tested.
+ */
+export function NativeApplied({ snap, onNewCheck }: { snap: Snapshot; onNewCheck: () => void }) {
+  const plan = useMemo(() => partitionPlan(snap.state!.session.plan.map((p) => p.id)), [snap.state]);
+  return (
+    <Railed at="done">
+      <NativeDone snap={snap} planIds={plan} blockedPerms={[]} onRerun={() => {}} onNewCheck={onNewCheck} />
+    </Railed>
+  );
+}
+
+/** The one finish screen: "Checks complete", then — once the store applies the results — "The store has your results". */
 function NativeDone({
   snap,
   planIds,
@@ -268,9 +299,12 @@ function NativeDone({
 }) {
   const s = snap.state!;
   const c = countResults(s.session.plan, s.results);
-  const applied = snap.remote?.status === "applied";
+  const applied = snap.remote?.status === "applied" || s.ended === APPLIED_MESSAGE;
+  // The grade and the report link, once the store has applied the results and sent them.
+  const report = applied ? customerReport(snap.remote, s.server) : null;
   const redo = rerunnable(planIds, s.results);
   const photos = s.pairing?.outcome;
+  // The camera photographed it; whatever it couldn't decide, the advisor checks — never the customer.
   const byCamera = photos === "handoff" || photos === "grace";
   const rows: { label: string; value: string; tone?: "pass" | "fail" | "warn" | "muted" }[] = [
     { label: "Trade-in", value: s.session.caseRef },
@@ -279,23 +313,27 @@ function NativeDone({
     { label: "Not tested", value: String(c.skipped), tone: c.skipped ? "warn" : undefined },
   ];
   if (c.unsupported) rows.push({ label: "Not on this phone", value: String(c.unsupported), tone: "muted" });
-  if (planIds.server.includes("display")) rows.push({ label: "Screen and glass", value: byCamera ? "checked by the store's camera" : "checked by eye", tone: "muted" });
+  if (planIds.server.includes("display")) rows.push({ label: "Screen and glass", value: byCamera ? "Store camera" : "Advisor", tone: "muted" });
   if (planIds.server.includes(BATTERY_HEALTH_ID)) rows.push({ label: "Battery health", value: batteryResultText(s.battery), tone: "muted" });
+  if (report?.grade) rows.push({ label: "SwapUp grade", value: report.grade });
   return (
     <Screen
       footer={
-        <>
-          {redo.length && !applied ? (
-            <PillButton title={redo.length === 1 ? "Test that again" : `Test those ${redo.length} again`} kind="outline" onPress={() => onRerun(redo)} />
-          ) : null}
-          <QuietLink title="Finish and start a new check" onPress={onNewCheck} />
-        </>
+        applied ? (
+          <PillButton title="Test another phone" onPress={onNewCheck} />
+        ) : (
+          <>
+            {redo.length ? <PillButton title={redo.length === 1 ? "Retry 1 test" : `Retry ${redo.length} tests`} kind="outline" onPress={() => onRerun(redo)} /> : null}
+            <QuietLink title="New check" onPress={onNewCheck} />
+          </>
+        )
       }
     >
       <Wordmark store={s.session.storeName} />
-      {/* Never a price or a grade letter here: the price comes from the store and can still change. */}
+      {/* Never a price here: it comes from the store and can still change. The SwapUp grade
+          shows only once the store has applied the results and graded them. */}
       <Headline>{applied ? "The store has your results" : "Checks complete"}</Headline>
-      {!applied ? <Lead>The advisor will confirm your price.</Lead> : null}
+      <Lead>{applied ? "Nothing more to do here." : "The advisor confirms your price."}</Lead>
       <Hero grow={false} minHeight={0} style={{ paddingVertical: 24 }}>
         {applied ? <TickArt width={104} /> : <ChecklistArt width={92} ticked={3} />}
       </Hero>
@@ -304,22 +342,17 @@ function NativeDone({
           <FactRow key={r.label} label={r.label} value={r.value} tone={r.tone} last={i === rows.length - 1} />
         ))}
       </Card>
+      <ReportLink report={report} style={{ marginTop: 14 }} />
       <Gap h={14} />
       <SyncBadge snap={snap} center />
-      {!applied ? <Caption>The advisor is reviewing your results on their screen.</Caption> : null}
       <ClearDataGuide applied={applied} />
-      {photos === "skipped" || photos === "unavailable" ? (
-        <Notice tone="warn" style={{ marginTop: 12 }}>
-          The camera didn&apos;t check the screen, so the advisor checks it by eye.
-        </Notice>
-      ) : null}
       {blockedPerms.length && !applied ? (
         <View style={{ marginTop: 14, gap: 10 }}>
-          <Notice tone="warn">{`The ${blockedPerms.join(" and ")} ${blockedPerms.length === 1 ? "is" : "are"} turned off for SwapUp Check, so those tests can't run. Turn ${blockedPerms.length === 1 ? "it" : "them"} on in Settings, then test again.`}</Notice>
+          <Notice tone="warn">{`${blockedPerms.join(" and ").replace(/^./, (c) => c.toUpperCase())} ${blockedPerms.length === 1 ? "is" : "are"} off — turn ${blockedPerms.length === 1 ? "it" : "them"} on in Settings.`}</Notice>
           <PillButton title="Open Settings" kind="outline" size="sm" onPress={() => void Linking.openSettings().catch(() => {})} style={{ alignSelf: "flex-start" }} />
         </View>
       ) : null}
-      {redo.length && !applied ? <Caption>Not tested or failed: {redo.map((id) => testById(id)?.title ?? id).join(", ")}</Caption> : null}
+      {redo.length && !applied ? <Caption>To retry: {redo.map((id) => testById(id)?.title ?? id).join(", ")}</Caption> : null}
     </Screen>
   );
 }

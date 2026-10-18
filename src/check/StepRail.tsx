@@ -1,19 +1,19 @@
-// The step rail on every SwapUp Check screen: Identify · Scan · Test · Result —
-// GradeIQ v2's StepRail (giq/app/components/V2Flow.tsx), so the customer always
-// sees where they are and how much is left. The battery screenshot counts as
-// Test: it is a check of the phone's own health. Drawn quietly (thin bars, small
-// labels) so the headline stays the first thing on the screen.
+// The step rail on every SwapUp Check screen: Scan · Test · Done (owner, 2026-10-17: "Reduce
+// the flow" — the customer's whole check is three steps). "Scan" covers getting the phone to the
+// store's camera: joining, and — only for a phone the store can't name exactly — "Is this your
+// phone?". The battery screenshot counts as Test (a check of the phone's own health). Drawn
+// quietly (thin bars, small labels) so the headline stays the first thing on the screen. The
+// Scan screen itself is full-screen (its QR, the camera's colours) and draws no rail.
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { P } from "../shared/theme";
 
-export type RailStep = "identify" | "scan" | "test" | "result";
+export type RailStep = "scan" | "test" | "done";
 
 const STEPS: { key: RailStep; label: string }[] = [
-  { key: "identify", label: "Identify" },
   { key: "scan", label: "Scan" },
   { key: "test", label: "Test" },
-  { key: "result", label: "Result" },
+  { key: "done", label: "Done" },
 ];
 
 export function StepRail({ at }: { at: RailStep }) {

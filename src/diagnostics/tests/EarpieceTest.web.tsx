@@ -6,5 +6,5 @@ import { TestProps } from "../TestShell";
 import { CantTest } from "../web/WebParts";
 
 export function EarpieceTest(p: TestProps) {
-  return <CantTest p={p} reason="Browsers can't play sound through the call speaker at the top of the phone." />;
+  return <CantTest p={p} reason="Browsers can't use the call speaker." />;
 }

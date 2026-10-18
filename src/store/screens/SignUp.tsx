@@ -90,8 +90,8 @@ export function SignUp({
 
   function personProblem(needPhone: boolean): string | null {
     if (name.trim().length < 2) return "Enter your full name.";
-    if (!/^[a-z0-9._-]{3,32}$/.test(username.trim().toLowerCase())) return "Username: 3–32 lowercase letters, numbers, dot, dash or underscore.";
-    if (password.length < 8) return "Choose a password of at least 8 characters.";
+    if (!/^[a-z0-9._-]{3,32}$/.test(username.trim().toLowerCase())) return "Username: 3–32 of a–z, 0–9, . _ -";
+    if (password.length < 8) return "Password: 8+ characters.";
     if (password !== password2) return "The two passwords don't match.";
     if (needPhone && !/^[6-9]\d{9}$/.test(phone.replace(/\D/g, ""))) return "Enter a 10-digit Indian mobile number.";
     return null;
@@ -101,10 +101,10 @@ export function SignUp({
     setError(null);
     const p = personProblem(mode === "register");
     if (p) return setError(p);
-    if (mode === "invite" && !preview) return setError(previewErr ?? "Enter the 8-character invite code from your manager.");
+    if (mode === "invite" && !preview) return setError(previewErr ?? "Enter the 8-character invite code.");
     if (mode === "register") {
-      if (!programmeId) return setError("Choose the programme your store belongs to.");
-      if (storeName.trim().length < 3) return setError("Enter the store's name as customers know it.");
+      if (!programmeId) return setError("Choose your programme.");
+      if (storeName.trim().length < 3) return setError("Enter the store's name.");
       if (city.trim().length < 2) return setError("Enter the city.");
     }
     setBusy(true);
@@ -122,7 +122,7 @@ export function SignUp({
               phone: phone.replace(/\D/g, ""),
               ...person,
             });
-      if (!res?.token || !res.user) throw new ApiError(0, "The server answered, but not with a sign-in.");
+      if (!res?.token || !res.user) throw new ApiError(0, "Not a sign-in answer from the server.");
       setPassword("");
       setPassword2("");
       onSignedIn(server, res);
@@ -145,14 +145,14 @@ export function SignUp({
             <H1>{mode === "invite" ? "Join your store" : "Register a new store"}</H1>
             <Body muted>
               {mode === "invite"
-                ? "Your manager gives you an invite code. You choose your own username and password."
-                : "For a service centre or experience centre that isn't on SwapUp yet. You become its manager."}
+                ? "Use the code from your manager."
+                : "For a centre not on SwapUp yet — you become its manager."}
             </Body>
           </View>
 
           <Segmented
             options={[
-              { value: "invite", label: "I have an invite code" },
+              { value: "invite", label: "Invite code" },
               { value: "register", label: "Register a store" },
             ]}
             value={mode}
@@ -170,13 +170,13 @@ export function SignUp({
                 onChangeText={(t) => setInvite(t.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8))}
                 autoCapitalize="characters"
                 autoCorrect={false}
-                placeholder="8 letters and numbers"
+                placeholder="8 characters"
                 style={{ fontSize: 24, letterSpacing: 4, fontWeight: "800" }}
                 editable={!busy}
               />
               {preview ? (
                 <Banner tone="up" title={`You're joining ${preview.storeName}${preview.city ? `, ${preview.city}` : ""}`}>
-                  {`Programme: ${preview.programme}. You'll be a counter advisor.`}
+                  {`${preview.programme} · advisor`}
                 </Banner>
               ) : previewErr ? (
                 <Banner tone="bad" title="That code doesn't work">
@@ -191,7 +191,7 @@ export function SignUp({
                 <Body muted>Loading…</Body>
               ) : programmes.length === 0 ? (
                 <Banner tone="warn" title="No programme is open for new stores">
-                  Ask your brand or programme contact to add your store, or to send your manager an invite.
+                  Ask your programme contact to add your store.
                 </Banner>
               ) : (
                 <View style={{ gap: 8 }}>
@@ -219,8 +219,7 @@ export function SignUp({
               <Text style={{ fontSize: 15, fontWeight: "700", color: L.ink }}>Kind of store</Text>
               <Segmented options={KINDS.map((k) => ({ value: k.value, label: k.label }))} value={kind} onChange={setKind} />
               <Banner tone="fix" title="Your store starts as 'waiting for approval'">
-                You can sign in, set up the store Wi‑Fi, test customers' phones and see quotes straight away. Taking a trade-in starts once the programme approves
-                the store and sets its credit limit.
+                Test phones and see quotes now — trade-ins begin once approved.
               </Banner>
             </Card>
           )}
@@ -241,7 +240,7 @@ export function SignUp({
               onChangeText={(t) => setUsername(t.toLowerCase())}
               autoCapitalize="none"
               autoCorrect={false}
-              hint="3–32 lowercase letters, numbers, dot, dash or underscore."
+              hint="3–32 of a–z, 0–9, . _ -"
               editable={!busy}
             />
             <Field label="Choose a password" value={password} onChangeText={setPassword} secureTextEntry autoCapitalize="none" hint="At least 8 characters." editable={!busy} />
@@ -251,7 +250,7 @@ export function SignUp({
                 {error}
               </Banner>
             ) : null}
-            <Btn title={mode === "invite" ? "Join and sign in" : "Register the store"} onPress={submit} busy={busy} big />
+            <Btn title={mode === "invite" ? "Join" : "Register"} onPress={submit} busy={busy} big />
           </Card>
         </View>
       </ScrollView>

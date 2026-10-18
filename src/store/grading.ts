@@ -154,6 +154,14 @@ export type CameraGrading = {
   /** Photos are in, the grade isn't final yet — the server refuses Apply until it is (≤ 180 s). */
   gradePending: boolean;
   override: { reason: string | null; by: string | null; at: string | null } | null;
+  /**
+   * The server lets the advisor send a phone waiting on its scan screen on to its tests
+   * without the camera ("Continue without camera", by name) — the customer is never the
+   * one asked. false = not now (or an older server).
+   */
+  canRelease: boolean;
+  /** The advisor already did: who and when. */
+  released: { by: string | null; at: string | null } | null;
   capture: {
     connected: boolean;
     connectedAt: string | null;
@@ -354,6 +362,8 @@ export function readGrading(raw: unknown): CameraGrading {
     timedOut: false,
     gradePending: false,
     override: null,
+    canRelease: false,
+    released: null,
     capture: { connected: false, connectedAt: null, cosmeticDone: false, handoffDone: false, verdict: null, reasons: [], attempt: null },
     result: null,
     disagreements: [],
@@ -395,7 +405,7 @@ export function readGrading(raw: unknown): CameraGrading {
     canOverride !== null
       ? g.screenReadable === false && canOverride
       : pick(g, "screenReadable", "screenOk") === false || str(pick(g, "screenState", "pairingState")) === "unreadable" || str(screen?.state) === "unreadable";
-  const screenProblem = str(screenErr) ?? (unreadable ? (cameraLocked ?? "SwapUp couldn't read the pairing status from GradeIQ.") : null);
+  const screenProblem = str(screenErr) ?? (unreadable ? (cameraLocked ?? "Can't read the phone's camera status.") : null);
 
   const ov = pick(g, "override", "cameraOverride");
   const ovObj = obj(ov);
@@ -407,6 +417,10 @@ export function readGrading(raw: unknown): CameraGrading {
           at: str(pick(ovObj, "at", "createdAt")),
         }
       : null;
+
+  const relRaw = pick(g, "released", "release");
+  const relObj = obj(relRaw);
+  const released = relObj || relRaw === true ? { by: str(pick(relObj, "by", "byName", "name")), at: str(pick(relObj, "at")) } : null;
 
   // The assessment snapshot (§3.3). Accept it under several names, or flat on grading itself.
   const snap = obj(pick(g, "assessment", "snapshot", "result", "cosmetic")) ?? (pick(g, "cosmetic_grade", "cosmeticGrade", "grade") !== undefined ? g : null);
@@ -518,6 +532,8 @@ export function readGrading(raw: unknown): CameraGrading {
     timedOut: g.timedOut === true,
     gradePending: g.gradePending === true,
     override,
+    canRelease: g.canRelease === true && !released,
+    released,
     capture,
     result,
     disagreements,
@@ -586,11 +602,3 @@ export function disagreementLine(d: Disagreement): string {
   ].filter(Boolean);
   return `${d.topic ? `${d.topic}: ` : ""}${parts.join(" · ")}`;
 }
-
-export const GRADE_MEANING: Record<string, string> = {
-  Premium: "Like new",
-  A: "Faint micro-scratches",
-  B: "Light visible scratches, no cracks",
-  C: "Heavy scratches or dents",
-  D: "Cracked glass, deep dents, bent frame or missing parts",
-};

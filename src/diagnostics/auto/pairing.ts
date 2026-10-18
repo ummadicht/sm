@@ -16,11 +16,23 @@
 // Contract: SwapUp's ticket-authenticated GET/POST /api/device/screen
 // (swapup docs/MOBILE-API.md §4 "Photo check"), a proxy of GradeIQ's
 // /api/sessions/{id}/screen: { state, pattern, shown, cosmeticDone, handoffDone,
-// capture, connectedAt }. state disabled/failed → no camera check, move on;
+// capture, connectedAt, released }. state disabled/failed → no camera check, move on;
 // pending → wait; ready → show the pattern. 503 → keep polling. "The store's
 // camera is there" = a NEW connectedAt (a camera page loaded after this screen
 // mounted), or it asked for a pattern, or judged a capture. The QR itself comes
 // from GET /api/device/camera-link → { url } (409 until GradeIQ is ready).
+//
+// The customer is never asked to skip the camera (owner, 2026-10-17: "the camera
+// tests it; when it can't, the advisor certifies"). A server that says `released`
+// (false until the advisor taps "Continue without camera" in SwapUp Store, by
+// name) keeps the phone here until the camera finishes or the advisor lets it go.
+// Only a server that never sends the key (older) keeps the 90 s "Skip the camera
+// check" as before.
+//
+// After the scan the result screen can still show colours (./ResultColours on the
+// phone): a camera page that comes back (followPoll — only NEWS counts), or the
+// advisor's own check by eye (colourAt — the phone loops the test colours itself
+// while GET /api/device/status says `colours`).
 // No runtime imports — node --test runs it.
 
 /** Solid fills, exactly GradeIQ V2Flow's FILLS. "stripes" is drawn separately; anything else is "idle". */
@@ -36,9 +48,21 @@ export const PATTERN_FILLS: Readonly<Record<string, string>> = {
 export const STRIPE_PX = 6;
 
 export const POLL_MS = 700;
+/**
+ * Once a camera page is here, poll twice as often: GradeIQ's sweep waits 4 s for
+ * the echo of each colour, and the echo is relayed phone → SwapUp → GradeIQ.
+ */
+export const POLL_FAST_MS = 350;
+/** A lost echo (the server's `shown` isn't what is drawn) is sent again after this long. */
+export const ECHO_RESEND_MS = 600;
+/**
+ * What this phone echoes when it leaves the scan screen: not a colour, so a phone that
+ * LEFT can never answer a camera that asks for white (GradeIQ never clears `shown`).
+ */
+export const SHOWN_OFF = "off";
 export const GRACE_AFTER_COSMETIC_MS = 30_000;
 /**
- * "Skip the camera check" appears when the store's camera page has not opened in
+ * "Skip camera" appears when the store's camera page has not opened in
  * this long. The store's camera only unlocks when this screen first echoes (and
  * the QR only shows here), so the clock and the advisor start together; the
  * advisor then has to scan the QR or tap Take photos — the camera page counts as
@@ -79,6 +103,13 @@ export type ScreenPoll = {
   handoffDone: boolean;
   connectedAt: string | null;
   capture: { verdict: string; reasons: string[] } | null;
+  /**
+   * The advisor let the phone go on without the camera (SwapUp Store, by name). null = the
+   * server doesn't say — an older one, which still needs the customer's own way out.
+   */
+  released: boolean | null;
+  /** The store's system can't read the camera service right now (a server for ≥ 0.8.0 says so instead of a 503). */
+  unreachable?: boolean;
 };
 
 /** Validate a GET /api/device/screen body. null = not the shape we expect. */
@@ -98,6 +129,9 @@ export function parseScreen(raw: unknown): ScreenPoll | null {
       cap && typeof cap.verdict === "string"
         ? { verdict: cap.verdict, reasons: Array.isArray(cap.reasons) ? cap.reasons.filter((x): x is string => typeof x === "string") : [] }
         : null,
+    // Fail closed: only an explicit true lets the phone go; a boolean false says the server knows the release.
+    released: r.released === true ? true : r.released === false ? false : null,
+    unreachable: r.unreachable === true,
   };
 }
 
@@ -147,14 +181,28 @@ export type Tracker = {
   refusals: number;
   refusingSince: number | null;
   lastPollOkAt: number | null;
+  /** The server sends `released` (even false): the advisor lets the phone go, so the customer is offered no skip. */
+  releaseKnown?: boolean;
 };
 
 export function newTracker(now: number): Tracker {
   return { startedAt: now, connectedAt: null, cosmeticSince: null, lastChangeAt: now, lastSig: "", refusals: 0, refusingSince: null, lastPollOkAt: null };
 }
 
-/** handoff / grace: the camera is done with this phone. disabled / failed: no camera grading for this check — go to Done. */
-export type Leave = "handoff" | "grace" | "disabled" | "failed";
+/**
+ * handoff / grace: the camera is done with this phone. disabled / failed: no camera grading
+ * for this check — go to Done. released: the advisor went on without the camera.
+ */
+export type Leave = "handoff" | "grace" | "disabled" | "failed" | "released" | "alone";
+
+/**
+ * The store's camera page never connected in this long, on a server that lets the advisor release
+ * the phone: an advisor who can't (an older SwapUp Store has no release button) or a camera service
+ * that is down must not keep the customer on Scan for ever — the phone goes on BY ITSELF (no skip
+ * button: the customer still never decides to go without the camera) and the advisor checks the
+ * screen by eye.
+ */
+export const MOVE_ON_ALONE_MS = 5 * 60_000;
 
 const captureSig = (poll: ScreenPoll): string | null => (poll.capture ? [poll.capture.verdict, ...poll.capture.reasons].join("|") : null);
 
@@ -194,9 +242,12 @@ export function trackPoll(tr: Tracker, poll: ScreenPoll, now: number): { tracker
     sawPattern: !!tr.sawPattern || displayablePattern(poll.pattern) !== "idle",
     sawSweep: !!tr.sawSweep || ["stripes", "red", "green", "blue"].includes(displayablePattern(poll.pattern)),
     idleSince: displayablePattern(poll.pattern) === "idle" ? tr.idleSince ?? now : null,
+    releaseKnown: !!tr.releaseKnown || poll.released !== null,
   };
   if (poll.state === "disabled" || poll.state === "failed") return { tracker: next, leave: poll.state };
   if (poll.handoffDone) return { tracker: next, leave: "handoff" };
+  if (poll.released === true) return { tracker: next, leave: "released" };
+  if (next.releaseKnown && next.connectedAt == null && now - next.startedAt >= MOVE_ON_ALONE_MS) return { tracker: next, leave: "alone" };
   if (next.sawPattern && next.cosmeticSince != null && now - next.cosmeticSince >= GRACE_AFTER_COSMETIC_MS) return { tracker: next, leave: "grace" };
   return { tracker: next, leave: null };
 }
@@ -218,8 +269,13 @@ export function trackRefusal(tr: Tracker, now: number): { tracker: Tracker; unav
  */
 export const PATTERN_STALL_MS = 90_000;
 
-/** Why "Skip the camera check" is offered right now, or null if it isn't. `patternUp`: a pattern fills the screen. */
+/**
+ * Why "Skip camera" is offered right now, or null if it isn't. `patternUp`: a
+ * pattern fills the screen. Never on a server that lets the advisor release the phone
+ * (`releaseKnown`): the customer is not the one who decides to go without the camera.
+ */
 export function skipOffer(tr: Tracker, now: number, patternUp = false): "never-connected" | "stalled" | null {
+  if (tr.releaseKnown) return null;
   if (patternUp && now - tr.lastChangeAt >= PATTERN_STALL_MS) return "stalled";
   if (tr.connectedAt == null) return now - tr.startedAt >= NO_CONNECT_MS ? "never-connected" : null;
   return now - tr.lastChangeAt >= STALL_MS ? "stalled" : null;
@@ -228,6 +284,11 @@ export function skipOffer(tr: Tracker, now: number, patternUp = false): "never-c
 /** The echo needs re-sending when the server's `shown` isn't what this screen is drawing (a lost POST). */
 export function needsEcho(poll: ScreenPoll | null, drawing: string): boolean {
   return !poll || poll.shown !== drawing;
+}
+
+/** How long until the next /screen poll: faster once the store's camera page is here. */
+export function pollEvery(tr: Pick<Tracker, "connectedAt">): number {
+  return tr.connectedAt != null ? POLL_FAST_MS : POLL_MS;
 }
 
 /**
@@ -265,4 +326,68 @@ export function parseCameraLink(raw: unknown): string | null {
   if (typeof url !== "string") return null;
   const t = url.trim();
   return /^https?:\/\/[^\s/]+\/\S*$/i.test(t) && t.length <= 2000 ? t : null;
+}
+
+// ── after the scan: the result screen ───────────────────────────────────────
+
+/**
+ * The result screen keeps an eye on /screen too, so a camera page that comes back
+ * after the scan (a retake from the tablet, "Take photos anyway", a Retry) gets its
+ * colours: GradeIQ's sweep can only capture a phone that shows them. Only NEWS counts
+ * — whatever /screen held when the result screen opened (a pattern a failed sweep left
+ * behind, an old connectedAt) is the baseline, never drawn. A pattern that sits
+ * unchanged for PATTERN_STALL_MS means the camera page has gone: back to the result.
+ */
+export type Follow = {
+  /** /screen as first read on this screen. undefined = no poll yet. */
+  base?: { pattern: string; connectedAt: string | null };
+  /** A camera page is driving this screen now. */
+  live: boolean;
+  /** When the drawn pattern last changed. */
+  since: number;
+  last: string;
+};
+
+export function newFollow(now: number): Follow {
+  return { live: false, since: now, last: "idle" };
+}
+
+/** Fold one /screen poll into the follow state; `draw` is what the result screen shows ("idle" = itself). */
+export function followPoll(f: Follow, poll: ScreenPoll, now: number): { follow: Follow; draw: string } {
+  const want = displayablePattern(poll.pattern);
+  if (poll.state === "disabled" || poll.state === "failed") return { follow: { ...f, live: false, last: "idle", since: now }, draw: "idle" };
+  if (!f.base) return { follow: { ...f, base: { pattern: want, connectedAt: poll.connectedAt } }, draw: "idle" };
+  const news = (!!poll.connectedAt && poll.connectedAt !== f.base.connectedAt) || want !== f.base.pattern;
+  const live = f.live || news;
+  if (!live) return { follow: f, draw: "idle" };
+  const since = want !== f.last ? now : f.since;
+  // Stuck on one colour for 90 s: the camera page is gone. That pattern becomes the new baseline.
+  if (want !== "idle" && now - since >= PATTERN_STALL_MS)
+    return { follow: { base: { pattern: want, connectedAt: poll.connectedAt }, live: false, since: now, last: "idle" }, draw: "idle" };
+  return { follow: { ...f, live, since, last: want }, draw: want };
+}
+
+/**
+ * The advisor's check by eye (SwapUp Store "Check the phone"): while GET
+ * /api/device/status says `colours`, the result screen loops these full-screen,
+ * COLOUR_STEP_MS each — white and black first (lines, dead or stuck pixels), the
+ * three primaries (tint, burn-in), then the stripes. The customer taps nothing.
+ */
+export const ADVISOR_COLOURS = ["white", "black", "red", "green", "blue", "stripes"] as const;
+export const COLOUR_STEP_MS = 2500;
+
+export function colourAt(startedAt: number, now: number): (typeof ADVISOR_COLOURS)[number] {
+  const i = Math.floor(Math.max(0, now - startedAt) / COLOUR_STEP_MS) % ADVISOR_COLOURS.length;
+  return ADVISOR_COLOURS[i];
+}
+
+/**
+ * How long a "show the colours" from the store stays good without a fresh status:
+ * past this (Wi‑Fi gone, the store app closed) the loop stops on its own, so a phone
+ * is never left flashing colours nobody is looking at.
+ */
+export const COLOURS_FRESH_MS = 20_000;
+
+export function coloursOn(saidAt: number | null, now: number): boolean {
+  return saidAt != null && now - saidAt < COLOURS_FRESH_MS;
 }
