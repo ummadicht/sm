@@ -13,7 +13,7 @@ const view = (x: unknown) => {
   assert.ok(v, "should read as an answer");
   return v;
 };
-const keys = (v: { lines?: { key: string }[] } | null | undefined) => (v && "lines" in v && v.lines ? v.lines.map((l) => l.key) : []);
+const keys = (v: import("./answer").AnswerView | null | undefined) => (v?.ready ? v.lines.map((l) => l.key) : []);
 
 test("F1: the customer's ready answer reads whole — headline, the five lines in the server's order, word for word", () => {
   assert.deepEqual(A.readAnswer(F.F1), { ready: true, final: false, headline: "An upgrade is worth considering", lines: F.F1.lines, test: false });
