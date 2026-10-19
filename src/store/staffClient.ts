@@ -1,4 +1,4 @@
-import { ApiError, createClient } from "../shared/api";
+import { ApiError, type CallOptions, createClient } from "../shared/api";
 
 /**
  * The shared client with the staff Bearer token, plus one rule: any 401 means
@@ -14,8 +14,8 @@ export function staffClient(server: string, token: string, onUnauthorized: () =>
   return {
     base: c.base,
     get: <T,>(path: string) => guard(c.get<T>(path)),
-    post: <T,>(path: string, body?: unknown) => guard(c.post<T>(path, body)),
-    patch: <T,>(path: string, body: unknown) => guard(c.patch<T>(path, body)),
+    post: <T,>(path: string, body?: unknown, opts?: CallOptions) => guard(c.post<T>(path, body, opts)),
+    patch: <T,>(path: string, body: unknown, opts?: CallOptions) => guard(c.patch<T>(path, body, opts)),
   };
 }
 

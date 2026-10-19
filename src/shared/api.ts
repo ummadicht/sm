@@ -12,11 +12,17 @@ const SCHEME: Record<NonNullable<Auth>["kind"], string> = { bearer: "Bearer", ti
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** The server's machine word for the refusal, when it sends one (e.g. "blacklisted", "reader_off"). */
+  reason: string | null;
+  constructor(status: number, message: string, reason: string | null = null) {
     super(message);
     this.status = status;
+    this.reason = reason;
   }
 }
+
+/** Per call: a longer wait for a call the server itself waits on (reading an IMEI off a photo). */
+export type CallOptions = { timeoutMs?: number };
 
 /**
  * A browser must never answer a GET from its HTTP cache (the answer on the Check app's result
@@ -28,9 +34,9 @@ const NO_STORE: { cache?: "no-store" } = typeof document !== "undefined" ? { cac
 
 export function createClient(server: string, auth: Auth, timeoutMs = 15_000) {
   const base = server.replace(/\/$/, "");
-  async function call<T>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<T> {
+  async function call<T>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown, opts?: CallOptions): Promise<T> {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const timer = setTimeout(() => ctrl.abort(), opts?.timeoutMs ?? timeoutMs);
     try {
       const res = await fetch(base + path, {
         method,
@@ -49,7 +55,10 @@ export function createClient(server: string, auth: Auth, timeoutMs = 15_000) {
       } catch {
         /* empty */
       }
-      if (!res.ok) throw new ApiError(res.status, (data as { error?: string } | null)?.error || `Request failed (${res.status})`);
+      if (!res.ok) {
+        const d = data as { error?: unknown; reason?: unknown } | null;
+        throw new ApiError(res.status, (typeof d?.error === "string" && d.error) || `Request failed (${res.status})`, typeof d?.reason === "string" ? d.reason : null);
+      }
       return data as T;
     } catch (e) {
       if (e instanceof ApiError) throw e;
@@ -62,9 +71,9 @@ export function createClient(server: string, auth: Auth, timeoutMs = 15_000) {
   return {
     base,
     get: <T>(path: string) => call<T>("GET", path),
-    post: <T>(path: string, body?: unknown) => call<T>("POST", path, body ?? {}),
+    post: <T>(path: string, body?: unknown, opts?: CallOptions) => call<T>("POST", path, body ?? {}, opts),
     /** Partial update (e.g. PATCH /api/cases/<id>); the server answers with the whole record. */
-    patch: <T>(path: string, body: unknown) => call<T>("PATCH", path, body ?? {}),
+    patch: <T>(path: string, body: unknown, opts?: CallOptions) => call<T>("PATCH", path, body ?? {}, opts),
   };
 }
 
