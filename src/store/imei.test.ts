@@ -226,14 +226,17 @@ test("Start again after a failure: the same case, never a second one", async () 
   assert.equal(r.kind, "failed");
   assert.equal(r.kind === "failed" && r.caseId, "case_1");
   assert.deepEqual(r.kind === "failed" && r.caseView, caseView());
-  // Again, with the case: the IMEI is saved again (the server doesn't look it up twice), and the test starts.
+  // Again, with the case: the customer and the IMEI are saved again (the server doesn't look it up twice), and the test starts.
   const g = fakeApi({ "PATCH /api/cases/case_1": caseView(), "POST /api/test-sessions": LINKS });
   assert.equal((await I.startTradeIn(g.api, input({ caseId: "case_1" }))).kind, "started");
-  assert.deepEqual(g.calls.map((c) => `${c.method} ${c.path}`), ["PATCH /api/cases/case_1", "POST /api/test-sessions"]);
+  assert.deepEqual(g.calls.map((c) => `${c.method} ${c.path}`), ["PATCH /api/cases/case_1", "PATCH /api/cases/case_1", "POST /api/test-sessions"]);
   // Skipped after all: the test goes on the case already opened.
-  const h = fakeApi({ "POST /api/test-sessions": LINKS });
+  const h = fakeApi({ "PATCH /api/cases/case_1": caseView(), "POST /api/test-sessions": LINKS });
   await I.startTradeIn(h.api, input({ imei: null, caseId: "case_1" }));
-  assert.deepEqual(h.calls, [{ method: "POST", path: "/api/test-sessions", body: { caseId: "case_1" } }]);
+  assert.deepEqual(h.calls, [
+    { method: "PATCH", path: "/api/cases/case_1", body: { customer: { name: "Ravi Kumar", phone: "9876543210" } } },
+    { method: "POST", path: "/api/test-sessions", body: { caseId: "case_1" } },
+  ]);
   // The IMEI refused (the server's words): no test, the case kept for the next try.
   const k = fakeApi({ "POST /api/cases": { id: "case_2", status: "draft" }, "PATCH /api/cases/case_2": new A.ApiError(400, "That isn't an IMEI.") });
   assert.deepEqual(await I.startTradeIn(k.api, input()), { kind: "failed", text: "That isn't an IMEI.", caseId: "case_2", caseView: null });
@@ -247,9 +250,9 @@ test("Start again after a failure: the same case, never a second one", async () 
  * IMEI 1 replaced when the patch names it, IMEI 2 ONLY when the patch names it (left out = kept), the
  * customer merged field by field (left out = kept, null = none). `test` answers POST /api/test-sessions.
  */
-function caseServer(test: unknown = LINKS, start: { imei?: string | null; imei2?: string | null } = {}) {
-  type Customer = { name: string; phone: string } | null;
-  const state: { imei: string | null; imei2: string | null; customer: Customer } = { imei: null, imei2: null, customer: null, ...start };
+type ServerCase = { imei: string | null; imei2: string | null; customer: { name: string; phone: string } | null };
+function caseServer(test: unknown = LINKS, start: Partial<ServerCase> = {}) {
+  const state: ServerCase = { imei: null, imei2: null, customer: null, ...start };
   const view = () => caseView({ ...state, imeiLookup: state.imei ? lookup({ blacklist: state.imei === IMEI1 ? "blacklisted" : "clean" }) : null });
   const f = fakeApi({
     "POST /api/cases": (b: unknown) => {
@@ -300,6 +303,44 @@ test("Change IMEI 1 with no IMEI 2: the old phone's IMEI 2 goes with it; the sam
   const w = caseServer(LINKS, { imei: IMEI3, imei2: IMEI2 });
   await I.startTradeIn(w.api, input({ caseId: "case_1", caseImei: null, imei: { imei: IMEI3, imei2: null } }));
   assert.deepEqual([w.state.imei, w.state.imei2], [IMEI3, null]);
+});
+
+test("Start again on the same case: the name and mobile as they are now go on the case before the test", async () => {
+  const wifi = new A.ApiError(0, "No answer — check the Wi‑Fi.");
+  const phone3 = { imei: IMEI3, imei2: null };
+  // The first Start opens the case with the customer, then the test times out.
+  let tries = 0;
+  const s = caseServer(() => (tries++ ? LINKS : wifi));
+  assert.equal((await I.startTradeIn(s.api, input({ imei: phone3 }))).kind, "failed");
+  assert.deepEqual(s.state.customer, { name: "Ravi Kumar", phone: "9876543210" });
+  // The advisor corrects the mobile and the name, and taps Start again: they reach the case first.
+  s.calls.length = 0;
+  const again = await I.startTradeIn(s.api, input({ caseId: "case_1", caseImei: IMEI3, imei: phone3, customerName: " Ravi Kumar Rao ", customerPhone: "9876501234" }));
+  assert.equal(again.kind, "started");
+  assert.deepEqual(s.state.customer, { name: "Ravi Kumar Rao", phone: "9876501234" });
+  assert.deepEqual(s.calls, [
+    { method: "PATCH", path: "/api/cases/case_1", body: { customer: { name: "Ravi Kumar Rao", phone: "9876501234" } } },
+    { method: "PATCH", path: "/api/cases/case_1", body: { imei: IMEI3 }, timeoutMs: I.IMEI_SAVE_MS },
+    { method: "POST", path: "/api/test-sessions", body: { caseId: "case_1" } },
+  ]);
+
+  // Skipped after a stop (the IMEI at hand-over): a mobile left empty the first time is added too.
+  const t = caseServer(LINKS, { imei: IMEI3, customer: { name: "Ravi Kumar", phone: "" } });
+  await I.startTradeIn(t.api, input({ caseId: "case_1", caseImei: IMEI3, imei: null }));
+  assert.deepEqual(t.state.customer, { name: "Ravi Kumar", phone: "9876543210" });
+  assert.deepEqual(t.calls.map((c) => `${c.method} ${c.path}`), ["PATCH /api/cases/case_1", "POST /api/test-sessions"]);
+  // A mobile cleared stays cleared; both cleared, the case has no customer (as a new one with neither).
+  const u = caseServer(LINKS, { customer: { name: "Ravi Kumar", phone: "9876543210" } });
+  await I.startTradeIn(u.api, input({ caseId: "case_1", imei: null, customerPhone: null }));
+  assert.deepEqual(u.state.customer, { name: "Ravi Kumar", phone: "" });
+  await I.startTradeIn(u.api, input({ caseId: "case_1", imei: null, customerName: "  ", customerPhone: null }));
+  assert.equal(u.state.customer, null);
+  assert.deepEqual(u.calls.at(-2)?.body, { customer: null });
+
+  // The customer save itself fails: no IMEI save, no test, the case kept for the next try.
+  const k = fakeApi({ "PATCH /api/cases/case_1": wifi, "POST /api/test-sessions": LINKS });
+  assert.deepEqual(await I.startTradeIn(k.api, input({ caseId: "case_1" })), { kind: "failed", text: "No answer — check the Wi‑Fi.", caseId: "case_1", caseView: null });
+  assert.equal(k.calls.length, 1);
 });
 
 test("a failed read: the server's own sentence; a server without the reader says it is off", () => {

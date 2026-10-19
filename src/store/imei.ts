@@ -12,7 +12,8 @@
 //                          check (KYM, SMS to 14422) recorded early, in the card's words.
 //   - startTradeIn         Start: POST /api/cases → PATCH {imei, imei2} → stop when the phone is
 //                          blacklisted → POST /api/test-sessions {caseId}. With the IMEI skipped
-//                          ("scan at hand-over"), today's one call.
+//                          ("scan at hand-over"), today's one call. Again on the case a stopped or
+//                          failed Start opened: PATCH {customer} first (the name and mobile as now).
 // Contract: ~/projects/swapup docs/MOBILE-API.md (IMEI first). GSMA does NOT replace KYM: Take the
 // trade-in still needs the government check "clear", and only pre-fills it from kymEarly.
 // No React Native imports: the test runs under plain node (./imei.test.ts).
@@ -204,16 +205,29 @@ function customerBody(i: StartInput): { customerName?: string; customerPhone?: s
 }
 
 /**
- * Start. With an IMEI: open the case (unless a failed Start already did), save the IMEI — the
- * server looks it up before it answers — and stop there when the phone is blacklisted; else start
- * the test on that case. Skipped: one POST /api/test-sessions with the customer, as before. The
- * server is the judge as well: its 409 {reason: "blacklisted"} on the test stops it the same way.
+ * PATCH /api/cases/<id> {customer} for a case an earlier Start opened: the name and mobile as the
+ * form has them now (corrected, added or cleared since), else the case keeps the first ones. Neither
+ * = no customer, as POST /api/cases would have it.
+ */
+function customerPatch(i: StartInput): { customer: { name: string; phone: string } | null } {
+  const name = i.customerName.trim();
+  return { customer: name || i.customerPhone ? { name, phone: i.customerPhone ?? "" } : null };
+}
+
+/**
+ * Start. With an IMEI: open the case (unless a failed Start already did — then its name and mobile
+ * are saved again, as typed now), save the IMEI — the server looks it up before it answers — and
+ * stop there when the phone is blacklisted; else start the test on that case. Skipped: one POST
+ * /api/test-sessions with the customer, as before. The server is the judge as well: its 409
+ * {reason: "blacklisted"} on the test stops it the same way.
  */
 export async function startTradeIn(api: Pick<StaffClient, "post" | "patch">, i: StartInput): Promise<StartOutcome> {
   let caseId = i.caseId;
   let caseImei = i.caseImei;
   let caseView: unknown = null;
   try {
+    // A retry on the case already opened: POST /api/test-sessions {caseId} takes no customer.
+    if (caseId) await api.patch<unknown>(`/api/cases/${encodeURIComponent(caseId)}`, customerPatch(i));
     if (i.imei?.imei) {
       if (!caseId) {
         const c = obj(await api.post<unknown>("/api/cases", customerBody(i)));
