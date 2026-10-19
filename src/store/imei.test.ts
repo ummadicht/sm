@@ -73,9 +73,11 @@ test("takeScan: IMEI 1 first, a second distinct one is IMEI 2; the note only whi
   r = I.takeScan(s, IMEI1);
   assert.deepEqual(r, { next: { imei: IMEI1, imei2: null }, note: null });
   s = r.next;
-  // The camera keeps seeing IMEI 1, and the serial beside it: nothing changes, nothing said.
+  // The camera keeps seeing IMEI 1, and the serial beside it: nothing changes (the same object), nothing said.
   assert.deepEqual(I.takeScan(s, IMEI1), { next: s, note: null });
-  assert.deepEqual(I.takeScan(s, "R5CT1234ABC"), { next: s, note: null });
+  assert.equal(I.takeScan(s, IMEI1).next, s);
+  assert.equal(I.takeScan(s, "R5CT1234ABC").next, s);
+  assert.equal(I.takeScan(s, "R5CT1234ABC").note, null);
   r = I.takeScan(s, IMEI2);
   assert.deepEqual(r.next, { imei: IMEI1, imei2: IMEI2 });
   // Once both are in, a third never replaces either.

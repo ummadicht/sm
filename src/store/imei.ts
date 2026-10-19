@@ -59,8 +59,9 @@ export const NOT_AN_IMEI = "Not an IMEI — scan the one labelled IMEI.";
 
 /**
  * One barcode the camera read, added to what it read before: the first IMEI is IMEI 1, a second
- * distinct one IMEI 2 (a dual-SIM phone's *#06# shows both). `note` only while nothing is found: once
- * IMEI 1 is in, the serial and EID barcodes beside IMEI 2 are expected and say nothing.
+ * distinct one IMEI 2 (a dual-SIM phone's *#06# shows both); `next` is `s` itself when nothing changed.
+ * `note` only while nothing is found: once IMEI 1 is in, the serial and EID barcodes beside IMEI 2 are
+ * expected and say nothing.
  */
 export function takeScan(s: Scanned, text: string): { next: Scanned; note: string | null } {
   const found = imeisIn(text);
@@ -70,7 +71,8 @@ export function takeScan(s: Scanned, text: string): { next: Scanned; note: strin
     if (!imei) imei = x;
     else if (x !== imei && !imei2) imei2 = x;
   }
-  return { next: { imei, imei2 }, note: null };
+  // The same code seen again (the camera reads it many times a second): the same object, nothing to redraw.
+  return { next: imei === s.imei && imei2 === s.imei2 ? s : { imei, imei2 }, note: null };
 }
 
 /** After IMEI 1, how long the camera keeps looking for IMEI 2 before it closes by itself. */
