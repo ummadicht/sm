@@ -29,16 +29,19 @@ import { APPLIED_MESSAGE, CheckEngine, joinErrorMessage } from "./engine";
 import { fileStore, storageIsPersistent } from "./files";
 import { contractDevice } from "./deviceInfo";
 import { displayAfterScan, parseJoinTarget, phaseFor, resumeStep, type BatteryRec, type PairingRec } from "./core";
-import { DoneScreen, EndedScreen, JoinScreen, RunnerScreen, WelcomeScreen, supportedPlan } from "./screens";
-import { NativeApplied, NativeCheck } from "./NativeCheck";
+import { EndedScreen, JoinScreen, RunnerScreen, WelcomeScreen, supportedPlan } from "./screens";
+import { NativeCheck } from "./NativeCheck";
+import { ResultScreen } from "./ResultScreen";
 import { IdentifyScreen } from "./IdentifyScreen";
 import { Pattern, PairingScreen } from "./PairingScreen";
 import { useResultColours } from "./ResultColours";
 import { BatteryScreen } from "./BatteryScreen";
 import { Railed } from "./StepRail";
-import { APPLIED_POLL_MS, donePollMs } from "./report";
+import { donePollMs } from "./report";
 
 const EDGES = ["top", "left", "right", "bottom"] as const;
+/** A check that ended applied offers no re-run. */
+const NO_REDO = { ids: [], names: [] };
 
 export function CheckApp() {
   // Native pairing only: a screen pattern for the store's camera fills the whole
@@ -254,18 +257,20 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
     if (step === "done" && state && !state.completeAt) void engine.finish();
   }, [engine, step, state]);
 
-  // On the Done screen, ask the store every few seconds whether it has applied the results —
-  // every 1.5 s while the advisor is checking the screen by eye.
+  // On the result screen, ask the store every few seconds whether it has applied the results —
+  // every 1.5 s while the advisor is checking the screen by eye — and then for the answer until it
+  // is final (./report.ts donePollMs).
   useEffect(() => {
     if (step !== "done") return;
     let t: ReturnType<typeof setTimeout>;
     let alive = true;
     const tick = async () => {
       const r = await engine.pollStatus();
-      // Ended (cancelled, expired): nothing more to read. Applied: on, slowly — a newer report
-      // version moves the grade its link already opens (./report.ts donePollMs).
+      // Ended (cancelled, expired): nothing more to read. Applied: every 5 s while the answer can
+      // still change, never again once it is final; slowly from an older server (no answer).
       if (!alive || engine.getSnapshot().state?.ended) return;
-      t = setTimeout(tick, donePollMs(r));
+      const ms = donePollMs(r);
+      if (ms !== null) t = setTimeout(tick, ms);
     };
     void tick();
     return () => {
@@ -274,9 +279,9 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
     };
   }, [engine, step]);
 
-  // Ended because the store applied the results: read the status now when it isn't in memory
-  // (the app was restarted on that screen), then again every 15 s while the screen is open — a
-  // newer report version moves the grade its link already opens.
+  // Ended because the store applied the results (native and browser alike): read the status now
+  // when it isn't in memory (the app was restarted on that screen), then again on the same clock as
+  // the live screen — every 5 s while the answer can still change, stopping once it is final.
   const endedApplied = state?.ended === APPLIED_MESSAGE;
   const haveRemote = !!snap.remote;
   useEffect(() => {
@@ -284,8 +289,21 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
   }, [engine, endedApplied, haveRemote]);
   useEffect(() => {
     if (!endedApplied) return;
-    const t = setInterval(() => void engine.readAppliedStatus({ again: true }), APPLIED_POLL_MS);
-    return () => clearInterval(t);
+    let t: ReturnType<typeof setTimeout>;
+    let alive = true;
+    const next = () => {
+      const ms = donePollMs(engine.getSnapshot().remote);
+      if (ms !== null) t = setTimeout(tick, ms);
+    };
+    const tick = async () => {
+      await engine.readAppliedStatus({ again: true });
+      if (alive) next();
+    };
+    next();
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
   }, [engine, endedApplied]);
 
   // Android back: never drop out of a running test by accident (the runner has its own Pause).
@@ -323,15 +341,14 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
   }
 
   if (state?.ended) {
-    // Applied is a finish: the same Done screen as when it happens live (it reads the grade
-    // and the report link from snap.remote once readAppliedStatus has it). Anything else ended the check.
+    // Applied is a finish: the same result screen as when it happens live, native or browser (it
+    // reads the answer and the report link from snap.remote once readAppliedStatus has it).
+    // Anything else ended the check.
     if (state.ended === APPLIED_MESSAGE) {
-      return IS_WEB ? (
+      return (
         <Railed at="done">
-          <DoneScreen snap={snap} onRerun={() => {}} onNewCheck={() => void engine.forget()} />
+          <ResultScreen snap={snap} redo={NO_REDO} onRerun={() => {}} onNewCheck={() => void engine.forget()} />
         </Railed>
-      ) : (
-        <NativeApplied snap={snap} onNewCheck={() => void engine.forget()} />
       );
     }
     return <EndedScreen message={state.ended} onNew={() => void engine.forget()} />;
@@ -405,12 +422,17 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
         </Railed>
       );
     case "done":
-    default:
+    default: {
       if (colours) return <Pattern name={colours.name} caption={colours.caption} />;
+      const redo = runnable.filter((p) => {
+        const o = state.results[p.id]?.outcome;
+        return o === "fail" || o === "skip";
+      });
       return (
         <Railed at="done">
-          <DoneScreen
+          <ResultScreen
             snap={snap}
+            redo={{ ids: redo.map((p) => p.id), names: redo.map((p) => p.name) }}
             onRerun={(ids) => setRerun(ids)}
             onNewCheck={() => {
               setRerun(null);
@@ -419,5 +441,6 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
           />
         </Railed>
       );
+    }
   }
 }

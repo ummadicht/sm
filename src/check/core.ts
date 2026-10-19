@@ -61,10 +61,16 @@ export type RemoteStatus = {
   progress?: { done: number; total: number };
   storeName?: string;
   caseRef?: string;
-  /** Once applied: the public grade report, "/r/<token>" (no prices on it). Read through ./report.ts customerReport. */
+  /** Once applied: the public grade report, "/r/<token>" (the report page itself has no prices). Read through ./report.ts customerReport. */
   reportPath?: string | null;
-  /** Once applied: the SwapUp grade that report opens on ("Good (B)"), the label printed as sent. No reasons, never a price. */
+  /** Once applied: the SwapUp grade that report opens on ("Good (B)"), the label printed as sent. */
   grading?: { status: string; label: string; grade: string | null; letter: string | null; final: boolean } | null;
+  /**
+   * Once applied: THE ANSWER — the grade, the market price, what we pay, the bonus and the repair,
+   * every word and number the server's (../shared/answer.ts readAnswer). null = none yet; absent =
+   * an older server, which sends no prices to the phone.
+   */
+  answer?: unknown;
   /**
    * The advisor is checking the screen by eye in SwapUp Store ("Check the phone"): the
    * result screen shows the test colours full-screen until this goes false. Only an

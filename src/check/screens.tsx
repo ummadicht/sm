@@ -7,12 +7,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Linking, StyleSheet, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { P } from "../shared/theme";
-import { IS_WEB } from "../shared/config";
 import {
   Caption,
-  Card,
   ChecklistArt,
-  FactRow,
   Field,
   Gap,
   Headline,
@@ -27,18 +24,15 @@ import {
   ScanArt,
   Screen,
   Sheet,
-  TickArt,
   Wordmark,
 } from "../shared/kit";
 import { Say } from "../diagnostics/parts";
 import { TEST_COMPONENTS } from "../diagnostics/tests";
 import { testById, type FunctionalTest } from "../diagnostics/catalog";
 import { APPLIED_MESSAGE, type Snapshot } from "./engine";
-import { ClearDataGuide } from "./ClearDataGuide";
-import { cleanCode, countResults, isValidCode, parseJoinTarget, type CheckState, type Outcome, type PlanItem } from "./core";
+import { cleanCode, isValidCode, parseJoinTarget, type CheckState, type Outcome, type PlanItem } from "./core";
 import { SERVER_DECIDES } from "../diagnostics/auto/plan";
-import { batteryResultText } from "./battery";
-import { type CustomerReport, customerReport } from "./report";
+import { type CustomerReport } from "./report";
 import { PRIVACY_LINE } from "./copy";
 
 /* ─────────────────────────── shared bits ─────────────────────────── */
@@ -68,7 +62,8 @@ export function SyncBadge({ snap, center }: { snap: Snapshot; center?: boolean }
 /**
  * "See the grade report": the public grade report in the phone's own browser, once the
  * store has applied the results (grading spec §5). It explains what was tested and why the
- * phone got its SwapUp grade; it never shows a price. A small outline pill, not a second quiet link.
+ * phone got its SwapUp grade (the page itself has no prices — the answer on the result screen
+ * carries them). A small outline pill, not a second quiet link.
  */
 export function ReportLink({ report, style }: { report: CustomerReport | null; style?: React.ComponentProps<typeof PillButton>["style"] }) {
   if (!report) return null;
@@ -329,85 +324,11 @@ export function RunnerScreen({
   );
 }
 
-/* ─────────────────────────── 5. done ─────────────────────────── */
-
-/**
- * The one finish screen. Before the store applies the results: "Checks complete". After —
- * whether this screen saw it happen or the app was reopened on a check that ended that way
- * (state.ended === APPLIED_MESSAGE, the status read again by engine.readAppliedStatus) — the
- * same screen reads "The store has your results", with the SwapUp grade and the report link.
- */
-export function DoneScreen({
-  snap,
-  onRerun,
-  onNewCheck,
-}: {
-  snap: Snapshot;
-  onRerun: (ids: string[]) => void;
-  onNewCheck: () => void;
-}) {
-  const s = snap.state!;
-  const c = countResults(s.session.plan, s.results);
-  const remote = snap.remote;
-  const applied = remote?.status === "applied" || s.ended === APPLIED_MESSAGE;
-  // The grade and the report link, once the store has applied the results and sent them.
-  const report = applied ? customerReport(remote, s.server) : null;
-  const redo = s.session.plan.filter((p) => {
-    const o = s.results[p.id]?.outcome;
-    return (o === "fail" || o === "skip") && TEST_COMPONENTS[p.id];
-  });
-  const photos = s.pairing?.outcome;
-  const rows: { label: string; value: string; tone?: "pass" | "fail" | "warn" | "muted" }[] = [
-    { label: "Trade-in", value: s.session.caseRef },
-    { label: "Passed", value: String(c.passed), tone: "pass" },
-    { label: "Failed", value: String(c.failed), tone: c.failed ? "fail" : undefined },
-    { label: "Skipped", value: String(c.skipped), tone: c.skipped ? "warn" : undefined },
-  ];
-  if (c.unsupported) rows.push({ label: IS_WEB ? "Not in this browser" : "Not on this phone", value: String(c.unsupported), tone: "muted" });
-  if (photos) rows.push({ label: "Screen and glass", value: photos === "handoff" || photos === "grace" ? "Store camera" : "Advisor", tone: "muted" });
-  if (s.battery) rows.push({ label: "Battery health", value: batteryResultText(s.battery), tone: "muted" });
-  if (report?.grade) rows.push({ label: "SwapUp grade", value: report.grade });
-  return (
-    <Screen
-      footer={
-        applied ? (
-          <PillButton title="Test another phone" onPress={onNewCheck} />
-        ) : (
-          <>
-            {redo.length ? (
-              <PillButton title={`Retry ${redo.length === 1 ? "1 test" : `${redo.length} tests`}`} kind="outline" onPress={() => onRerun(redo.map((p) => p.id))} />
-            ) : null}
-            <QuietLink title="New check" onPress={onNewCheck} />
-          </>
-        )
-      }
-    >
-      <Wordmark store={s.session.storeName} />
-      {/* Never a price here: it comes from the store and can still change. The SwapUp grade
-          shows only once the store has applied the results and graded them. */}
-      <Headline>{applied ? "The store has your results" : "Checks complete"}</Headline>
-      <Lead>{applied ? "Nothing more to do here." : "The advisor confirms your price."}</Lead>
-      <Hero grow={false} minHeight={0} style={{ paddingVertical: 24 }}>
-        {applied ? <TickArt width={104} /> : <ChecklistArt width={92} ticked={3} />}
-      </Hero>
-      <Card pad={false} style={st.facts}>
-        {rows.map((r, i) => (
-          <FactRow key={r.label} label={r.label} value={r.value} tone={r.tone} last={i === rows.length - 1} />
-        ))}
-      </Card>
-      <ReportLink report={report} style={{ marginTop: 14 }} />
-      <Gap h={14} />
-      <SyncBadge snap={snap} center />
-
-      <ClearDataGuide applied={applied} />
-      {redo.length && !applied ? <Caption>To retry: {redo.map((p) => p.name).join(", ")}</Caption> : null}
-    </Screen>
-  );
-}
+/* 5. the result: ./ResultScreen.tsx — one screen for the native app and the browser. */
 
 /* ─────────────────────────── ended ─────────────────────────── */
 
-/** A check that ended any other way (closed or timed out at the store). Applied is a finish: DoneScreen. */
+/** A check that ended any other way (closed or timed out at the store). Applied is a finish: ./ResultScreen.tsx. */
 export function EndedScreen({ message, onNew }: { message: string; onNew: () => void }) {
   return (
     <Screen footer={<PillButton title="New code" onPress={onNew} />}>
@@ -442,5 +363,4 @@ const st = StyleSheet.create({
   runnerTop: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: P.bg },
   progress: { color: P.ink, fontSize: 15, fontWeight: "700" },
   quit: { marginLeft: "auto", color: P.primary, fontSize: 15, fontWeight: "700", paddingVertical: 6, paddingHorizontal: 4 },
-  facts: { paddingHorizontal: 20 },
 });

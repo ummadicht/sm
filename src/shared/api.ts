@@ -18,6 +18,14 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * A browser must never answer a GET from its HTTP cache (the answer on the Check app's result
+ * screen moves while the advisor works). The server already says no-store; this is the browser's
+ * half. Not on native: React Native's fetch polyfill turns `cache: "no-store"` into an extra
+ * `?_=<time>` on the URL, and the app keeps no HTTP cache to skip.
+ */
+const NO_STORE: { cache?: "no-store" } = typeof document !== "undefined" ? { cache: "no-store" } : {};
+
 export function createClient(server: string, auth: Auth, timeoutMs = 15_000) {
   const base = server.replace(/\/$/, "");
   async function call<T>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown): Promise<T> {
@@ -27,6 +35,7 @@ export function createClient(server: string, auth: Auth, timeoutMs = 15_000) {
       const res = await fetch(base + path, {
         method,
         signal: ctrl.signal,
+        ...(method === "GET" ? NO_STORE : {}),
         headers: {
           accept: "application/json",
           ...(body !== undefined ? { "content-type": "application/json" } : {}),

@@ -13,8 +13,9 @@
 //   → Get ready (the permission dialogs, then straight on)
 //   → Automatic steps (one progress bar, ticks itself)
 //   → Actions (swipe the grid, plug in the charger)
-//   → Result ("Checks complete — the advisor will confirm your price"). It shows the
-//              colours full-screen when asked: a camera page that comes back, or the
+//   → Result  (./ResultScreen.tsx, the same screen as the browser's: "Checks complete", then —
+//              once the store applies the results — the answer the server writes). It shows
+//              the colours full-screen when asked: a camera page that comes back, or the
 //              advisor's check by eye (./ResultColours.tsx).
 // Each step is kept on disk (identifiedAt, pairing, battery, results), so a
 // restart lands where it left off; each step change is reported to the store
@@ -22,9 +23,9 @@
 // The browser build runs the same steps where it can from ../CheckApp.tsx and
 // never loads this file (Metro picks ./NativeCheck.web.tsx there).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BackHandler, Linking, View } from "react-native";
+import { BackHandler } from "react-native";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
-import { Caption, Card, ChecklistArt, FactRow, Gap, Headline, Hero, Lead, Notice, PillButton, QuietLink, Screen, TickArt, Wordmark } from "../shared/kit";
+import { Screen } from "../shared/kit";
 import { testById } from "../diagnostics/catalog";
 import { NOT_IN_RUN_REASON, nativeStep, partitionPlan, rerunnable, testsStarted } from "../diagnostics/auto/plan";
 import { AutoRunner } from "../diagnostics/auto/AutoRunner";
@@ -35,12 +36,11 @@ import { IdentifyScreen } from "./IdentifyScreen";
 import { BatteryScreen } from "./BatteryScreen";
 import { Railed } from "./StepRail";
 import { GetReady, askTestPermissions } from "./GetReady";
-import { ReportLink, SyncBadge } from "./screens";
-import { customerReport, donePollMs } from "./report";
-import { BATTERY_HEALTH_ID, countResults, displayAfterScan, identifyDone, phaseFor, type BatteryRec, type Detail, type Outcome, type PairingRec } from "./core";
-import { batteryResultText } from "./battery";
-import { APPLIED_MESSAGE, type CheckEngine, type IdentifyAnswers, type Snapshot } from "./engine";
-import { ClearDataGuide } from "./ClearDataGuide";
+import { SyncBadge } from "./screens";
+import { ResultScreen } from "./ResultScreen";
+import { donePollMs } from "./report";
+import { BATTERY_HEALTH_ID, displayAfterScan, identifyDone, phaseFor, type BatteryRec, type Detail, type Outcome, type PairingRec } from "./core";
+import { type CheckEngine, type IdentifyAnswers, type Snapshot } from "./engine";
 
 const KEEP_AWAKE = "swapup-check-native";
 
@@ -125,7 +125,7 @@ export function NativeCheck({
 
   // Done: tell the store "complete" once, then ask every few seconds whether it has applied the
   // results — every 1.5 s while the advisor is checking the screen by eye (the colours stop
-  // soon after they tap).
+  // soon after they tap) — and then for the answer until it is final (./report.ts donePollMs).
   useEffect(() => {
     if (step === "done" && !st.completeAt) void engine.finish();
   }, [engine, step, st.completeAt]);
@@ -135,10 +135,11 @@ export function NativeCheck({
     let alive = true;
     const tick = async () => {
       const r = await engine.pollStatus();
-      // Ended (cancelled, expired): nothing more to read. Applied: on, slowly — a newer report
-      // version moves the grade its link already opens (./report.ts donePollMs).
+      // Ended (cancelled, expired): nothing more to read. Applied: every 5 s while the answer can
+      // still change, never again once it is final; slowly from an older server (no answer).
       if (!alive || engine.getSnapshot().state?.ended) return;
-      t = setTimeout(tick, donePollMs(r));
+      const ms = donePollMs(r);
+      if (ms !== null) t = setTimeout(tick, ms);
     };
     void tick();
     return () => {
@@ -245,11 +246,12 @@ export function NativeCheck({
 
   if (colours) return <Pattern name={colours.name} caption={colours.caption} />;
 
+  const redo = rerunnable(plan, st.results);
   return (
     <Railed at="done">
-      <NativeDone
+      <ResultScreen
         snap={snap}
-        planIds={plan}
+        redo={{ ids: redo, names: redo.map((id) => testById(id)?.title ?? id) }}
         blockedPerms={blockedPerms}
         onRerun={(ids) => {
           if (rerunStarting.current) return;
@@ -267,92 +269,5 @@ export function NativeCheck({
         onNewCheck={onNewCheck}
       />
     </Railed>
-  );
-}
-
-/**
- * A check the store applied that this app was reopened on (state.ended === APPLIED_MESSAGE):
- * the same finish screen as when it happens live — nothing more runs, nothing is re-tested.
- */
-export function NativeApplied({ snap, onNewCheck }: { snap: Snapshot; onNewCheck: () => void }) {
-  const plan = useMemo(() => partitionPlan(snap.state!.session.plan.map((p) => p.id)), [snap.state]);
-  return (
-    <Railed at="done">
-      <NativeDone snap={snap} planIds={plan} blockedPerms={[]} onRerun={() => {}} onNewCheck={onNewCheck} />
-    </Railed>
-  );
-}
-
-/** The one finish screen: "Checks complete", then — once the store applies the results — "The store has your results". */
-function NativeDone({
-  snap,
-  planIds,
-  blockedPerms,
-  onRerun,
-  onNewCheck,
-}: {
-  snap: Snapshot;
-  planIds: ReturnType<typeof partitionPlan>;
-  blockedPerms: string[];
-  onRerun: (ids: string[]) => void;
-  onNewCheck: () => void;
-}) {
-  const s = snap.state!;
-  const c = countResults(s.session.plan, s.results);
-  const applied = snap.remote?.status === "applied" || s.ended === APPLIED_MESSAGE;
-  // The grade and the report link, once the store has applied the results and sent them.
-  const report = applied ? customerReport(snap.remote, s.server) : null;
-  const redo = rerunnable(planIds, s.results);
-  const photos = s.pairing?.outcome;
-  // The camera photographed it; whatever it couldn't decide, the advisor checks — never the customer.
-  const byCamera = photos === "handoff" || photos === "grace";
-  const rows: { label: string; value: string; tone?: "pass" | "fail" | "warn" | "muted" }[] = [
-    { label: "Trade-in", value: s.session.caseRef },
-    { label: "Passed", value: String(c.passed), tone: "pass" },
-    { label: "Failed", value: String(c.failed), tone: c.failed ? "fail" : undefined },
-    { label: "Not tested", value: String(c.skipped), tone: c.skipped ? "warn" : undefined },
-  ];
-  if (c.unsupported) rows.push({ label: "Not on this phone", value: String(c.unsupported), tone: "muted" });
-  if (planIds.server.includes("display")) rows.push({ label: "Screen and glass", value: byCamera ? "Store camera" : "Advisor", tone: "muted" });
-  if (planIds.server.includes(BATTERY_HEALTH_ID)) rows.push({ label: "Battery health", value: batteryResultText(s.battery), tone: "muted" });
-  if (report?.grade) rows.push({ label: "SwapUp grade", value: report.grade });
-  return (
-    <Screen
-      footer={
-        applied ? (
-          <PillButton title="Test another phone" onPress={onNewCheck} />
-        ) : (
-          <>
-            {redo.length ? <PillButton title={redo.length === 1 ? "Retry 1 test" : `Retry ${redo.length} tests`} kind="outline" onPress={() => onRerun(redo)} /> : null}
-            <QuietLink title="New check" onPress={onNewCheck} />
-          </>
-        )
-      }
-    >
-      <Wordmark store={s.session.storeName} />
-      {/* Never a price here: it comes from the store and can still change. The SwapUp grade
-          shows only once the store has applied the results and graded them. */}
-      <Headline>{applied ? "The store has your results" : "Checks complete"}</Headline>
-      <Lead>{applied ? "Nothing more to do here." : "The advisor confirms your price."}</Lead>
-      <Hero grow={false} minHeight={0} style={{ paddingVertical: 24 }}>
-        {applied ? <TickArt width={104} /> : <ChecklistArt width={92} ticked={3} />}
-      </Hero>
-      <Card pad={false} style={{ paddingHorizontal: 20 }}>
-        {rows.map((r, i) => (
-          <FactRow key={r.label} label={r.label} value={r.value} tone={r.tone} last={i === rows.length - 1} />
-        ))}
-      </Card>
-      <ReportLink report={report} style={{ marginTop: 14 }} />
-      <Gap h={14} />
-      <SyncBadge snap={snap} center />
-      <ClearDataGuide applied={applied} />
-      {blockedPerms.length && !applied ? (
-        <View style={{ marginTop: 14, gap: 10 }}>
-          <Notice tone="warn">{`${blockedPerms.join(" and ").replace(/^./, (c) => c.toUpperCase())} ${blockedPerms.length === 1 ? "is" : "are"} off — turn ${blockedPerms.length === 1 ? "it" : "them"} on in Settings.`}</Notice>
-          <PillButton title="Open Settings" kind="outline" size="sm" onPress={() => void Linking.openSettings().catch(() => {})} style={{ alignSelf: "flex-start" }} />
-        </View>
-      ) : null}
-      {redo.length && !applied ? <Caption>To retry: {redo.map((id) => testById(id)?.title ?? id).join(", ")}</Caption> : null}
-    </Screen>
   );
 }
