@@ -26,6 +26,7 @@
 // never inside it: nothing here that prices reads it.
 // No React Native imports: the test runs under plain node (./offer.test.ts, which adds the ".ts" Metro leaves off).
 import { readStaffAnswer, readStaffNotes, type StaffAnswer, type StaffNotes } from "../shared/answer";
+import { type ImeiLookup, type KymEarly, readImeiLookup, readKymEarly } from "./imei";
 
 /** Where the case's storage size came from. "customer" = typed on their phone, never measured. */
 export type VariantSource = "measured" | "catalogue" | "customer" | "advisor";
@@ -131,6 +132,12 @@ export type CaseHead = {
   variantSource: VariantSource | null;
   /** The size the phone read off its own disk at Apply, whatever the model's list says; null = it didn't measure. */
   measuredStorage: string | null;
+  /** What the server found for the IMEI, once per case: the model from its TAC, the GSMA blacklist (./imei.ts). null before an IMEI. */
+  imeiLookup: ImeiLookup | null;
+  /** Early warnings on the IMEI, the server's words ("This IMEI is already on trade-in SU-AND-00031."). */
+  imeiWarnings: string[];
+  /** The government check (KYM) recorded before the tests; Take the trade-in starts from it. */
+  kymEarly: KymEarly | null;
 };
 
 type Obj = Record<string, unknown>;
@@ -291,6 +298,9 @@ export function readCaseHead(x: unknown): CaseHead | null {
     lockBlockers: strings(o.lockBlockers),
     variantSource: oneOf(o.variantSource, SOURCES),
     measuredStorage: str(o.measuredStorage),
+    imeiLookup: readImeiLookup(o.imeiLookup),
+    imeiWarnings: strings(o.imeiWarnings),
+    kymEarly: readKymEarly(o.kymEarly),
   };
 }
 

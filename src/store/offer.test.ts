@@ -277,14 +277,39 @@ test("readCaseHead: the case fields the screens need; junk is null", () => {
     lockBlockers: ["Choose the new phone."],
     variantSource: "customer",
     measuredStorage: "256GB",
+    imeiLookup: null,
+    imeiWarnings: [],
+    kymEarly: null,
   });
   const bare = O.readCaseHead({ id: "c", status: "draft", device: null, customer: null, imeiCheck: "maybe", variantSource: "guess" });
-  assert.deepEqual(bare, { id: "c", ref: "", status: "draft", deviceLabel: null, variant: null, customerName: null, customerPhone: null, imei: null, imei2: null, imeiCheck: null, imei2Check: null, lockBlockers: [], variantSource: null, measuredStorage: null });
+  assert.deepEqual(bare, { id: "c", ref: "", status: "draft", deviceLabel: null, variant: null, customerName: null, customerPhone: null, imei: null, imei2: null, imeiCheck: null, imei2Check: null, lockBlockers: [], variantSource: null, measuredStorage: null, imeiLookup: null, imeiWarnings: [], kymEarly: null });
   // An older server sends no measuredStorage: none measured.
   assert.equal(O.readCaseHead({ id: "c", status: "quoted", measuredStorage: 1 })?.measuredStorage, null);
   // A single-SIM phone, or a blank second IMEI, has no IMEI 2.
   assert.equal(O.readCaseHead({ id: "c", status: "quoted", imei: "356789012345678", imei2: "  " })?.imei2, null);
   for (const bad of [null, "x", [], {}, { id: "c" }, { status: "quoted" }]) assert.equal(O.readCaseHead(bad), null, JSON.stringify(bad));
+});
+
+test("readCaseHead: IMEI first — the lookup, the warnings and the early KYM answer (contract I3)", () => {
+  const h = O.readCaseHead({
+    id: "c",
+    status: "draft",
+    imei: "356789012345678",
+    imeiLookup: { brand: "Samsung", model: "Galaxy S23 Ultra", modelNumber: "SM-S918B", blacklist: "clean", source: "gsma", at: "2026-10-19T10:00:00.000Z" },
+    imeiWarnings: ["This IMEI is already on trade-in SU-AND-00031.", "", 3],
+    kymEarly: { status: "clear", reference: "SMS 10:42" },
+  })!;
+  assert.deepEqual(h.imeiLookup, { brand: "Samsung", model: "Galaxy S23 Ultra", modelNumber: "SM-S918B", blacklist: "clean", source: "gsma", at: "2026-10-19T10:00:00.000Z" });
+  assert.deepEqual(h.imeiWarnings, ["This IMEI is already on trade-in SU-AND-00031."]);
+  assert.deepEqual(h.kymEarly, { status: "clear", reference: "SMS 10:42" });
+  // A partner's view (null lookup, no warnings) and an older server (no keys) read the same.
+  for (const raw of [{ id: "c", status: "draft", imeiLookup: null, imeiWarnings: [], kymEarly: null }, { id: "c", status: "draft" }]) {
+    const b = O.readCaseHead(raw)!;
+    assert.deepEqual([b.imeiLookup, b.imeiWarnings, b.kymEarly], [null, [], null]);
+  }
+  // A blacklist word the app doesn't know is never read as clean; a KYM status it doesn't know is no answer.
+  assert.equal(O.readCaseHead({ id: "c", status: "draft", imeiLookup: { blacklist: "maybe" } })!.imeiLookup!.blacklist, "unknown");
+  assert.equal(O.readCaseHead({ id: "c", status: "draft", kymEarly: { status: "ok" } })!.kymEarly, null);
 });
 
 // ── the labels ───────────────────────────────────────────────────────────────
