@@ -96,7 +96,7 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
     setImeiErr(null);
     setImeiBusy(true);
     try {
-      const r = await api.patch<unknown>(path, imeiPatch({ imei: v.imei, imei2: v.imei2 }), { timeoutMs: IMEI_SAVE_MS });
+      const r = await api.patch<unknown>(path, imeiPatch({ imei: v.imei, imei2: v.imei2 }, imeis.current?.imei ?? null), { timeoutMs: IMEI_SAVE_MS });
       if (alive.current) take(r);
     } catch (e) {
       if (alive.current) setImeiErr(errText(e));

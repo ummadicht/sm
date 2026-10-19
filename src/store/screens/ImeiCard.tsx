@@ -253,13 +253,15 @@ export function CaseImeiCard({ api, caseId, skipped: skippedAtStart }: { api: St
     void load();
   }, [load]);
 
+  // "Change IMEI" to another phone's number clears the old IMEI 2 (../imei.ts imeiPatch).
+  const caseImei = head?.imei ?? null;
   const save = useCallback(
     async (v: Scanned | null) => {
       if (!v?.imei) return;
       setSaveErr(null);
       setSaving(true);
       try {
-        const h = readCaseHead(await api.patch<unknown>(path, imeiPatch({ imei: v.imei, imei2: v.imei2 }), { timeoutMs: IMEI_SAVE_MS }));
+        const h = readCaseHead(await api.patch<unknown>(path, imeiPatch({ imei: v.imei, imei2: v.imei2 }, caseImei), { timeoutMs: IMEI_SAVE_MS }));
         if (!h) throw new Error("Bad answer from the server.");
         if (!alive.current) return;
         setHead(h);
@@ -270,7 +272,7 @@ export function CaseImeiCard({ api, caseId, skipped: skippedAtStart }: { api: St
         if (alive.current) setSaving(false);
       }
     },
-    [api, path]
+    [api, path, caseImei]
   );
 
   async function saveKym(status: Kym) {

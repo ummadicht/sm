@@ -47,6 +47,8 @@ export function NewTradeIn({
   const [skipped, setSkipped] = useState(false);
   /** A Start that stopped or failed after opening the case: the next one uses the same case. */
   const [caseId, setCaseId] = useState<string | null>(null);
+  /** The IMEI 1 that case holds, as its last IMEI save answered (null = none, or not known): a new one clears the old IMEI 2. */
+  const [caseImei, setCaseImei] = useState<string | null>(null);
   /** The case as the IMEI save answered (what the server found), and why the trade-in stops. */
   const [caseView, setCaseView] = useState<unknown>(null);
   const [stop, setStop] = useState<string | null>(null);
@@ -114,12 +116,13 @@ export function NewTradeIn({
     }
     setMobileErr(null);
     setBusy(true);
-    const r = await startTradeIn(api, { customerName: name, customerPhone: m.value, imei: skipped ? null : imei, caseId });
+    const r = await startTradeIn(api, { customerName: name, customerPhone: m.value, imei: skipped ? null : imei, caseId, caseImei });
     if (r.kind === "started") {
       onCreated(r.links, skipped || !imei?.imei);
       return;
     }
     setCaseId(r.caseId);
+    setCaseImei(readCaseHead(r.caseView)?.imei ?? null);
     setCaseView(r.caseView);
     if (r.kind === "stopped") setStop(r.text);
     else setError(r.text);

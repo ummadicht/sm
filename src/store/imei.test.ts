@@ -161,6 +161,7 @@ const input = (over: Partial<import("./imei").StartInput> = {}): import("./imei"
   customerPhone: "9876543210",
   imei: { imei: IMEI1, imei2: IMEI2 },
   caseId: null,
+  caseImei: null,
   ...over,
 });
 
@@ -177,13 +178,11 @@ test("Start with an IMEI: open the case, save the IMEI (and IMEI 2), then the te
     { method: "PATCH", path: "/api/cases/case_1", body: { imei: IMEI1, imei2: IMEI2 }, timeoutMs: I.IMEI_SAVE_MS },
     { method: "POST", path: "/api/test-sessions", body: { caseId: "case_1" } },
   ]);
-  // A single-SIM phone sends no imei2 (a null would wipe one recorded elsewhere); no name or mobile, an empty case.
-  const g = fakeApi({ "POST /api/cases": { id: "case_1", status: "draft" }, "PATCH /api/cases/case_1": caseView(), "POST /api/test-sessions": LINKS });
+  // A single-SIM phone on the new case: IMEI 2 null (the case had no IMEI 1, so no IMEI 2 of its own); no name or mobile, an empty case.
+  const g = fakeApi({ "POST /api/cases": { id: "case_1", status: "draft", imei: null }, "PATCH /api/cases/case_1": caseView(), "POST /api/test-sessions": LINKS });
   await I.startTradeIn(g.api, input({ customerName: " ", customerPhone: null, imei: { imei: IMEI1, imei2: null } }));
   assert.deepEqual(g.calls[0].body, {});
-  assert.deepEqual(g.calls[1].body, { imei: IMEI1 });
-  assert.deepEqual(I.imeiPatch({ imei: IMEI1, imei2: IMEI2 }), { imei: IMEI1, imei2: IMEI2 });
-  assert.deepEqual(I.imeiPatch({ imei: IMEI1, imei2: null }), { imei: IMEI1 });
+  assert.deepEqual(g.calls[1].body, { imei: IMEI1, imei2: null });
 });
 
 test("Start skipped (scan at hand-over): today's one call with the customer", async () => {
@@ -241,6 +240,66 @@ test("Start again after a failure: the same case, never a second one", async () 
   // A create that answers with no case.
   const m = fakeApi({ "POST /api/cases": { ok: true } });
   assert.deepEqual(await I.startTradeIn(m.api, input()), { kind: "failed", text: "No case came back. Try again.", caseId: null, caseView: null });
+});
+
+/**
+ * One case as the server keeps it (~/projects/swapup lib/server/cases.ts updateCase), on top of fakeApi:
+ * IMEI 1 replaced when the patch names it, IMEI 2 ONLY when the patch names it (left out = kept), the
+ * customer merged field by field (left out = kept, null = none). `test` answers POST /api/test-sessions.
+ */
+function caseServer(test: unknown = LINKS, start: { imei?: string | null; imei2?: string | null } = {}) {
+  type Customer = { name: string; phone: string } | null;
+  const state: { imei: string | null; imei2: string | null; customer: Customer } = { imei: null, imei2: null, customer: null, ...start };
+  const view = () => caseView({ ...state, imeiLookup: state.imei ? lookup({ blacklist: state.imei === IMEI1 ? "blacklisted" : "clean" }) : null });
+  const f = fakeApi({
+    "POST /api/cases": (b: unknown) => {
+      const { customerName, customerPhone } = (b ?? {}) as { customerName?: string; customerPhone?: string };
+      state.customer = customerName || customerPhone ? { name: customerName ?? "", phone: customerPhone ?? "" } : null;
+      return view();
+    },
+    "PATCH /api/cases/case_1": (b: unknown) => {
+      const p = b as { imei?: string | null; imei2?: string | null; customer?: { name?: string; phone?: string } | null };
+      if (p.imei !== undefined) state.imei = p.imei;
+      if (p.imei2 !== undefined) state.imei2 = p.imei2;
+      if (p.customer !== undefined)
+        state.customer = p.customer ? { name: p.customer.name ?? state.customer?.name ?? "", phone: p.customer.phone ?? state.customer?.phone ?? "" } : null;
+      return view();
+    },
+    "POST /api/test-sessions": test,
+  });
+  return { ...f, state };
+}
+
+test("Change IMEI 1 with no IMEI 2: the old phone's IMEI 2 goes with it; the same IMEI 1 saved again keeps its own", async () => {
+  // The body: a new IMEI 1 (or a first one) with no IMEI 2 sends imei2 null; the case's own IMEI 1 again sends none.
+  assert.deepEqual(I.imeiPatch({ imei: IMEI3, imei2: null }, IMEI1), { imei: IMEI3, imei2: null });
+  assert.deepEqual(I.imeiPatch({ imei: IMEI3, imei2: null }, null), { imei: IMEI3, imei2: null });
+  assert.deepEqual(I.imeiPatch({ imei: IMEI1, imei2: null }, IMEI1), { imei: IMEI1 }, "an IMEI 2 Apply copied in stays");
+  assert.deepEqual(I.imeiPatch({ imei: IMEI3, imei2: IMEI2 }, IMEI1), { imei: IMEI3, imei2: IMEI2 });
+  assert.deepEqual(I.imeiPatch({ imei: IMEI1, imei2: IMEI2 }, IMEI1), { imei: IMEI1, imei2: IMEI2 });
+
+  // New trade-in: a dual-SIM phone scanned (IMEI1 + IMEI2) → GSMA stops it → Change → the right phone typed (IMEI 1 only).
+  const s = caseServer();
+  const first = await I.startTradeIn(s.api, input());
+  assert.equal(first.kind, "stopped");
+  assert.deepEqual([s.state.imei, s.state.imei2], [IMEI1, IMEI2]);
+  const again = await I.startTradeIn(s.api, input({ caseId: "case_1", caseImei: IMEI1, imei: { imei: IMEI3, imei2: null } }));
+  assert.equal(again.kind, "started");
+  assert.deepEqual([s.state.imei, s.state.imei2], [IMEI3, null], "never this phone's IMEI 1 with another phone's IMEI 2");
+
+  // The new IMEI 1 is the old IMEI 2: never IMEI 1 = IMEI 2 on the case.
+  const t = caseServer(LINKS, { imei: IMEI1, imei2: IMEI2 });
+  await I.startTradeIn(t.api, input({ caseId: "case_1", caseImei: IMEI1, imei: { imei: IMEI2, imei2: null } }));
+  assert.deepEqual([t.state.imei, t.state.imei2], [IMEI2, null]);
+
+  // Saved again as it was (a retry after the test failed): the case's IMEI 2 is left alone.
+  const u = caseServer(LINKS, { imei: IMEI3, imei2: IMEI2 });
+  await I.startTradeIn(u.api, input({ caseId: "case_1", caseImei: IMEI3, imei: { imei: IMEI3, imei2: null } }));
+  assert.deepEqual([u.state.imei, u.state.imei2], [IMEI3, IMEI2]);
+  // The case's IMEI not known (the last save never answered): IMEI 2 is cleared, never assumed the same phone's.
+  const w = caseServer(LINKS, { imei: IMEI3, imei2: IMEI2 });
+  await I.startTradeIn(w.api, input({ caseId: "case_1", caseImei: null, imei: { imei: IMEI3, imei2: null } }));
+  assert.deepEqual([w.state.imei, w.state.imei2], [IMEI3, null]);
 });
 
 test("a failed read: the server's own sentence; a server without the reader says it is off", () => {

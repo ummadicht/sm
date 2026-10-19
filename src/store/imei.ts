@@ -76,11 +76,14 @@ export function takeScan(s: Scanned, text: string): { next: Scanned; note: strin
 }
 
 /**
- * The PATCH /api/cases/<id> body for a captured IMEI. IMEI 2 only when there is one: a null would wipe
- * an IMEI 2 another path recorded (Apply copies the phone's own).
+ * The PATCH /api/cases/<id> body for a captured IMEI. `caseImei`: the IMEI 1 the case holds now (null =
+ * none, or not known). IMEI 2 goes with it when there is one. With none, the server keeps whatever
+ * IMEI 2 the case has, so: the case's own IMEI 1 saved again leaves it alone (Apply copies the phone's
+ * own), while a new IMEI 1 sends imei2 null — the old IMEI 2 was another phone's.
  */
-export function imeiPatch(v: { imei: string; imei2: string | null }): { imei: string; imei2?: string } {
-  return v.imei2 ? { imei: v.imei, imei2: v.imei2 } : { imei: v.imei };
+export function imeiPatch(v: { imei: string; imei2: string | null }, caseImei: string | null): { imei: string; imei2?: string | null } {
+  if (v.imei2) return { imei: v.imei, imei2: v.imei2 };
+  return v.imei === caseImei ? { imei: v.imei } : { imei: v.imei, imei2: null };
 }
 
 /** After IMEI 1, how long the camera keeps looking for IMEI 2 before it closes by itself. */
@@ -183,6 +186,8 @@ export type StartInput = {
   imei: Scanned | null;
   /** The case a failed or stopped Start already opened: never a second one for the same customer. */
   caseId: string | null;
+  /** The IMEI 1 that case holds (the last IMEI save's answer); null = none, or not known. */
+  caseImei: string | null;
 };
 
 export type StartOutcome =
@@ -206,6 +211,7 @@ function customerBody(i: StartInput): { customerName?: string; customerPhone?: s
  */
 export async function startTradeIn(api: Pick<StaffClient, "post" | "patch">, i: StartInput): Promise<StartOutcome> {
   let caseId = i.caseId;
+  let caseImei = i.caseImei;
   let caseView: unknown = null;
   try {
     if (i.imei?.imei) {
@@ -213,8 +219,9 @@ export async function startTradeIn(api: Pick<StaffClient, "post" | "patch">, i: 
         const c = obj(await api.post<unknown>("/api/cases", customerBody(i)));
         if (!c || typeof c.id !== "string") throw new Error("No case came back. Try again.");
         caseId = c.id;
+        caseImei = str(c.imei);
       }
-      caseView = await api.patch<unknown>(`/api/cases/${encodeURIComponent(caseId)}`, imeiPatch({ imei: i.imei.imei, imei2: i.imei.imei2 }), { timeoutMs: IMEI_SAVE_MS });
+      caseView = await api.patch<unknown>(`/api/cases/${encodeURIComponent(caseId)}`, imeiPatch({ imei: i.imei.imei, imei2: i.imei.imei2 }, caseImei), { timeoutMs: IMEI_SAVE_MS });
       const v = obj(caseView);
       const stop = imeiStop({ imeiLookup: readImeiLookup(v?.imeiLookup), kymEarly: readKymEarly(v?.kymEarly) });
       if (stop) return { kind: "stopped", text: stop, caseId, caseView };
