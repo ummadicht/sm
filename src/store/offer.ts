@@ -11,9 +11,10 @@
 //   Refurb quote      = offer.repair.amount   what the CUSTOMER pays to fix this phone (the price book,
 //                                              a bench/service-centre quote, or ₹0 when covered). Not the
 //                                              store's refurb cost — that stays in the "Store margin" card.
-//   Market price      = offer.swap.tradeIn    the buyback partner's quote (or PriceIQ's estimate, which the
-//                                              customer isn't shown); offer.swap.tradeInDetail says how it
-//                                              was reached; swap.premium / swap.wePay what we add and pay
+//   Market price      = offer.swap.tradeIn    the system's price — PriceIQ's estimate by grade (which the
+//                                              customer isn't shown), else the rate card's; never typed in, it
+//                                              moves only with the phone's condition. offer.swap.tradeInDetail
+//                                              says how it was reached; swap.premium / swap.wePay what we add and pay
 //   Verdict           = offer.headline        decide()'s headline, unchanged; the bonus is never a signal
 //
 // The server builds every number and every reason (lib/domain/offer.ts buildOffer, carried on
@@ -41,7 +42,8 @@ export type OfferAsk =
   | { kind: "model"; title: string; text: string }
   /** `note`: the server's one line under the chips (e.g. "Refurbished market price, week 2026-W35, 52 days old."), as sent; null = none. */
   | { kind: "storage"; title: string; text: string; options: StorageOption[]; note: string | null }
-  | { kind: "partner_quote"; title: string; text: string }
+  /** Nothing prices the phone: the server's why, as text only — there is nothing to type in. */
+  | { kind: "no_price"; title: string; text: string }
   | { kind: "repair_quote"; title: string; text: string }
   | { kind: "new_phone"; title: string; text: string };
 
@@ -52,7 +54,7 @@ export type Coverage = "none" | "warranty" | "care_plus";
  *   line   under the figure, PriceIQ only: "Refurbished market price ₹51,399 (Good) − 2% − 2 defects
  *          · PriceIQ 2026-W35, 52 days old" — the server's words, its data's age included when stale
  *   lines  behind "Show details": each step with its % and rupees ("Rear camera faulty", "18%", −9251)
- *   note   why PriceIQ didn't price it, when the partner's rate card or a typed quote did instead
+ *   note   why PriceIQ didn't price it, when the rate card did instead
  */
 export type TradeInDetail = { line: string | null; lines: { label: string; pct: string | null; amount: number }[]; note: string | null };
 export type Pick = "repair" | "swap";
@@ -82,7 +84,7 @@ export type Offer = {
   answer: StaffAnswer | null;
   staffNotes: StaffNotes;
   swap: {
-    /** The market price: the buyback partner's quote for this phone (null = none yet). */
+    /** The market price for this phone (null = none yet). */
     tradeIn: number | null;
     /** The SwapUp premium on it (programme-funded, like the bonus); null without a market price, or a case locked before premiums. */
     premium: { amount: number; bp: number } | null;
@@ -149,7 +151,8 @@ const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is
 
 const SOURCES = ["measured", "catalogue", "customer", "advisor"] as const;
 const RECOMMENDATIONS = ["repair", "upgrade", "either", "no_repair", "cannot_say"] as const;
-const ASK_KINDS = ["blocked", "model", "storage", "partner_quote", "repair_quote", "new_phone"] as const;
+// An older server's "partner_quote" ask (type a price in) is not one of these: it is dropped, never a button.
+const ASK_KINDS = ["blocked", "model", "storage", "no_price", "repair_quote", "new_phone"] as const;
 const CHECK_RESULTS = ["valid", "invalid"] as const;
 
 /**
@@ -356,8 +359,8 @@ export function pill(o: Offer, pick: Pick | null): { title: string; disabled: bo
 /** The trade-in tile's link to the new-phone sheet (and the new-phone ask's button). */
 export const CHOOSE_PHONE = "Choose the new phone";
 
-/** No price from PriceIQ, a rate card or a typed quote — the desk's words (owner, 2026-10-18). Same as ../buySell.ts. */
-export const NO_MARKET_PRICE = "No market price yet — enter a quote.";
+/** No price from PriceIQ or the rate card — the desk's words (owner, 2026-10-19). Same as ../buySell.ts. */
+export const NO_MARKET_PRICE = "No market price yet.";
 
 /** The line under "—" where we pay (or, from an older server, the Trade-in + bonus tile): the server's why; with none, NO_MARKET_PRICE. null while there is a total. */
 export function swapWhyLine(o: Offer): string | null {
@@ -367,7 +370,7 @@ export function swapWhyLine(o: Offer): string | null {
 
 /**
  * The swap's refusal as a line on the swap side (an older server: the Trade-in + bonus tile), or null when it already says it:
- * as the why under "—", as the trade-in note (an expired partner quote), or as the
+ * as the why under "—", as the trade-in note, or as the
  * "Choose the new phone" link when no phone is chosen.
  */
 export function swapRefusalLine(o: Offer): string | null {
@@ -384,17 +387,18 @@ export function swapRefusalLine(o: Offer): string | null {
 export const RULESET_VERSION = "2026-10-18.1";
 
 /**
- * Re-price the case once, quietly, when the answer opens: a partner quote that has expired
- * (the server re-quotes a rate-card or live one; one typed from the partner's app comes back as
- * the "Enter the partner's quote" ask), storage chips none of which has a price — the case was
- * priced before the server kept a trade-in per size, and a re-price makes it work them out — or a
- * decision made under other rules (`decisionVersion` ≠ RULESET_VERSION: decided before the premium
- * was in what we pay). The re-price never asks the partner again for that last one.
- * Never on a closed case; a size the partner truly can't price stays a bare chip after the one re-price.
+ * Re-price the case once, quietly, when the answer opens: a quote that has expired (the server
+ * prices it again from PriceIQ or the rate card), a trade-in quote that isn't priced (`quoteStatus`,
+ * CaseView.quote.status — a rate card may have gone live since), storage chips none of which has a
+ * price — the case was priced before the server kept a trade-in per size, and a re-price makes it
+ * work them out — or a decision made under other rules (`decisionVersion` ≠ RULESET_VERSION: decided
+ * before the premium was in what we pay). Never on a closed case; a phone or size nothing can price
+ * stays unpriced (a bare chip) after the one re-price.
  */
-export function wantsReprice(open: boolean, quoteExpired: boolean, o: Offer | null, decisionVersion: string | null = null): boolean {
+export function wantsReprice(open: boolean, quoteExpired: boolean, o: Offer | null, decisionVersion: string | null = null, quoteStatus: string | null = null): boolean {
   if (!open) return false;
   if (quoteExpired) return true;
+  if (quoteStatus !== null && quoteStatus !== "priced") return true;
   if (decisionVersion !== null && decisionVersion !== RULESET_VERSION) return true;
   const ask = o?.asks.find((a) => a.kind === "storage");
   return !!ask && ask.kind === "storage" && ask.options.length > 0 && ask.options.every((x) => x.tradeIn === null);
@@ -402,16 +406,15 @@ export function wantsReprice(open: boolean, quoteExpired: boolean, o: Offer | nu
 
 /**
  * Where a storage ask with no chip sends the advisor. The server offers none when the phone measured
- * a size the model's list doesn't have (a 1TB Ultra on file as 256/512GB): its text says to enter the
- * partner's quote on the full case, and the desk's answer card takes it (#answer) — the quote sets the
- * storage to the measured size. Step 1 can't: its chips are the sizes the phone ruled out. With no
- * measurement (a model with no sizes on file), step 1 is where the storage is chosen.
+ * a size the model's list doesn't have (a 1TB Ultra on file as 256/512GB): nothing prices that size,
+ * so there is nowhere to go — null, no button; the server's text says so. A size is never guessed.
+ * With no measurement (a model with no sizes on file), step 1 is where the storage is chosen.
  */
-export function storageHandoff(head: { measuredStorage: CaseHead["measuredStorage"] }): { title: string; hash: string } {
-  return head.measuredStorage ? { title: "Enter the quote", hash: "#answer" } : { title: "Choose storage", hash: "#step-phone" };
+export function storageHandoff(head: { measuredStorage: CaseHead["measuredStorage"] }): { title: string; hash: string } | null {
+  return head.measuredStorage ? null : { title: "Choose storage", hash: "#step-phone" };
 }
 
-/** A storage chip: "256GB · ₹18,800", or just "512GB" when the partner has no price for that size. */
+/** A storage chip: "256GB · ₹18,800", or just "512GB" when nothing prices that size. */
 export function chipLabel(opt: StorageOption): string {
   return opt.tradeIn === null ? opt.variant : `${opt.variant} · ${inr(opt.tradeIn)}`;
 }

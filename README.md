@@ -98,8 +98,8 @@ while it says "Traded in" (a cancel before pickup still reaches the screen).
 ## Prices
 
 Every price comes from the SwapUp server, which gets it from **PriceIQ** (the live refurbished-market
-price by grade), the **partner's uploaded rate card**, or a **quote staff type in** — never from the
-apps, and never made up. The apps print the server's figures and words and add only these:
+price by grade) or the **partner's uploaded rate card** — never typed in, never from the apps, and
+never made up. The apps print the server's figures and words and add only these:
 
 - **Store margin › Sell** (`src/store/buySell.ts`): "Refurbished market price ₹53,499 (Superb) − 2% ·
   PriceIQ 2026-W35" — the market price less the store's markdown (5% up to ₹15k, 4% to ₹30k, 3% to
@@ -108,9 +108,14 @@ apps, and never made up. The apps print the server's figures and words and add o
   ("Refurbished market price, week 2026-W35, 52 days old." — or "PriceIQ unreachable, last answer …"
   while it uses its last good answer), else ", 52 days old" on the line. Data **over 90 days old is no
   price**. The answer's lines and notes are the server's words, printed as sent — the market price
-  is the buyback partner's (its rate card or a typed quote); a PriceIQ estimate is shown to staff
-  only, and the customer's phone waits until the partner's price is in.
-- **No price from anywhere**: "No market price yet — enter a quote." (the partner's or a typed quote).
+  is the buyback partner's (its rate card); a PriceIQ estimate is shown to staff only, and the
+  customer's phone waits until the partner's price is in.
+- **No price from anywhere**: "No market price yet." — under it, the server's one reason (no rate card
+  live, this phone not on it, a measured size not on file); text only, nothing to type in.
+- **The price moves only with the condition** (owner, 2026-10-19): the answer's quiet row has
+  **Change condition**, which opens the desk's "What's wrong with it?" (`#step-faults`); the desk
+  re-prices, and Back re-reads the case. An expired or unpriced quote is re-priced once, quietly, each
+  time the answer opens.
 - **Test programme** (the server's `org.demo`): one short banner, "Test programme — no real money" —
   under the answer's lines too, on the customer's phone and the tablet.
 

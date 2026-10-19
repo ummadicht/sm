@@ -12,9 +12,11 @@
 //   tiles REFURB QUOTE | TRADE-IN + BONUS, as before.
 //
 // Whatever the test couldn't fill is a one-tap ask above the numbers (storage chips with
-// each size's trade-in — and the server's one note under them, as sent — a quote, the new
-// phone) — never a form, never a guessed size, never a made-up price. A
-// choice the server refuses (no new phone yet, an expired partner quote) can't be tapped, and
+// each size's trade-in — and the server's one note under them, as sent — the repair quote, the
+// new phone) — never a form, never a guessed size, never a made-up price. The trade-in price is
+// the system's and is never typed in: with none, the server's why is text only, and the one lever
+// is the phone's condition ("Change condition" opens the desk's What's wrong, which re-prices). A
+// choice the server refuses (no new phone yet, no market price) can't be tapped, and
 // says why. The store's own refurb cost and margin sit at the bottom, closed: "Store margin ·
 // staff only" (./PriceCard, drawn from this screen's case and saved through its queue).
 //
@@ -32,7 +34,7 @@
 // on first (a manual Apply) — never as a second copy of the card.
 //
 // The server builds every number and every reason (CaseView.offer, read by ../offer.ts);
-// this screen owns the labels only. Load: GET /api/cases/<id> (an expired quote, or storage
+// this screen owns the labels only. Load: GET /api/cases/<id> (an expired or unpriced quote, or storage
 // chips with no price at all, is re-priced once, quietly), again quietly every 30 s and when
 // the app returns to the front. Writes go one at a time and only the newest answer is painted (the
 // desk's CaseWorkspace.run); a refusal re-reads the case and says why in the server's words.
@@ -76,7 +78,7 @@ import { type StaffClient, absolute, errText } from "../staffClient";
 import type { Screen } from "../types";
 import { Banner, Body, Btn, Card, Chip, Figure, H1, H2, KV, L, Label, Segmented, inr, s as ui, useHead, useLayout } from "../ui";
 import { PriceCard } from "./PriceCard";
-import { COVER_LABEL, CoverSheet, NewPhoneSheet, PartnerQuoteSheet, RefurbQuoteSheet, RepairConfirmSheet, WalkAwaySheet, WhySheet } from "./OfferSheets";
+import { COVER_LABEL, CoverSheet, NewPhoneSheet, RefurbQuoteSheet, RepairConfirmSheet, WalkAwaySheet, WhySheet } from "./OfferSheets";
 import { ReportQrSheet } from "./ReportQrSheet";
 
 const REFRESH_MS = 30_000;
@@ -119,7 +121,7 @@ function readExtra(x: unknown): Extra {
 /** `cert`: the case's own `certify` / `certification`, as sent (../certify.ts answerCertify reads them). */
 type Ready = { state: "ready"; head: CaseHead; offer: Offer | null; grading: CaseGrading | null; price: CasePrice | null; extra: Extra; cert: { certify?: unknown; certification?: unknown } };
 type Load = { state: "loading" } | { state: "error"; text: string } | Ready;
-type SheetName = "phone" | "refurb" | "cover" | "partner" | "repair" | "walk" | "report" | null;
+type SheetName = "phone" | "refurb" | "cover" | "repair" | "walk" | "report" | null;
 
 const OPEN = new Set(["draft", "quoted"]);
 
@@ -276,11 +278,12 @@ export function OfferScreen({
     };
   }, [fetchCase]);
 
-  // An expired partner quote, storage chips none of which has a price (the case was priced
-  // before the server kept a price per size), or a decision made under older rules, is fetched
-  // again by a re-price — once, quietly, never re-asking the partner.
+  // An expired or unpriced trade-in quote (a rate card may have gone live since), storage chips
+  // none of which has a price (the case was priced before the server kept a price per size), or a
+  // decision made under older rules, is fetched again by a re-price — once per open, quietly.
   const repriced = useRef(false);
-  const reprice = load.state === "ready" && wantsReprice(OPEN.has(load.head.status), load.extra.quoteExpired, load.offer, load.extra.decisionVersion);
+  const reprice =
+    load.state === "ready" && wantsReprice(OPEN.has(load.head.status), load.extra.quoteExpired, load.offer, load.extra.decisionVersion, load.price?.quote?.status ?? null);
   useEffect(() => {
     if (!reprice || repriced.current) return;
     repriced.current = true;
@@ -633,6 +636,8 @@ export function OfferScreen({
         {/* The quiet row */}
         <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
           {o.actions.walkAway === null ? <QuietLink title="Customer walked away" onPress={() => setSheet("walk")} /> : null}
+          {/* The one lever on the price: what's wrong with the phone (the desk re-prices; Back re-reads the case). */}
+          <QuietLink title="Change condition" disabled={handoff} onPress={() => void openFull(`${answerPath}#step-faults`)} />
           <QuietLink title={handoff ? "Opening…" : "Open full case"} disabled={handoff} onPress={() => void openFull(answerPath)} />
         </View>
 
@@ -669,7 +674,6 @@ export function OfferScreen({
       <NewPhoneSheet api={api} visible={sheet === "phone"} onClose={() => setSheet(null)} current={w.newPhone} oldSeries={extra.series} save={save} />
       <RefurbQuoteSheet visible={sheet === "refurb"} onClose={() => setSheet(null)} repair={r} save={save} />
       <CoverSheet visible={sheet === "cover"} onClose={() => setSheet(null)} coverage={r.coverage} save={save} />
-      <PartnerQuoteSheet visible={sheet === "partner"} onClose={() => setSheet(null)} save={save} />
       <RepairConfirmSheet visible={sheet === "repair"} onClose={() => setSheet(null)} act={act} />
       <WalkAwaySheet visible={sheet === "walk"} onClose={() => setSheet(null)} act={act} />
       {reportSheet}
@@ -771,7 +775,7 @@ function AskCard({
   headline: string;
   reason: string | null;
   variant: string | null;
-  /** The case's measured size (CaseView.measuredStorage): a storage ask without chips sends it to the desk's answer card. */
+  /** The case's measured size (CaseView.measuredStorage): a storage ask without chips then has no button. */
   measuredStorage: string | null;
   handoff: boolean;
   onVariant: (v: string) => void;
@@ -783,28 +787,30 @@ function AskCard({
   let control: React.ReactNode = null;
   switch (ask.kind) {
     case "storage": {
-      // No chip can be right when the phone measured a size that isn't on file: the desk takes that one.
+      // No chip can be right when the phone measured a size that isn't on file: no button either —
+      // nothing prices that size, and the server's text says so.
       const go = storageHandoff({ measuredStorage });
-      control = (
-        <>
-          {ask.options.length ? (
-            <Segmented options={ask.options.map((x) => ({ value: x.variant, label: chipLabel(x) }))} value={variant ?? ""} onChange={onVariant} />
-          ) : (
-            btn(go.title, () => onFull(go.hash), handoff)
-          )}
-          {/* The server's one note under the chips (e.g. how old PriceIQ's prices are), as sent. */}
-          {ask.note ? (
-            <Small color={L.warn} weight="600">
-              {ask.note}
-            </Small>
-          ) : null}
-        </>
-      );
+      const chips = ask.options.length ? (
+        <Segmented options={ask.options.map((x) => ({ value: x.variant, label: chipLabel(x) }))} value={variant ?? ""} onChange={onVariant} />
+      ) : go ? (
+        btn(go.title, () => onFull(go.hash), handoff)
+      ) : null;
+      control =
+        chips || ask.note ? (
+          <>
+            {chips}
+            {/* The server's one note under the chips (e.g. how old PriceIQ's prices are), as sent. */}
+            {ask.note ? (
+              <Small color={L.warn} weight="600">
+                {ask.note}
+              </Small>
+            ) : null}
+          </>
+        ) : null;
       break;
     }
-    case "partner_quote":
-      // No partner price yet, or a quote typed from the partner's app that has expired: either way, today's goes in here.
-      control = btn("Enter the partner's quote", () => onSheet("partner"));
+    case "no_price":
+      // Nothing prices the phone: the server's why, as text. Nothing to type — the price is the system's.
       break;
     case "repair_quote":
       control = btn("Enter the repair quote", () => onSheet("refurb"));
@@ -820,10 +826,14 @@ function AskCard({
       control = btn("Open full case", () => onFull(""), handoff);
       break;
   }
+  const title = ask.title !== headline ? ask.title : null;
+  const text = ask.text !== reason ? ask.text : null;
+  // Said in full by the headline and the sentence, with nothing to tap: no empty card.
+  if (!title && !text && !control) return null;
   return (
     <Card style={{ gap: 12 }}>
-      {ask.title !== headline ? <H2>{ask.title}</H2> : null}
-      {ask.text !== reason ? <Body muted>{ask.text}</Body> : null}
+      {title ? <H2>{title}</H2> : null}
+      {text ? <Body muted>{text}</Body> : null}
       {control}
     </Card>
   );

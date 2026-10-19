@@ -184,8 +184,8 @@ test("lockBody: imeiCheckAck and storageSeen ride along only when the server ask
 test("serverBlocker: the first server blocker, skipping the IMEI one while the screen asks for the IMEI", () => {
   assert.equal(K.serverBlocker(head()), null);
   assert.equal(K.serverBlocker(head({ lockBlockers: ["Choose the new phone."] })), "Choose the new phone.");
-  const noImei = head({ imei: null, imeiCheck: null, lockBlockers: ["Record the IMEI (dial *#06#).", "No market price yet — enter a quote."] });
-  assert.equal(K.serverBlocker(noImei), "No market price yet — enter a quote.");
+  const noImei = head({ imei: null, imeiCheck: null, lockBlockers: ["Record the IMEI (dial *#06#).", "No trade-in price yet."] });
+  assert.equal(K.serverBlocker(noImei), "No trade-in price yet.");
   assert.equal(K.serverBlocker({ ...noImei, lockBlockers: ["Record the IMEI (dial *#06#)."] }), null);
 });
 
@@ -193,7 +193,7 @@ test("lockCaption: a server blocker first — the form can't fix it — then the
   const empty = K.emptyLockForm({ customerName: "Ravi Kumar", customerPhone: null });
   assert.equal(K.lockCaption(empty, head()), "Enter a 10-digit Indian mobile number.");
   assert.equal(K.lockCaption(empty, head({ lockBlockers: ["Choose the new phone."] })), "Choose the new phone.");
-  assert.equal(K.lockCaption(filled(), head({ lockBlockers: ["The partner's quote has expired — re-quote."] })), "The partner's quote has expired — re-quote.");
+  assert.equal(K.lockCaption(filled(), head({ lockBlockers: ["The trade-in price has expired — re-quote."] })), "The trade-in price has expired — re-quote.");
   assert.equal(K.lockCaption(filled(), head()), null, "nothing in the way");
   // The IMEI blocker waits while the screen asks for the IMEI itself; the form's own IMEI line says it.
   const noImei = head({ imei: null, imeiCheck: null, lockBlockers: [K.IMEI_MISSING] });

@@ -201,7 +201,7 @@ test("no quote yet: Buy is — with the server's reason; margin names what is mi
 test("no price from anywhere: the server's reason, else the one no-price line — never a made-up figure", () => {
   const m = B.priceCard(read({ quote: { status: "unpriced", amount: null, reason: "The partner doesn't buy this model." } }), "3200");
   assert.deepEqual(m.buy, { amount: null, note: "The partner doesn't buy this model." });
-  assert.equal(B.NO_MARKET_PRICE, "No market price yet — enter a quote.");
+  assert.equal(B.NO_MARKET_PRICE, "No market price yet.");
   assert.deepEqual(B.buyFigure(read({ quote: { status: "unpriced", amount: null } })), { amount: null, note: B.NO_MARKET_PRICE });
   assert.deepEqual(B.sellFigure(read({ marketSell: { amount: null, why: null }, repairedQuote: { status: "unpriced", amount: null } })), { amount: null, note: B.NO_MARKET_PRICE, source: null });
   assert.deepEqual(B.sellFigure(read({ marketSell: null, repairedQuote: null })), { amount: null, note: B.NO_MARKET_PRICE, source: null });

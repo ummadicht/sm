@@ -221,7 +221,7 @@ test("readOffer: the storage chips are a size and its price; the note is only wh
 });
 
 test("readOffer: a phone that measured a size not on file — the server's words, not 'couldn't measure', and no chip", () => {
-  const text = "The phone measures 1TB, which isn't a size on file. Check Settings › About phone, and enter the partner's quote on the full case if it's really 1TB.";
+  const text = "Phone measures 1TB, not on file — no trade-in price for that size.";
   // As the server sends it (lib/domain/offer.ts): every listed size is one the phone ruled out, so none is offered, and no note.
   const o = read(
     priced({
@@ -240,9 +240,9 @@ test("readOffer: a phone that measured a size not on file — the server's words
   assert.equal(O.wantsReprice(true, false, o), false);
 });
 
-test("storageHandoff: a chip-less storage ask goes to the desk's answer card when the phone measured the size, else to step 1", () => {
-  // The answer card takes the partner's quote for the measured size (it sets the storage); step 1's chips are the sizes the phone ruled out.
-  assert.deepEqual(O.storageHandoff({ measuredStorage: "1TB" }), { title: "Enter the quote", hash: "#answer" });
+test("storageHandoff: a chip-less storage ask has no button when the phone measured a size not on file, else goes to step 1", () => {
+  // Nothing prices the measured size, and nothing may be typed in: the server's text is all; step 1's chips are the sizes the phone ruled out.
+  assert.equal(O.storageHandoff({ measuredStorage: "1TB" }), null);
   assert.deepEqual(O.storageHandoff({ measuredStorage: null }), { title: "Choose storage", hash: "#step-phone" });
 });
 
@@ -390,7 +390,8 @@ test("vsRepairLine: more, less or the same as repairing", () => {
 // ── the server's refusals on the answer screen ──────────────────────────────
 
 const NEW_PHONE = "Choose the new phone.";
-const EXPIRED = "Partner quote (ref PQ-88421) expired — enter today's quote.";
+/** The server's why when a rate card is live but this phone isn't on it (~/projects/swapup lib/domain/ratecard.ts). */
+const NOT_ON_CARD = "This phone isn't on the rate card yet.";
 
 /** A priced phone with nothing to repair and no new phone chosen: the server refuses the swap until one is. */
 function noNewPhone() {
@@ -406,16 +407,17 @@ function noNewPhone() {
   });
 }
 
-/** A quote typed from the partner's app, now past its validity: the server asks for today's. */
-function expiredPartnerQuote() {
+/** Nothing prices the phone: the server's no-price ask is its why, as text — nothing to type in. As the first ask it is the headline and the sentence. */
+function noPrice(over: Record<string, unknown> = {}) {
   return priced({
-    headline: "Enter the partner's quote",
-    reason: EXPIRED,
-    recommendation: "upgrade",
-    recommended: "swap",
-    asks: [{ kind: "partner_quote", title: "Enter the partner's quote", text: EXPIRED }],
-    swap: { ...priced().swap, tradeInNote: EXPIRED },
-    actions: { repair: null, swap: EXPIRED, walkAway: null },
+    headline: "No market price yet",
+    reason: NOT_ON_CARD,
+    recommendation: "repair",
+    recommended: "repair",
+    asks: [{ kind: "no_price", title: "No market price yet", text: NOT_ON_CARD }],
+    swap: { tradeIn: null, tradeInNote: null, bonus: null, bonusBp: null, bonusWhy: null, total: null, why: NOT_ON_CARD, newPhone: null, customerPays: null, vsRepair: null },
+    actions: { repair: null, swap: NOT_ON_CARD, walkAway: null },
+    ...over,
   });
 }
 
@@ -446,17 +448,28 @@ test("pill: with nothing choosable and no verdict, the swap's reason; a choosabl
   assert.deepEqual(O.pill(read(priced({ actions: undefined })), null), { title: "Swap up", disabled: true, caption: O.ACTION_UNKNOWN });
 });
 
-test("expired partner quote: the ask reads whole, the swap is refused, and the tile says it once", () => {
-  const o = read(expiredPartnerQuote());
-  assert.deepEqual(o.asks, [{ kind: "partner_quote", title: "Enter the partner's quote", text: EXPIRED }]);
-  assert.equal(o.swap.tradeInNote, EXPIRED);
+test("no price: the no_price ask is text only, the swap is refused with the specific why, said once; repair stays choosable", () => {
+  const o = read(noPrice());
+  // Its title and text, nothing else: no field the screen could turn into a box or a button.
+  assert.deepEqual(o.asks, [{ kind: "no_price", title: "No market price yet", text: NOT_ON_CARD }]);
+  assert.equal(o.swap.tradeIn, null);
   assert.equal(O.pickAllowed(o, "swap"), false);
-  // The upgrade verdict's swap is refused, the repair is not: no pick, no fall-back to repair.
-  assert.equal(O.defaultPick(o), null);
-  assert.deepEqual(O.pill(o, null), { title: "Choose one", disabled: true, caption: null });
-  assert.deepEqual(O.pill(o, "swap"), { title: "Swap up", disabled: true, caption: EXPIRED });
-  // The warn-toned trade-in note already says it.
+  assert.equal(O.pickAllowed(o, "repair"), true);
+  assert.equal(o.actions.walkAway, null, "the customer can still walk away");
+  assert.equal(O.defaultPick(o), "repair");
+  assert.deepEqual(O.pill(o, "swap"), { title: "Swap up", disabled: true, caption: NOT_ON_CARD });
+  // Under "—" the specific why, once — never "No market price yet" again, never twice.
+  assert.equal(O.swapWhyLine(o), NOT_ON_CARD);
   assert.equal(O.swapRefusalLine(o), null);
+  assert.notEqual(O.swapWhyLine(o), O.NO_MARKET_PRICE);
+});
+
+test("no price: an older server's partner_quote ask (type the price in) is dropped — never a button", () => {
+  const old = read(noPrice({ asks: [{ kind: "partner_quote", title: "Enter the partner's quote", text: NOT_ON_CARD }] }));
+  assert.deepEqual(old.asks, []);
+  // The other asks it sent still read.
+  const mixed = read(noPrice({ asks: [{ kind: "partner_quote", title: "Enter the partner's quote", text: NOT_ON_CARD }, { kind: "new_phone", title: "Choose the new phone", text: NEW_PHONE }] }));
+  assert.deepEqual(mixed.asks.map((a) => a.kind), ["new_phone"]);
 });
 
 test("swapRefusalLine: the why under '—' isn't repeated either", () => {
@@ -464,7 +477,7 @@ test("swapRefusalLine: the why under '—' isn't repeated either", () => {
   assert.equal(O.swapRefusalLine(offer()), null);
 });
 
-test("wantsReprice: an expired quote, or storage chips with no price at all — on an open case only", () => {
+test("wantsReprice: an expired or unpriced quote, or storage chips with no price at all — on an open case only", () => {
   const unpriced = read(
     priced({ asks: [{ kind: "storage", title: "Which storage is it?", text: STORAGE_TEXT, options: [{ variant: "256GB", tradeIn: null }, { variant: "512GB", tradeIn: null }], note: null }] })
   );
@@ -478,10 +491,21 @@ test("wantsReprice: an expired quote, or storage chips with no price at all — 
   const onePriced = read(
     priced({ asks: [{ kind: "storage", title: "Which storage is it?", text: STORAGE_TEXT, options: [{ variant: "256GB", tradeIn: 18800 }, { variant: "512GB", tradeIn: null }], note: CHIP_NOTE }] })
   );
-  assert.equal(O.wantsReprice(true, false, onePriced), false, "the partner priced one size: the bare chip is the partner's, not a missing re-price");
+  assert.equal(O.wantsReprice(true, false, onePriced), false, "one size priced: the bare chip is unpriced, not a missing re-price");
   const noChips = read(priced({ asks: [{ kind: "storage", title: "Which storage is it?", text: STORAGE_TEXT, options: [], note: null }] }));
   assert.equal(O.wantsReprice(true, false, noChips), false, "no sizes to price — the full case chooses it");
   assert.equal(O.wantsReprice(true, false, null), false);
+});
+
+test("wantsReprice: a trade-in quote that isn't priced is re-asked once (a rate card may have gone live since)", () => {
+  const o = read(noPrice());
+  assert.equal(O.wantsReprice(true, false, o, null, "unpriced"), true);
+  assert.equal(O.wantsReprice(true, false, o, null, "error"), true);
+  assert.equal(O.wantsReprice(true, false, null, null, "unpriced"), true, "even with no answer to read");
+  assert.equal(O.wantsReprice(false, false, o, null, "unpriced"), false, "a closed case is never re-priced");
+  assert.equal(O.wantsReprice(true, false, offer(), null, "priced"), false, "priced: nothing to fetch");
+  assert.equal(O.wantsReprice(true, false, offer(), null, null), false, "no quote on the case (an older server, no model yet)");
+  assert.equal(O.wantsReprice(true, false, offer(), O.RULESET_VERSION, "priced"), false);
 });
 
 test("wantsReprice: a decision made under other rules is re-priced once (R8: before the premium was in what we pay)", () => {
@@ -512,7 +536,7 @@ test("readOffer: the advisor keeps the lines while the customer waits — F8, a 
   assert.equal(o.answer?.ready, false);
   assert.equal(o.answer?.text, "The advisor is confirming your price.");
   assert.deepEqual(o.answer?.lines, F.F1.lines);
-  assert.equal(o.staffNotes.market, "Estimate from the refurbished market — enter the buyback partner's quote to show it to the customer.");
+  assert.equal(o.staffNotes.market, "Estimate from the refurbished market — not shown to the customer.");
 });
 
 test("readOffer: an older server (F7) sends no answer — the two tiles, as before", () => {
@@ -658,7 +682,7 @@ test("the notes say what the grade is, in the owner's words — never CTIA, neve
 });
 
 test("no app-owned words name the buyback partner", () => {
-  const words = [O.SCALE_NOTE, O.LETTER_NOTE, O.ACTION_UNKNOWN, O.CHOOSE_PHONE, ...Object.values(O.PULL_TEXT), O.storageHandoff({ measuredStorage: "1TB" }).title, O.storageHandoff({ measuredStorage: null }).title];
+  const words = [O.SCALE_NOTE, O.LETTER_NOTE, O.ACTION_UNKNOWN, O.CHOOSE_PHONE, ...Object.values(O.PULL_TEXT), O.storageHandoff({ measuredStorage: null })!.title];
   for (const w of [...words, O.NO_MARKET_PRICE]) assert.equal(G.namesPartner(w), false, w);
 });
 
@@ -729,10 +753,10 @@ test("tradeInDetail: the rate card's fallback keeps its note; nothing to show re
   assert.equal(O.readOffer(priced())!.swap.tradeInDetail, null);
 });
 
-// ── no price from anywhere (owner, 2026-10-18: PriceIQ, a rate card or a typed quote — else say so) ──
+// ── no price from anywhere (owner, 2026-10-19: PriceIQ or the rate card, never typed in — else say so) ──
 
 test("swapWhyLine: the server's why under '—'; with none, the one no-price line; nothing beside a total", () => {
-  assert.equal(O.NO_MARKET_PRICE, "No market price yet — enter a quote.");
+  assert.equal(O.NO_MARKET_PRICE, "No market price yet.");
   assert.equal(O.NO_MARKET_PRICE, B.NO_MARKET_PRICE, "the answer and the margin card say the same words");
   const none = { tradeIn: null, tradeInNote: null, bonus: null, bonusBp: null, bonusWhy: null, total: null, why: null, newPhone: null, customerPays: null, vsRepair: null };
   // The server's own why wins.
@@ -745,4 +769,28 @@ test("swapWhyLine: the server's why under '—'; with none, the one no-price lin
   assert.equal(O.swapRefusalLine(bare), null, "the line is said once, not again as the refusal");
   // A total on the tile: no why line.
   assert.equal(O.swapWhyLine(read(priced())), null);
+});
+
+test("the answer screen: no box to type a trade-in price; no_price is text only; one quiet 'Change condition' to the desk's What's wrong", async () => {
+  // The screens can't be rendered under plain node: this reads their code (comments stripped).
+  const { readFileSync } = await import("node:fs");
+  const code = (f: string) =>
+    readFileSync(new URL(f, import.meta.url), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  const screen = code("./screens/Offer.tsx");
+  const sheets = code("./screens/OfferSheets.tsx");
+  for (const [f, s] of [["Offer.tsx", screen], ["OfferSheets.tsx", sheets]]) {
+    assert.doesNotMatch(s, /partnerQuote|PartnerQuoteSheet|partner_quote|Enter the partner's quote|Enter the quote"/, f);
+  }
+  // The no-price ask draws no control: its case sets nothing before the next one.
+  const noPriceCase = screen.slice(screen.indexOf('case "no_price":'), screen.indexOf('case "repair_quote":'));
+  assert.ok(noPriceCase.length > 0);
+  assert.doesNotMatch(noPriceCase, /control|btn\(|onSheet|onFull/);
+  // One quiet link, in the quiet row, to the desk's "What's wrong with it?" — the desk re-prices, Back re-reads.
+  assert.equal(screen.split('title="Change condition"').length - 1, 1);
+  assert.match(screen, /<QuietLink title="Change condition" disabled=\{handoff\} onPress=\{\(\) => void openFull\(`\$\{answerPath\}#step-faults`\)\} \/>/);
+  const walk = screen.indexOf('title="Customer walked away"');
+  const quietRow = screen.slice(walk, screen.indexOf('"Open full case"', walk));
+  assert.match(quietRow, /Change condition/);
 });

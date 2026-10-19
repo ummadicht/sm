@@ -10,7 +10,7 @@
 //   Margin = Sell − Buy − Refurb        red when negative
 //
 // A missing number is null with the reason why — never a guess, never a 0 standing in. Prices come
-// from PriceIQ, the partner's rate card or a quote staff type in; with none: NO_MARKET_PRICE.
+// from PriceIQ or the rate card, never typed in; with none: NO_MARKET_PRICE.
 // PriceIQ's data carries its age (owner, 2026-10-18): older than 14 days it is shown WITH its age,
 // older than 90 days it is no price at all.
 // Shapes: ~/projects/swapup lib/server/cases.ts CaseView and lib/domain/buySell.ts (the
@@ -28,8 +28,8 @@ const EDITABLE = new Set(["draft", "quoted"]);
  */
 type Quote = { status: string; amount: number | null; reason: string | null; legacyMadeUp: boolean };
 
-/** The one line for "no price from anywhere" — the same words as the desk (owner, 2026-10-18). */
-export const NO_MARKET_PRICE = "No market price yet — enter a quote.";
+/** The one line for "no price from anywhere" — the same words as the desk (owner, 2026-10-19). */
+export const NO_MARKET_PRICE = "No market price yet.";
 /** PriceIQ data older than this many days is shown with its age. */
 export const STALE_AFTER_DAYS = 14;
 /** PriceIQ data older than this many days sets no price at all. */
@@ -144,7 +144,7 @@ export function readCasePrice(x: unknown): CasePrice | null {
   };
 }
 
-/** Why the case has no partner quote at all — the server's own reasons, in its order (reprice()). */
+/** Why the case has no trade-in quote at all — the server's own reasons, in its order (reprice()). */
 function noQuoteWhy(c: CasePrice): string {
   if (c.quoteBlocked) return c.quoteBlocked;
   if (!c.device) return "No quote — model missing.";

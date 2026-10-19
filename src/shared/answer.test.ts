@@ -76,7 +76,7 @@ test("F8: staff, not ready — the customer waits, the advisor keeps the lines a
   assert.equal(s.ready, false);
   assert.equal(s.text, "The advisor is confirming your price.");
   assert.deepEqual(s.lines, F.F1.lines);
-  assert.equal(A.readStaffNotes(F.F8).market, "Estimate from the refurbished market — enter the buyback partner's quote to show it to the customer.");
+  assert.equal(A.readStaffNotes(F.F8).market, "Estimate from the refurbished market — not shown to the customer.");
 });
 
 test("F9: the repair chosen — final, grade and the repair; no we-pay line is still an answer", () => {

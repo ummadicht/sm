@@ -78,7 +78,7 @@ function hermes(ascii: string[], wide: string[] = [], pad = 0): Buffer {
 }
 
 const CLEAN_ASCII = ["ACCEL_NOISE_FLOOR", "SAMPLE_RATE", "No market price yet", "Refurbished market price", "PriceIQ"];
-const CLEAN_WIDE = ["Test programme — no real money", "No market price yet — enter a quote.", "Refurbished market price ₹53,499 (Superb) − 2% · PriceIQ 2026-W35"];
+const CLEAN_WIDE = ["Test programme — no real money", "No market price yet.", "Refurbished market price ₹53,499 (Superb) − 2% · PriceIQ 2026-W35"];
 
 const T0 = Date.parse("2026-10-18T08:00:00Z");
 const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -97,7 +97,7 @@ function fixture(): { root: string; done: () => void } {
   for (const v of S.VARIANTS) {
     const bundle = `/app/${v}/_expo/static/js/web/index-abc.js`;
     put(`dist-web/${v}/index.html`, `<title>SwapUp</title><script src="${bundle}"></script>`);
-    put(`dist-web/${v}/_expo/static/js/web/index-abc.js`, `const a="Test programme — no real money";const b="No market price yet — enter a quote.";`);
+    put(`dist-web/${v}/_expo/static/js/web/index-abc.js`, `const a="Test programme — no real money";const b="No market price yet.";`);
     put(`dist-web/${v}/version.json`, JSON.stringify({ variant: v, version: "0.8.0", bundle, builtAt: built }));
     writeApk(root, v, {});
   }

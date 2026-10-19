@@ -81,7 +81,8 @@ test("Take the trade-in: every problem the form can say, and the KYM line", () =
 });
 
 test("the answer's own words: the pill, the hand-off buttons, the Phonecheck notes, the grade notes", () => {
-  for (const t of [O.storageHandoff({ measuredStorage: "1TB" }).title, O.storageHandoff({ measuredStorage: null }).title]) assert.ok(words(t) <= 3, t);
+  assert.equal(O.storageHandoff({ measuredStorage: "1TB" }), null, "a measured size not on file: no button");
+  for (const t of [O.storageHandoff({ measuredStorage: null })!.title]) assert.ok(words(t) <= 3, t);
   short([O.ACTION_UNKNOWN, O.LETTER_NOTE, O.SCALE_NOTE, ...Object.values(O.PULL_TEXT), O.vsRepairLine(95904)!, O.vsRepairLine(-4500)!, O.vsRepairLine(0)!]);
   assert.ok(words(O.CHOOSE_PHONE) <= 4, O.CHOOSE_PHONE);
 });

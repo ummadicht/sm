@@ -2,7 +2,7 @@
 // The owner, 2026-10-17/18: the buyback partner is never named — no word the apps show, and no
 // comment, identifier, test, doc or file name either — and there are no made-up prices: no
 // price marked "sample", no such rate card, no seeded example data. Prices come from PriceIQ (through the
-// SwapUp server), a partner's uploaded rate card, or a quote staff type in; with none, the
+// SwapUp server) or a partner's uploaded rate card, never typed in; with none, the
 // answer says so. A test programme says so in one short banner. These checks read the whole
 // repo (installed packages and build output aside), this file included.
 import test from "node:test";

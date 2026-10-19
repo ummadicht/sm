@@ -1,8 +1,9 @@
 // The answer screen's bottom sheets (./Offer.tsx): the new phone, the refurb quote, the
-// cover, the partner's quote typed from the partner's app, "Customer will repair",
-// "Customer walked away", and "Why this answer". Each sends ONE change through the
-// screen's write queue (a PATCH or an action) and closes when the server took it; a
-// refusal stays in the sheet, in the server's own words, so nothing looks saved that isn't.
+// cover, "Customer will repair", "Customer walked away", and "Why this answer". Each sends
+// ONE change through the screen's write queue (a PATCH or an action) and closes when the
+// server took it; a refusal stays in the sheet, in the server's own words, so nothing looks
+// saved that isn't. The trade-in price is never typed in: it is the system's, and changes only
+// with what's wrong with the phone.
 // The rules each field checks before Save are the server's (lib/server/cases.ts updateCase).
 import React, { useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
@@ -288,78 +289,6 @@ export function CoverSheet({ visible, onClose, coverage, save }: { visible: bool
           <Option key={c} title={`${COVER_LABEL[c]}${busy === c ? " · saving…" : ""}`} selected={c === coverage} onPress={() => void choose(c)} />
         ))}
       </View>
-    </Sheet>
-  );
-}
-
-// ── the partner's quote, read off the partner's app ─────────────────────────
-
-export function PartnerQuoteSheet({ visible, onClose, save }: { visible: boolean; onClose: () => void; save: SaveFn }) {
-  const [amount, setAmount] = useState("");
-  const [reference, setReference] = useState("");
-  const [repaired, setRepaired] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  useEffect(() => {
-    if (!visible) return;
-    setAmount("");
-    setReference("");
-    setRepaired("");
-    setErr(null);
-  }, [visible]);
-
-  const n = rupees(amount);
-  const rep = rupees(repaired);
-  const refOk = /^[A-Z0-9-]{4,40}$/.test(reference);
-  // The server's own sentences (updateCase, partnerQuote).
-  const problem =
-    n === null || n <= 0 || n > MAX_RUPEES
-      ? "Enter the quote in rupees."
-      : !refOk
-        ? "Enter the quote's reference code."
-        : rep !== null && rep < n
-          ? "Repaired value must be at least the as-is price."
-          : null;
-
-  async function submit() {
-    if (problem || n === null) return;
-    setErr(null);
-    setBusy(true);
-    const e = await save({ partnerQuote: { amount: n, reference, repairedAmount: rep } });
-    setBusy(false);
-    if (e) setErr(e);
-    else onClose();
-  }
-
-  return (
-    <Sheet
-      visible={visible}
-      onClose={onClose}
-      title="Enter the partner's quote"
-      lead="Price it in the partner's app, then type it here."
-      footer={<PillButton title={busy ? "Saving…" : "Save the quote"} busy={busy} disabled={!!problem} onPress={() => void submit()} />}
-    >
-      <View style={{ gap: 16, marginTop: 18 }}>
-        <Field label="As-is price (₹)" value={amount} onChangeText={(t) => setAmount(rupeesInput(t))} keyboardType="number-pad" inputMode="numeric" placeholder="e.g. 18800" />
-        <Field
-          label="Reference code"
-          value={reference}
-          onChangeText={(t) => setReference(t.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 40))}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          placeholder="e.g. PQ-82731"
-        />
-        <Field
-          label="Repaired value (optional)"
-          value={repaired}
-          onChangeText={(t) => setRepaired(rupeesInput(t))}
-          keyboardType="number-pad"
-          inputMode="numeric"
-          placeholder="Partner's repaired price"
-        />
-      </View>
-      {(amount || reference) && problem ? <Text style={{ color: L.muted, fontSize: 14, lineHeight: 20, marginTop: 12 }}>{problem}</Text> : null}
-      <Problem text={err} />
     </Sheet>
   );
 }

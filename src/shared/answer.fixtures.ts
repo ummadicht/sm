@@ -31,7 +31,7 @@ export const F1 = {
 /** F2 — customer, not ready (no price yet, or an expired quote). */
 export const F2 = { ready: false, final: false, text: "The advisor is working out your price.", test: false };
 
-/** R1 — customer, not ready: the trade-in is SwapUp's PriceIQ estimate, not the buyback partner's quote. */
+/** R1 — customer, not ready: the trade-in is SwapUp's PriceIQ estimate, not the rate card's price. */
 export const F2_ESTIMATE = { ready: false, final: false, text: "The advisor is confirming your price.", test: false };
 
 /** F3 = F10 — customer, traded in (final): R6's wording, no repair line. */
@@ -108,7 +108,7 @@ export const F8 = {
   ready: false,
   text: F2_ESTIMATE.text,
   market: { ...F1.market, source: "priceiq" },
-  staffNotes: { ...F6.staffNotes, market: "Estimate from the refurbished market — enter the buyback partner's quote to show it to the customer." },
+  staffNotes: { ...F6.staffNotes, market: "Estimate from the refurbished market — not shown to the customer." },
 };
 
 /** F9 — customer, the customer chose the repair (final): R6's wording, grade + repair only. */
