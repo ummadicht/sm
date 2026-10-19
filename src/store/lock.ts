@@ -74,15 +74,21 @@ export type LockBody = {
   checks: Record<CheckKey, boolean> & { kym: { status: Kym | ""; reference: string | null }; imeiCheckAck?: boolean; storageSeen?: boolean };
 };
 
-/** A fresh form: name and mobile prefilled from the case (editable), nothing ticked. */
-export function emptyLockForm(head: Pick<CaseHead, "customerName" | "customerPhone">): LockForm {
+/**
+ * A fresh form: name and mobile prefilled from the case (editable), nothing ticked. The KYM chip and
+ * its reference start from the answer recorded before the tests (`kymEarly`, IMEI first) — still
+ * editable, and the server still needs it "clear" to take the phone. Only with an IMEI on the case:
+ * a KYM answer is for an IMEI.
+ */
+export function emptyLockForm(head: Pick<CaseHead, "customerName" | "customerPhone"> & Partial<Pick<CaseHead, "imei" | "kymEarly">>): LockForm {
+  const early = head.imei ? (head.kymEarly ?? null) : null;
   return {
     name: head.customerName ?? "",
     phone: head.customerPhone ?? "",
     idType: "",
     idLast4: "",
-    kym: "",
-    kymRef: "",
+    kym: early?.status ?? "",
+    kymRef: early?.reference ?? "",
     handover: false,
     storageSeen: false,
     imeiCheckAck: false,

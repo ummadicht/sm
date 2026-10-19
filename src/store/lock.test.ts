@@ -70,6 +70,22 @@ test("emptyLockForm: name and mobile from the case, nothing ticked", () => {
   assert.equal(K.emptyLockForm({ customerName: null, customerPhone: null }).name, "");
 });
 
+test("emptyLockForm: the KYM answer recorded before the tests pre-fills the chip and its reference (IMEI first)", () => {
+  const imei = "356789012345678";
+  const f = K.emptyLockForm({ customerName: "Ravi", customerPhone: null, imei, kymEarly: { status: "clear", reference: "SMS 10:42" } });
+  assert.equal(f.kym, "clear");
+  assert.equal(f.kymRef, "SMS 10:42");
+  // Still the advisor's to change, and still checked like any other answer: a flag stops the lock.
+  const flagged = K.emptyLockForm({ customerName: "Ravi Kumar", customerPhone: "9876543210", imei, kymEarly: { status: "blacklisted", reference: null } });
+  assert.deepEqual([flagged.kym, flagged.kymRef], ["blacklisted", ""]);
+  assert.equal(K.lockProblem({ ...flagged, idType: "pan", idLast4: "1234", handover: true }, head()), "The register flags this phone — do not take it.");
+  // No early answer, or no IMEI for it to be about: nothing pre-filled.
+  assert.equal(K.emptyLockForm({ customerName: "Ravi", customerPhone: null, imei, kymEarly: null }).kym, "");
+  assert.equal(K.emptyLockForm({ customerName: "Ravi", customerPhone: null, imei: null, kymEarly: { status: "clear", reference: "x" } }).kym, "");
+  // Only the first read pre-fills: a new IMEI clears it like any other answer.
+  assert.equal(K.afterImeiChange(f, { imei, imei2: null }, { imei: "356789012345670", imei2: null }).kym, "");
+});
+
 test("lockProblem: a filled form for a measured phone with its IMEI passes", () => {
   assert.equal(K.lockProblem(filled(), head()), null);
 });
