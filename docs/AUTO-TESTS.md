@@ -35,9 +35,11 @@ Scan the store's QR (or the store's counter code) → SwapUp Check opens
    the answer the server writes — "Current grade C · Market price for grade C ₹25,000 · We pay you
    ₹26,000 + ₹6,199 bonus if you exchange with a new device · or repair it for ₹34,096", no partner
    name, no store margin — or "The advisor is working out your price." until it is priced, and "See
-   the grade report"; it re-reads every 5 s until the answer is final (an older server: "The store
-   has your results", with the SwapUp grade) — also when the app is reopened on a check that ended
-   that way.
+   the grade report"; it re-reads every 5 s until the answer is final, then every 15 s while it says
+   "Traded in" (a locked trade-in can still be cancelled before pickup: "This trade-in was
+   cancelled." replaces it and the clear-your-phone card goes), and stops once it can no longer
+   change — repair chosen, walked away, cancelled (an older server: "The store has your results",
+   with the SwapUp grade) — also when the app is reopened on a check that ended that way.
 
 Changed 2026-10-16: the photos used to come FIRST, so a customer could sit on "Waiting for the
 advisor's camera…" for 3 minutes. Tests now start at once and the photos are the last step.

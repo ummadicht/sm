@@ -82,8 +82,11 @@ test("the result screen's next read (§F4): colours, waiting, an open answer, a 
   assert.equal(R.donePollMs({ ...applied(), answer: F.F1 }), R.ANSWER_POLL_MS);
   assert.equal(R.donePollMs({ ...applied(), answer: F.F2 }), R.ANSWER_POLL_MS, "not priced yet: soon will be");
   assert.equal(R.ANSWER_POLL_MS, 5_000);
-  // Frozen at lock (or closed): stop.
-  for (const a of [F.F3, F.F9, F.WALKED_AWAY, F.CANCELLED]) assert.equal(R.donePollMs({ ...applied(), answer: a }), null);
+  // Traded in (locked, awaiting pickup): the figures are frozen, but the store can still cancel
+  // before pickup — read again slowly, so the cancel reaches the screen.
+  assert.equal(R.donePollMs({ ...applied(), answer: F.F3 }), R.APPLIED_POLL_MS);
+  // A final answer that cannot change any more (repair chosen, walked away, cancelled): stop.
+  for (const a of [F.F9, F.WALKED_AWAY, F.CANCELLED]) assert.equal(R.donePollMs({ ...applied(), answer: a }), null, JSON.stringify(a).slice(0, 60));
   // An older server (no answer key), none sent, or junk: slowly, so the grade follows a newer report version.
   assert.equal(R.donePollMs(applied()), R.APPLIED_POLL_MS);
   assert.equal(R.donePollMs(F.F7_STATUS), R.APPLIED_POLL_MS);
@@ -188,4 +191,28 @@ test("clearDataGuide: the clear-your-phone card only once traded in (R6); as bef
   assert.equal(R.clearDataGuide(true, A.readAnswer(F.F1)), "wait", "still at the counter: don't reset it yet");
   assert.equal(R.clearDataGuide(true, A.readAnswer(F.F2)), "wait");
   for (const a of [F.F9, F.WALKED_AWAY, F.CANCELLED]) assert.equal(R.clearDataGuide(true, A.readAnswer(a)), null, "they keep the phone");
+});
+
+test("a cancel after lock reaches the result screen: the reads go on, the cancel replaces 'Traded in', the card goes", () => {
+  // The screen as the polls see it: open at the counter, then locked, then cancelled before pickup.
+  const screen = (answer: unknown) => {
+    const status = { ...applied(), answer };
+    const a = A.readAnswer(status.answer);
+    return { next: R.donePollMs(status), head: R.resultHead(true, a), clear: R.clearDataGuide(true, a) };
+  };
+  const open = screen(F.F1);
+  assert.equal(open.next, R.ANSWER_POLL_MS);
+  assert.equal(open.clear, "wait");
+
+  const locked = screen(F.F3);
+  assert.deepEqual(locked.head, { headline: "Traded in", lead: null, show: "answer" });
+  assert.equal(locked.clear, "card");
+  assert.notEqual(locked.next, null, "locked can still become cancelled: keep reading");
+  assert.equal(locked.next, R.APPLIED_POLL_MS, "slowly — the figures themselves are frozen");
+
+  const cancelled = screen(F.CANCELLED);
+  assert.deepEqual(cancelled.head, { headline: "The store has your results", lead: "This trade-in was cancelled.", show: "tick" });
+  assert.equal(cancelled.clear, null, "no clear-your-phone card: they keep the phone");
+  assert.equal(cancelled.next, null, "cancelled cannot change: stop");
+  assert.doesNotMatch(JSON.stringify(cancelled.head), /Traded in|We paid|₹/);
 });

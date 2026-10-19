@@ -259,7 +259,7 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
 
   // On the result screen, ask the store every few seconds whether it has applied the results —
   // every 1.5 s while the advisor is checking the screen by eye — and then for the answer until it
-  // is final (./report.ts donePollMs).
+  // can no longer change (./report.ts donePollMs).
   useEffect(() => {
     if (step !== "done") return;
     let t: ReturnType<typeof setTimeout>;
@@ -267,7 +267,8 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
     const tick = async () => {
       const r = await engine.pollStatus();
       // Ended (cancelled, expired): nothing more to read. Applied: every 5 s while the answer can
-      // still change, never again once it is final; slowly from an older server (no answer).
+      // still change, every 15 s once traded in (a cancel before pickup), never again once it can't
+      // change; slowly from an older server (no answer).
       if (!alive || engine.getSnapshot().state?.ended) return;
       const ms = donePollMs(r);
       if (ms !== null) t = setTimeout(tick, ms);
@@ -281,7 +282,8 @@ function Root({ onBleed }: { onBleed: (on: boolean) => void }) {
 
   // Ended because the store applied the results (native and browser alike): read the status now
   // when it isn't in memory (the app was restarted on that screen), then again on the same clock as
-  // the live screen — every 5 s while the answer can still change, stopping once it is final.
+  // the live screen — every 5 s while the answer is open, every 15 s once traded in (a cancel before
+  // pickup still reaches the screen), stopping once it can no longer change.
   const endedApplied = state?.ended === APPLIED_MESSAGE;
   const haveRemote = !!snap.remote;
   useEffect(() => {

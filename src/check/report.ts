@@ -52,7 +52,11 @@ export function customerReport(remote: unknown, server: string): CustomerReport 
   return url ? { url, grade: gradeText(r.grading) } : null;
 }
 
-/** After the store applied the results, from an older server (no answer): how often the screen asks again, so its grade follows a newer report version. */
+/**
+ * The slow re-read after the store applied the results: from an older server (no answer), so the
+ * grade follows a newer report version; and once traded in, so a cancel before pickup still reaches
+ * the screen.
+ */
 export const APPLIED_POLL_MS = 15_000;
 /** While the answer is open: the advisor may still change the new phone or the storage at the counter. */
 export const ANSWER_POLL_MS = 5_000;
@@ -60,16 +64,24 @@ export const ANSWER_POLL_MS = 5_000;
 /**
  * The result screen's next status read, or null to stop: every 1.5 s while the advisor checks the
  * screen by eye (the colours are up), every 4 s until the store applies; then every 5 s while the
- * answer can still change, never again once it is final (the figures are frozen at lock) — and,
- * from an older server that sends no answer, every 15 s (a later report version moves the grade).
+ * answer is open. A final answer's figures are frozen at lock, but "Traded in" (locked, awaiting
+ * pickup) can still be cancelled before pickup, so it is read again every 15 s; only a final answer
+ * that cannot change (repair chosen, walked away, cancelled) stops the reads. From an older server
+ * that sends no answer, every 15 s (a later report version moves the grade).
  */
 export function donePollMs(r: { status?: unknown; colours?: unknown; answer?: unknown } | null): number | null {
   if (r?.status === "applied") {
     const a = readAnswer(r.answer);
     if (!a) return APPLIED_POLL_MS;
-    return a.final ? null : ANSWER_POLL_MS;
+    if (!a.final) return ANSWER_POLL_MS;
+    return tradedIn(a) ? APPLIED_POLL_MS : null;
   }
   return r?.colours === true ? 1_500 : 4_000;
+}
+
+/** The answer says the phone is traded in (final, "Traded in"): the clear-your-phone card, and the slow re-read for a cancel. */
+function tradedIn(a: AnswerView): boolean {
+  return a.final && a.ready && a.headline === "Traded in";
 }
 
 /** One fact row on the result screen. */
@@ -115,12 +127,13 @@ export function resultHead(applied: boolean, answer: AnswerView | null | undefin
 /**
  * "Trading it in? Clear your phone" (./ClearDataGuide.tsx): with an answer, only once the phone is
  * traded in (final, "Traded in" — R6); while it is still at the counter, "Don't reset it yet"; a
- * repair chosen, a walk-away or a cancelled trade-in shows neither. With no answer (an older
- * server, or none sent), as before: the card once the store has applied the results.
+ * repair chosen, a walk-away or a cancelled trade-in shows neither — a cancel read after lock takes
+ * the card away again. With no answer (an older server, or none sent), as before: the card once
+ * the store has applied the results.
  */
 export function clearDataGuide(applied: boolean, answer: AnswerView | null | undefined): "card" | "wait" | null {
   if (!applied) return "wait";
   if (!answer) return "card";
   if (!answer.final) return "wait";
-  return answer.ready && answer.headline === "Traded in" ? "card" : null;
+  return tradedIn(answer) ? "card" : null;
 }

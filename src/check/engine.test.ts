@@ -102,6 +102,34 @@ test("readAppliedStatus: offline, a ticket that is gone, or a status that isn't 
   }
 });
 
+test("a cancel after lock: both result-screen loops keep reading 'Traded in' and the cancel replaces it", async () => {
+  const F: typeof import("../shared/answer.fixtures") = await import("../shared/answer.fixtures" + ".ts");
+  const A: typeof import("../shared/answer") = await import("../shared/answer" + ".ts");
+  const shown = (e: InstanceType<typeof E.CheckEngine>) => {
+    const remote = e.getSnapshot().remote as { answer?: unknown } | null;
+    const a = A.readAnswer(remote?.answer);
+    return { next: R.donePollMs(remote), head: R.resultHead(true, a).headline, lead: R.resultHead(true, a).lead, clear: R.clearDataGuide(true, a) };
+  };
+  // The ended-applied screen (CheckApp: readAppliedStatus({ again: true }) on donePollMs's clock),
+  // and the live Done screen (CheckApp and NativeCheck: pollStatus on the same clock).
+  const loops: { name: string; ended: string | null; read: (e: InstanceType<typeof E.CheckEngine>) => Promise<unknown> }[] = [
+    { name: "ended-applied screen", ended: E.APPLIED_MESSAGE, read: (e) => e.readAppliedStatus({ again: true }) },
+    { name: "live Done screen", ended: null, read: (e) => e.pollStatus() },
+  ];
+  for (const loop of loops) {
+    let answer: unknown = F.F3;
+    const calls = stubFetch(() => json({ ...STATUS, answer }));
+    const engine = await restarted({ ended: loop.ended });
+    await loop.read(engine);
+    assert.deepEqual(shown(engine), { next: R.APPLIED_POLL_MS, head: "Traded in", lead: null, clear: "card" }, loop.name);
+    // The store cancels before pickup; the server still answers the old ticket, status applied.
+    answer = F.CANCELLED;
+    await loop.read(engine);
+    assert.equal(calls.length, 2, `${loop.name}: the locked answer did not stop the reads`);
+    assert.deepEqual(shown(engine), { next: null, head: "The store has your results", lead: "This trade-in was cancelled.", clear: null }, loop.name);
+  }
+});
+
 test("identify: 'Leave it to the advisor' sends nothing; a picked model is the only answer sent", async () => {
   const posts: { url: string; body: unknown }[] = [];
   globalThis.fetch = (async (url: string, init?: RequestInit) => {

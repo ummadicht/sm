@@ -92,7 +92,8 @@ other reading of it (an attached Phonecheck report) — and it can be skipped. N
 mobile, no condition questions. Results are saved on the phone first and sent second. **Done** is one
 screen for the app and the browser (`src/check/ResultScreen.tsx`): once the store has the results it
 shows the answer the server writes (`GET /api/device/status` → `answer`) — or "The advisor is
-working out your price." until it is priced — re-read every 5 s until it is final.
+working out your price." until it is priced — re-read every 5 s until it is final, then every 15 s
+while it says "Traded in" (a cancel before pickup still reaches the screen).
 
 ## Prices
 
