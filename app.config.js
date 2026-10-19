@@ -46,7 +46,7 @@ const variants = {
       "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
     ],
     plugins: [
-      ["expo-camera", { cameraPermission: "Scan the IMEI barcode on the phone's box." }],
+      ["expo-camera", { cameraPermission: "Scan the IMEI on the customer's phone (*#06#) or its box." }],
       "expo-secure-store",
     ],
   },

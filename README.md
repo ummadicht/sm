@@ -4,7 +4,7 @@ One Expo (SDK 57) codebase, two Android apps:
 
 | App | Package | Who | What it does |
 |---|---|---|---|
-| **SwapUp Store** | `com.swapup.store` | store staff | Sign in with the SwapUp store login — or, on a **store tablet** a manager set up in Settings, tap your name on "Who's serving?" and type your 4-digit PIN (`~/projects/swapup/docs/STORE-TABLET.md`) — start a customer trade-in **by mobile number**, show the **Wi‑Fi QR** and the **test QR**, **scan the customer's phone** with the tablet's camera (one pass: GradeIQ photographs it and sweeps its screen; **check the phone** inside that step, by name, only when the camera couldn't decide) — and the answer opens **by itself**: the grade, the market price, then repair against what we pay + the bonus — the same lines the customer's phone shows. Swap up: one "Take the trade-in" screen |
+| **SwapUp Store** | `com.swapup.store` | store staff | Sign in with the SwapUp store login — or, on a **store tablet** a manager set up in Settings, tap your name on "Who's serving?" and type your 4-digit PIN (`~/projects/swapup/docs/STORE-TABLET.md`) — start a customer trade-in **IMEI first** (the customer dials \*#06#, the tablet scans it; the server looks it up: model, GSMA blacklist) and **by mobile number**, show the **Wi‑Fi QR** and the **test QR**, **scan the customer's phone** with the tablet's camera (one pass: GradeIQ photographs it and sweeps its screen; **check the phone** inside that step, by name, only when the camera couldn't decide) — and the answer opens **by itself**: the grade, the market price, then repair against what we pay + the bonus — the same lines the customer's phone shows. Swap up: one "Take the trade-in" screen |
 | **SwapUp Check** | `com.swapup.check` | the customer | Installed from the test QR's download page (or run in the browser). It asks the customer **nothing about the phone**: it tests the phone **by itself** — two physical actions only (swipe the grid, plug in the charger) — streams every result to the store, shows the patterns the store's camera asks for, and the test colours while the advisor checks the screen — then the answer, as the server writes it (the same in the browser) |
 
 SwapUp is built on **GradeIQ** (`~/projects/gradeiq`) underneath: the SwapUp server gives every test
@@ -24,9 +24,27 @@ Store with one tap per row, by name, while the customer's phone shows the colour
 
 **SwapUp Store — 5 steps:**
 
-1. **New trade-in — mobile number first.** At 10 digits SwapUp Store asks
-   `GET /api/customers?phone=` (`src/store/customers.ts`): a returning customer's name fills in;
-   otherwise a name field. Both optional.
+1. **New trade-in — the IMEI first** (owner, 2026-10-19: *"Scan IMEI first … by \*#06#"*). The
+   customer dials \*#06#; the advisor taps **Scan** (the tablet's camera reads the barcodes on that
+   screen or on the box — code128, code39, EAN-13, ITF-14, DataMatrix, QR — and takes only a
+   15-digit run that passes the IMEI check digit; a second distinct one is IMEI 2), **Read the
+   screen** (one photo → `POST /api/imei/read`, the SwapUp server has GradeIQ read it; shown as
+   "Read: … — check it against the screen" with **Confirm**, never trusted by itself), or types it
+   (the check-digit warning as on Lock) — or **Skip — scan at hand-over**. In the browser Store
+   there is no scan: Read the screen opens the browser's camera, and typing. Then the mobile
+   number: at 10 digits SwapUp Store asks `GET /api/customers?phone=` (`src/store/customers.ts`):
+   a returning customer's name fills in; otherwise a name field. Both optional. **Start**
+   (`src/store/imei.ts startTradeIn`): `POST /api/cases` → `PATCH {imei, imei2}` (the server looks
+   the IMEI up once per case: the model from its TAC, the GSMA blacklist, an IMEI already on
+   another trade-in) → a blacklisted phone stops here, *"This phone is reported lost or stolen
+   (GSMA). It can't be traded in."*, before any test → `POST /api/test-sessions {caseId}`.
+   Skipped: the one `POST /api/test-sessions` as before. The Session screen's IMEI card then shows
+   *"Galaxy S23 Ultra · not blacklisted (GSMA)"* ("Blacklist not checked" when GSMA didn't
+   answer — never as clean), any warning, and **Text KYM to 14422** with the KYM chips, so the
+   government check runs while the phone tests (its answer is recorded as `kymEarly`; Take the
+   trade-in starts from it and still needs it "clear"). A test the customer started from the
+   counter QR has no New trade-in: the same card tops its Session screen ("Scan IMEI" on its Home
+   row).
 2. **Connect the customer's phone.** The **Wi‑Fi QR** (the store's router, saved once by the
    manager) and the **test QR** (`https://<server>/j/<CODE>`: download SwapUp Check, or "Test in this
    browser"; the deep link `swapupcheck://join?code=…&server=…`; the 6-character code).
@@ -63,8 +81,8 @@ Store with one tap per row, by name, while the customer's phone shows the colour
    **grade report** is one tap away ("View report", or "Show to customer" as a QR).
    **Repair** or **Walked away** end the visit here.
 5. **Swap up → Take the trade-in**, one screen (`src/store/lock.ts`): the IMEI only if the case has
-   none, the customer's name and mobile prefilled, the ID type and last 4, the government IMEI check
-   (KYM), and ONE hand-over confirm — **"Owner confirmed · SIM out · IMEI matches · no EMI/lock"** —
+   none (the same IMEI card), the customer's name and mobile prefilled, the ID type and last 4, the
+   government IMEI check (KYM, pre-filled from the early answer), and ONE hand-over confirm — **"Owner confirmed · SIM out · IMEI matches · no EMI/lock"** —
    which still sends the server all four flags. No money on it: the answer showed it.
 
 **SwapUp Check — 3 steps: Scan → Test → Done.** "Is this your phone?" only when the store's model
@@ -207,7 +225,12 @@ untested; the store sees "In the browser, no app" and a note on the summary.
 ## Honest limits
 
 - Android does not let apps read the **IMEI** (Android 10+) or **battery health %** — battery
-  health stays blank rather than guessed; the native app no longer asks for the IMEI.
+  health stays blank rather than guessed; the native app no longer asks for the IMEI. The store
+  tablet reads it off the customer's \*#06# screen instead (scan, the server's reader, or typing).
+- **GSMA is not India's register.** "Not blacklisted (GSMA)" is a second signal; the government
+  check (KYM, SMS to 14422) stays mandatory at Take the trade-in. "Blacklist not checked" is never
+  shown as clean. Which phones show barcodes on \*#06# (Samsung does; an iPhone shows text only —
+  Read the screen) still needs checking on real devices.
 - The phone cannot see its own glass. Cracks, scratches and the LCD come from GradeIQ's camera
   grading on the store device; whatever it can't decide (no photos, a sweep without a verdict, the
   AI out of credit) the advisor certifies on **Check the phone**, by name. Nobody asks the customer.
