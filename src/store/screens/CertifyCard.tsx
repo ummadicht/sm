@@ -10,12 +10,18 @@
 // It sits INSIDE the camera step of the Session screen (step 3, `inline` — no card of its own),
 // only when the camera couldn't decide; the answer opens by itself after the last tap. The
 // answer (./Offer.tsx) shows it only when a row is still open there (the results went on first).
+// On a full check by eye one button tops it (owner, 2026-10-19: "Skip and get on advisor app
+// fast"): ALL_FINE taps Screen OK, Body Like new and Liquid "Can't see" (not looked at), one after
+// the other, exactly as the three taps would — so the answer opens straight after. The chips stay
+// for anything else.
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import {
   type CertifyRow,
   type CertifyView,
+  ALL_FINE,
   ROW_TITLE,
+  allFineTaps,
   certifyLead,
   coloursLine,
   pendingRows,
@@ -23,7 +29,7 @@ import {
   stampLine,
   valueTone,
 } from "../certify";
-import { Body, Card, H2, L, Label, Segmented, toneColor } from "../ui";
+import { Body, Btn, Card, H2, L, Label, Segmented, toneColor } from "../ui";
 
 /** How long a tap shows as chosen while the server's answer is on its way back to this screen. */
 const TAPPED_MS = 6000;
@@ -52,6 +58,8 @@ export function CheckThePhone({
   const [tapped, setTapped] = useState<Partial<Record<CertifyRow, { value: string; at: number }>>>({});
   const [busy, setBusy] = useState<CertifyRow | null>(null);
   const [err, setErr] = useState<Partial<Record<CertifyRow, string>>>({});
+  const [allBusy, setAllBusy] = useState(false);
+  const [allErr, setAllErr] = useState<string | null>(null);
   const alive = useRef(true);
   useEffect(
     () => () => {
@@ -79,7 +87,7 @@ export function CheckThePhone({
     const current = tapped[row]?.value ?? view.rows[row]?.value ?? null;
     // The same chip twice does nothing — except the Screen, tapped before the colours showed and showing them now.
     const upgrade = row === "screen" && view.colours === "showing" && view.rows.screen?.withColours === false && !tapped.screen;
-    if ((value === current && !upgrade) || busy) return;
+    if ((value === current && !upgrade) || busy || allBusy) return;
     setErr((e) => ({ ...e, [row]: undefined }));
     setTapped((t) => ({ ...t, [row]: { value, at: Date.now() } }));
     setBusy(row);
@@ -96,6 +104,29 @@ export function CheckThePhone({
     }
   }
 
+  /** ALL_FINE: its taps in order, stopping at the first the server refuses (its reason under the button). */
+  const fine = allFineTaps(view);
+  async function allFine() {
+    if (busy || allBusy) return;
+    setAllErr(null);
+    setAllBusy(true);
+    for (const t of fine) {
+      setTapped((x) => ({ ...x, [t.row]: { value: t.value, at: Date.now() } }));
+      const why = await onTap(t.row, t.value);
+      if (!alive.current) return;
+      if (why) {
+        setAllErr(why);
+        setTapped((x) => {
+          const next = { ...x };
+          delete next[t.row];
+          return next;
+        });
+        break;
+      }
+    }
+    setAllBusy(false);
+  }
+
   const colours = coloursLine(view);
   const open = pendingRows(view).length > 0;
   const Frame = inline ? InlineFrame : Card;
@@ -105,6 +136,13 @@ export function CheckThePhone({
         {label ? <Label style={open ? { color: L.fix } : undefined}>{label}</Label> : null}
         <H2>Check the phone</H2>
       </View>
+      {fine.length ? (
+        <View style={{ gap: 6 }}>
+          {/* It taps the Screen too: it waits with the Screen row while the phone is still testing. */}
+          <Btn title={ALL_FINE} busy={allBusy} disabled={holdScreen || !!busy} onPress={() => void allFine()} style={{ alignSelf: "flex-start" }} />
+          {allErr ? <Text style={{ color: L.bad, fontSize: 15, lineHeight: 21 }}>{allErr}</Text> : null}
+        </View>
+      ) : null}
       <Body muted>{certifyLead(view)}</Body>
       {rows.map((row) => {
         const entry = view.rows[row] ?? null;

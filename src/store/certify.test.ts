@@ -100,6 +100,38 @@ test("answerCertify: the answer screen uses the case's own card, else the sessio
   assert.equal(C.answerCertify({ id: "c1" }, null, null), null, "nothing says what's needed: no card");
 });
 
+test("allFineTaps: one tap for a full check by eye — Screen OK, Body Like new, Liquid Can't see (not looked at)", () => {
+  const full = C.readCertify({ certify: { needed: ["screen", "body", "liquid"], rows: {}, colours: "showing", testSessionId: "ts_9" } })!;
+  assert.equal(C.ALL_FINE, "All fine — screen OK, body like new");
+  assert.deepEqual(C.allFineTaps(full), [
+    { row: "screen", value: "ok" },
+    { row: "body", value: "like_new" },
+    { row: "liquid", value: "cant_see" },
+  ]);
+  // Each is the ordinary tap, by name, through the one door.
+  assert.deepEqual(C.allFineTaps(full).map((t) => C.certifyBody(t.row, t.value, full.testSessionId)), [
+    { action: "certify", row: "screen", value: "ok", testSessionId: "ts_9" },
+    { action: "certify", row: "body", value: "like_new", testSessionId: "ts_9" },
+    { action: "certify", row: "liquid", value: "cant_see", testSessionId: "ts_9" },
+  ]);
+  // A liquid indicator already tapped was looked at: kept. A row already so: not tapped again.
+  const looked = C.readCertify({ certify: { needed: ["screen", "body", "liquid"], rows: { liquid: { value: "clean", by: "Asha", at: AT }, body: { value: "like_new", by: "Asha", at: AT } } } })!;
+  assert.deepEqual(C.allFineTaps(looked), [{ row: "screen", value: "ok" }]);
+  // A body tapped otherwise is what the button changes: it says "body like new".
+  const scuffed = C.readCertify({ certify: { needed: ["screen", "body", "liquid"], rows: { body: { value: "scuffs", by: "Asha", at: AT } } } })!;
+  assert.deepEqual(C.allFineTaps(scuffed).map((t) => t.row), ["screen", "body", "liquid"]);
+});
+
+test("allFineTaps: no button unless it is a full check by eye the advisor can still tap, with those choices", () => {
+  const card = (c: Record<string, unknown>) => C.readCertify({ certify: { needed: ["screen", "body", "liquid"], ...c } })!;
+  assert.deepEqual(C.allFineTaps(card({ needed: ["screen", "liquid"] })), [], "the camera graded the body");
+  assert.deepEqual(C.allFineTaps(card({ needed: ["liquid"] })), []);
+  assert.deepEqual(C.allFineTaps(card({ canEdit: false })), [], "past the counter");
+  assert.deepEqual(C.allFineTaps(card({ choices: { body: ["scuffs", "dents"] } })), [], "the server's list has no 'like new'");
+  const done = card({ rows: { screen: { value: "ok" }, body: { value: "like_new" }, liquid: { value: "cant_see" } } });
+  assert.deepEqual(C.allFineTaps(done), [], "nothing would change");
+});
+
 test("certifyBody: the one-door case action, with the session when known", () => {
   assert.deepEqual(C.certifyBody("screen", "ok", "ts_1"), { action: "certify", row: "screen", value: "ok", testSessionId: "ts_1" });
   assert.deepEqual(C.certifyBody("liquid", "cant_see", null), { action: "certify", row: "liquid", value: "cant_see" });

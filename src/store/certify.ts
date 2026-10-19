@@ -213,6 +213,35 @@ export function certifiedScreenLine(v: CertifyView | null): { text: string; tone
   return { text: `Certified ${c.label}${c.by ? ` by ${c.by}` : ""}${t ? ` · ${t}` : ""}`, tone: valueTone(c.value) };
 }
 
+/**
+ * The one tap at the top of the card when the camera couldn't grade the phone and the advisor checks
+ * it by eye (owner, 2026-10-19: "Skip and get on advisor app fast"; desk: the same button).
+ */
+export const ALL_FINE = "All fine — screen OK, body like new";
+
+/**
+ * What ALL_FINE taps, in order: Screen OK, Body Like new, and the liquid indicator "Can't see" —
+ * honest, it wasn't looked at (a liquid row already tapped keeps its tap: it was looked at). The
+ * same taps, stamped with the advisor's name, as tapping each row. Only on a full check by eye (the
+ * screen and the body both asked for), only where the server lists those choices, and only rows
+ * that would change; an empty list = no button.
+ */
+export function allFineTaps(v: CertifyView): { row: CertifyRow; value: string }[] {
+  if (!v.canEdit || !v.needed.includes("screen") || !v.needed.includes("body")) return [];
+  const want: [CertifyRow, string][] = [
+    ["screen", "ok"],
+    ["body", "like_new"],
+    ["liquid", "cant_see"],
+  ];
+  const taps: { row: CertifyRow; value: string }[] = [];
+  for (const [row, value] of want) {
+    if (row === "liquid" && (v.rows.liquid || !v.needed.includes("liquid"))) continue;
+    if (!v.choices[row].some((c) => c.value === value)) return [];
+    if (v.rows[row]?.value !== value) taps.push({ row, value });
+  }
+  return taps;
+}
+
 /** The POST body for one tap. */
 export function certifyBody(row: CertifyRow, value: string, testSessionId: string | null): Record<string, unknown> {
   return { action: "certify", row, value, ...(testSessionId ? { testSessionId } : {}) };
