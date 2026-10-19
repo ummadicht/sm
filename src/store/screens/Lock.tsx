@@ -1,9 +1,11 @@
 // TAKE THE TRADE-IN — only the checks the law and the money need, in the desk's words
 // (../lock.ts holds the form's rules and the payload, tested under node), on ONE screen:
-//   1 the IMEI, only when the case has none (typed, or scanned off the box) → 2 the customer
+//   1 the IMEI, only when the case has none — the IMEI card skipped at the start (./ImeiCard.tsx:
+//     scanned off *#06# or the box, read off the screen, or typed) → 2 the customer
 //   (prefilled, editable in place) → 3 the ID document seen and its last 4 → 4 the government
 //   IMEI check (KYM SMS to 14422, and again for IMEI 2 when the case has one; the answer only
-//   once there is an IMEI, cleared when an IMEI changes) → 5 ONE hand-over confirm, "Owner
+//   once there is an IMEI, starting from the one recorded on the IMEI card before the tests, cleared
+//   when an IMEI changes) → 5 ONE hand-over confirm, "Owner
 //   confirmed · SIM out · IMEI matches · no EMI/lock" — the server still gets all four flags
 //   (+ "Settings › About phone shows …" when the customer typed the storage, + the IMEI re-read
 //   when a check digit fails) → the pill.
@@ -14,13 +16,13 @@
 // On success the app goes back to the answer screen, which then shows "Traded in".
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { CameraView, useCameraPermissions } from "expo-camera";
-import { Notice, Option } from "../../shared/kit";
+import { Option } from "../../shared/kit";
+import { IMEI_SAVE_MS, type Scanned } from "../imei";
 import { type LockForm, type LockSpot, afterImeiChange, emptyLockForm, kymOpen, kymSends, kymText, lockBody, lockCaption, lockProblem, lockProblemSpot, lockTicks, serverBlocker, ID_TYPES, KYM } from "../lock";
 import { type CaseHead, type Offer, readCaseHead, readOffer } from "../offer";
-import { imeiCheck } from "../phoneLed";
 import { type StaffClient, errText } from "../staffClient";
 import { Banner, Body, Btn, Card, Field, L, Label, Segmented, TopBar, useLayout } from "../ui";
+import { ImeiCapture } from "./ImeiCard";
 
 const IS_WEB = Platform.OS === "web";
 const MAX_W = 760;
@@ -32,10 +34,8 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
   const path = `/api/cases/${encodeURIComponent(caseId)}`;
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [form, setForm] = useState<LockForm | null>(null);
-  const [imeiText, setImeiText] = useState("");
   const [imeiBusy, setImeiBusy] = useState(false);
   const [imeiErr, setImeiErr] = useState<string | null>(null);
-  const [scanning, setScanning] = useState(false);
   const [locking, setLocking] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const alive = useRef(true);
@@ -90,26 +90,19 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
     return () => sub.remove();
   }, [fetchCase]);
 
-  /** PATCH {imei}: the server re-checks it and answers with the case (the IMEI step then goes). */
-  async function saveImei(imei: string) {
+  /** PATCH {imei, imei2}: the server re-checks and looks it up, and answers with the case (the IMEI step then goes). */
+  async function saveImei(v: Scanned | null) {
+    if (!v?.imei) return;
     setImeiErr(null);
     setImeiBusy(true);
     try {
-      const r = await api.patch<unknown>(path, { imei });
+      const r = await api.patch<unknown>(path, { imei: v.imei, imei2: v.imei2 }, { timeoutMs: IMEI_SAVE_MS });
       if (alive.current) take(r);
     } catch (e) {
       if (alive.current) setImeiErr(errText(e));
     } finally {
       if (alive.current) setImeiBusy(false);
     }
-  }
-
-  function typeImei(t: string) {
-    const d = t.replace(/\D/g, "").slice(0, 15);
-    setImeiText(d);
-    setImeiErr(null);
-    // A valid IMEI goes at once — nothing to press.
-    if (d.length === 15 && imeiCheck(d) === "ok" && !imeiBusy) void saveImei(d);
   }
 
   async function lock(head: CaseHead, f: LockForm) {
@@ -157,7 +150,6 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
   const { head } = load;
   const set = (patch: Partial<LockForm>) => setForm((f) => (f ? { ...f, ...patch } : f));
   const askImei = !head.imei;
-  const typedCheck = imeiCheck(imeiText);
   const problem = lockProblem(form, head);
   const blocker = serverBlocker(head);
   const caption = lockCaption(form, head);
@@ -174,41 +166,9 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
           {/* 1 · the IMEI, only when the case has none */}
           {askImei ? (
             <View {...at("imei")}>
-            <Card style={{ gap: 12 }}>
-              <Label>IMEI</Label>
-              <Body muted>Dial *#06# or scan the box.</Body>
-              <Field
-                label="IMEI 1"
-                value={imeiText}
-                onChangeText={typeImei}
-                keyboardType="number-pad"
-                inputMode="numeric"
-                placeholder="15 digits"
-                maxLength={15}
-                editable={!imeiBusy}
-                error={imeiErr ?? (imeiText.length === 15 && typedCheck === "bad" ? "Fails its check digit — re-read *#06#." : null)}
-                hint={imeiBusy ? "Saving…" : undefined}
-                style={{ fontVariant: ["tabular-nums"], letterSpacing: 1.5 }}
-              />
-              {imeiText.length === 15 && typedCheck === "bad" && !imeiBusy ? (
-                // Rare, but real: the server keeps it, and the ticks then ask for the re-read.
-                <Btn title="Record it anyway" kind="ghost" onPress={() => void saveImei(imeiText)} style={{ alignSelf: "flex-start" }} />
-              ) : null}
-              {!IS_WEB ? (
-                scanning ? (
-                  <BoxScanner
-                    onImei={(d) => {
-                      setScanning(false);
-                      setImeiText(d);
-                      void saveImei(d);
-                    }}
-                    onStop={() => setScanning(false)}
-                  />
-                ) : (
-                  <Btn title="Scan the box" kind="secondary" onPress={() => setScanning(true)} disabled={imeiBusy} style={{ alignSelf: "flex-start" }} />
-                )
-              ) : null}
-            </Card>
+              <Card>
+                <ImeiCapture api={api} value={null} onChange={(v) => void saveImei(v)} busy={imeiBusy} error={imeiErr} />
+              </Card>
             </View>
           ) : null}
 
@@ -315,62 +275,6 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
           />
         </View>
       </KeyboardAvoidingView>
-    </View>
-  );
-}
-
-/**
- * The phone's box, through this tablet's camera (native only — hidden in the browser). A box
- * label carries several Code 128 barcodes (IMEI 1, IMEI 2, serial, EAN): only a 15-digit code
- * that passes the IMEI check digit is taken; anything else says so and keeps looking.
- */
-function BoxScanner({ onImei, onStop }: { onImei: (imei: string) => void; onStop: () => void }) {
-  const [perm, requestPerm] = useCameraPermissions();
-  const [note, setNote] = useState<string | null>(null);
-  const handled = useRef(false);
-  // Ask once per scan: a "deny" must not bring the prompt straight back.
-  const asked = useRef(false);
-  const [asking, setAsking] = useState(false);
-
-  useEffect(() => {
-    if (!perm || perm.granted || !perm.canAskAgain || asked.current) return;
-    asked.current = true;
-    setAsking(true);
-    requestPerm()
-      .catch(() => null)
-      .finally(() => setAsking(false));
-  }, [perm, requestPerm]);
-
-  if (!perm || asking || (!perm.granted && perm.canAskAgain && !asked.current)) return <Body muted>Opening the camera…</Body>;
-  if (!perm.granted) {
-    return (
-      <View style={{ gap: 10 }}>
-        <Notice tone="warn">No camera access — type the IMEI instead.</Notice>
-        <Btn title="Type it instead" kind="ghost" onPress={onStop} style={{ alignSelf: "flex-start" }} />
-      </View>
-    );
-  }
-  return (
-    <View style={{ gap: 10 }}>
-      <View style={{ height: 240, borderRadius: L.radius, overflow: "hidden", backgroundColor: "#000" }}>
-        <CameraView
-          style={{ flex: 1 }}
-          facing="back"
-          barcodeScannerSettings={{ barcodeTypes: ["code128"] }}
-          onBarcodeScanned={({ data }) => {
-            if (handled.current) return;
-            const d = String(data ?? "").replace(/\D/g, "");
-            if (d.length === 15 && imeiCheck(d) === "ok") {
-              handled.current = true;
-              onImei(d);
-              return;
-            }
-            setNote("Not an IMEI — scan the one labelled IMEI.");
-          }}
-        />
-      </View>
-      {note ? <Notice tone="warn">{note}</Notice> : null}
-      <Btn title="Stop scanning" kind="ghost" onPress={onStop} style={{ alignSelf: "flex-start" }} />
     </View>
   );
 }
