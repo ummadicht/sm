@@ -17,7 +17,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { Option } from "../../shared/kit";
-import { IMEI_SAVE_MS, type Scanned } from "../imei";
+import { IMEI_SAVE_MS, type Scanned, imeiPatch } from "../imei";
 import { type LockForm, type LockSpot, afterImeiChange, emptyLockForm, kymOpen, kymSends, kymText, lockBody, lockCaption, lockProblem, lockProblemSpot, lockTicks, serverBlocker, ID_TYPES, KYM } from "../lock";
 import { type CaseHead, type Offer, readCaseHead, readOffer } from "../offer";
 import { type StaffClient, errText } from "../staffClient";
@@ -90,13 +90,13 @@ export function LockScreen({ api, caseId, caseRef, onBack, onDone }: { api: Staf
     return () => sub.remove();
   }, [fetchCase]);
 
-  /** PATCH {imei, imei2}: the server re-checks and looks it up, and answers with the case (the IMEI step then goes). */
+  /** PATCH {imei[, imei2]}: the server re-checks and looks it up, and answers with the case (the IMEI step then goes). */
   async function saveImei(v: Scanned | null) {
     if (!v?.imei) return;
     setImeiErr(null);
     setImeiBusy(true);
     try {
-      const r = await api.patch<unknown>(path, { imei: v.imei, imei2: v.imei2 }, { timeoutMs: IMEI_SAVE_MS });
+      const r = await api.patch<unknown>(path, imeiPatch({ imei: v.imei, imei2: v.imei2 }), { timeoutMs: IMEI_SAVE_MS });
       if (alive.current) take(r);
     } catch (e) {
       if (alive.current) setImeiErr(errText(e));

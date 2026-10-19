@@ -177,11 +177,13 @@ test("Start with an IMEI: open the case, save the IMEI (and IMEI 2), then the te
     { method: "PATCH", path: "/api/cases/case_1", body: { imei: IMEI1, imei2: IMEI2 }, timeoutMs: I.IMEI_SAVE_MS },
     { method: "POST", path: "/api/test-sessions", body: { caseId: "case_1" } },
   ]);
-  // A single-SIM phone sends imei2 null; no name or mobile, an empty case.
+  // A single-SIM phone sends no imei2 (a null would wipe one recorded elsewhere); no name or mobile, an empty case.
   const g = fakeApi({ "POST /api/cases": { id: "case_1", status: "draft" }, "PATCH /api/cases/case_1": caseView(), "POST /api/test-sessions": LINKS });
   await I.startTradeIn(g.api, input({ customerName: " ", customerPhone: null, imei: { imei: IMEI1, imei2: null } }));
   assert.deepEqual(g.calls[0].body, {});
-  assert.deepEqual(g.calls[1].body, { imei: IMEI1, imei2: null });
+  assert.deepEqual(g.calls[1].body, { imei: IMEI1 });
+  assert.deepEqual(I.imeiPatch({ imei: IMEI1, imei2: IMEI2 }), { imei: IMEI1, imei2: IMEI2 });
+  assert.deepEqual(I.imeiPatch({ imei: IMEI1, imei2: null }), { imei: IMEI1 });
 });
 
 test("Start skipped (scan at hand-over): today's one call with the customer", async () => {
@@ -241,6 +243,13 @@ test("Start again after a failure: the same case, never a second one", async () 
   assert.deepEqual(await I.startTradeIn(m.api, input()), { kind: "failed", text: "No case came back. Try again.", caseId: null, caseView: null });
 });
 
+test("a failed read: the server's own sentence; a server without the reader says it is off", () => {
+  assert.equal(I.readFailText(new A.ApiError(503, I.READER_OFF, "reader_off")), I.READER_OFF);
+  assert.equal(I.readFailText(new A.ApiError(422, I.NOTHING_READ, "not_found")), I.NOTHING_READ);
+  assert.equal(I.readFailText(new A.ApiError(404, "Request failed (404)")), "The screen reader is off — scan or type the IMEI.");
+  assert.equal(I.readFailText(new A.ApiError(0, "No answer — check the Wi‑Fi.")), "No answer — check the Wi‑Fi.");
+});
+
 test("ApiError carries the server's reason", () => {
   const e = new A.ApiError(503, "The screen reader is off — scan or type the IMEI.", "reader_off");
   assert.equal(e.reason, "reader_off");
@@ -249,7 +258,7 @@ test("ApiError carries the server's reason", () => {
 
 test("the card's own words: one short sentence each", () => {
   const words = (s: string) => s.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
-  for (const s of [I.NOT_AN_IMEI, I.NOTHING_READ, ...Object.values(I.BLACKLIST_TEXT)]) {
+  for (const s of [I.NOT_AN_IMEI, I.NOTHING_READ, I.READER_OFF, ...Object.values(I.BLACKLIST_TEXT)]) {
     assert.ok(words(s) <= 15, s);
     assert.equal(1 + (s.match(/[.!?…]\s+[A-Z]/g) ?? []).length, 1, s);
   }

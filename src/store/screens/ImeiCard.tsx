@@ -14,7 +14,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Linking, Text, View } from "react-native";
 import { Notice } from "../../shared/kit";
-import { IMEI_READ_MS, IMEI_SAVE_MS, NOTHING_READ, type ImeiRead, type Scanned, imeiResultLine, imeiStop, readImeiRead } from "../imei";
+import { IMEI_READ_MS, IMEI_SAVE_MS, NOTHING_READ, type ImeiRead, type Scanned, imeiPatch, imeiResultLine, imeiStop, readFailText, readImeiRead } from "../imei";
 import { KYM, type Kym, kymSends } from "../lock";
 import { type CaseHead, readCaseHead } from "../offer";
 import { imeiCheck } from "../phoneLed";
@@ -121,7 +121,7 @@ export function ImeiCapture({
         setNote("That read fails its check digit — correct it below.");
       }
     } catch (e) {
-      if (alive.current) setNote(errText(e));
+      if (alive.current) setNote(readFailText(e));
     } finally {
       if (alive.current) setReading(false);
     }
@@ -259,7 +259,7 @@ export function CaseImeiCard({ api, caseId, skipped: skippedAtStart }: { api: St
       setSaveErr(null);
       setSaving(true);
       try {
-        const h = readCaseHead(await api.patch<unknown>(path, { imei: v.imei, imei2: v.imei2 }, { timeoutMs: IMEI_SAVE_MS }));
+        const h = readCaseHead(await api.patch<unknown>(path, imeiPatch({ imei: v.imei, imei2: v.imei2 }), { timeoutMs: IMEI_SAVE_MS }));
         if (!h) throw new Error("Bad answer from the server.");
         if (!alive.current) return;
         setHead(h);

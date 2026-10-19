@@ -75,6 +75,14 @@ export function takeScan(s: Scanned, text: string): { next: Scanned; note: strin
   return { next: imei === s.imei && imei2 === s.imei2 ? s : { imei, imei2 }, note: null };
 }
 
+/**
+ * The PATCH /api/cases/<id> body for a captured IMEI. IMEI 2 only when there is one: a null would wipe
+ * an IMEI 2 another path recorded (Apply copies the phone's own).
+ */
+export function imeiPatch(v: { imei: string; imei2: string | null }): { imei: string; imei2?: string } {
+  return v.imei2 ? { imei: v.imei, imei2: v.imei2 } : { imei: v.imei };
+}
+
 /** After IMEI 1, how long the camera keeps looking for IMEI 2 before it closes by itself. */
 export const IMEI2_WAIT_MS = 3_000;
 
@@ -103,6 +111,13 @@ export function readImeiRead(x: unknown): ImeiRead | null {
 
 /** Said when the server answers 200 with no IMEI (its 422 says the same in its own words). */
 export const NOTHING_READ = "No IMEI found in that photo — try again or type it.";
+/** The server's 503 sentence, said too by a server that has no reader yet (404). */
+export const READER_OFF = "The screen reader is off — scan or type the IMEI.";
+
+/** What a failed read says: the server's own sentence, or READER_OFF from a server without the route. */
+export function readFailText(e: unknown): string {
+  return e instanceof ApiError && e.status === 404 ? READER_OFF : errText(e);
+}
 
 // ── what the server found (CaseView.imeiLookup / imeiWarnings / kymEarly) ────
 
@@ -199,7 +214,7 @@ export async function startTradeIn(api: Pick<StaffClient, "post" | "patch">, i: 
         if (!c || typeof c.id !== "string") throw new Error("No case came back. Try again.");
         caseId = c.id;
       }
-      caseView = await api.patch<unknown>(`/api/cases/${encodeURIComponent(caseId)}`, { imei: i.imei.imei, imei2: i.imei.imei2 }, { timeoutMs: IMEI_SAVE_MS });
+      caseView = await api.patch<unknown>(`/api/cases/${encodeURIComponent(caseId)}`, imeiPatch({ imei: i.imei.imei, imei2: i.imei.imei2 }), { timeoutMs: IMEI_SAVE_MS });
       const v = obj(caseView);
       const stop = imeiStop({ imeiLookup: readImeiLookup(v?.imeiLookup), kymEarly: readKymEarly(v?.kymEarly) });
       if (stop) return { kind: "stopped", text: stop, caseId, caseView };
