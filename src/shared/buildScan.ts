@@ -96,8 +96,8 @@ export function appVersion(root: string): string {
 /** Where a build's words come from: a change to any of these after a build means the build is old. */
 const SOURCE_DIRS = ["src", "assets"];
 const SOURCE_FILES = ["App.tsx", "index.ts", "app.json", "app.config.js", "package.json", "package-lock.json"];
-/** Test-only and tooling files never reach a build. */
-const notShipped = (p: string) => /\.test\.tsx?$/.test(p) || /(^|\/)(nameGuard|buildScan)\.ts$/.test(p);
+/** Test-only and tooling files never reach a build (tests, their shared fixtures, the checks). */
+const notShipped = (p: string) => /\.(test|fixtures)\.tsx?$/.test(p) || /(^|\/)(nameGuard|buildScan)\.ts$/.test(p);
 
 /** The app's newest source file (path relative to `root`, and when it last changed). */
 export function newestSource(root: string): { file: string; at: number } | null {

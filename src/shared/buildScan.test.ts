@@ -210,7 +210,7 @@ test("a build made before the source last changed is refused; test files and the
   const { root, done } = fixture();
   try {
     const later = new Date(T0 + 2 * 3600_000);
-    for (const f of ["src/store/buySell.test.ts", "src/shared/nameGuard.ts", "src/shared/buildScan.ts"]) {
+    for (const f of ["src/store/buySell.test.ts", "src/shared/answer.fixtures.ts", "src/shared/nameGuard.ts", "src/shared/buildScan.ts"]) {
       mkdirSync(dirname(join(root, f)), { recursive: true });
       writeFileSync(join(root, f), "//\n");
       utimesSync(join(root, f), later, later);

@@ -74,6 +74,17 @@ test("the answer's own words: the pill, the hand-off buttons, the Phonecheck not
   assert.ok(words(O.CHOOSE_PHONE) <= 4, O.CHOOSE_PHONE);
 });
 
+test("the answer's lines and waiting sentences (the server's, as the fixtures hold them): one short sentence each", async () => {
+  const F: typeof import("./answer.fixtures") = await import("./answer.fixtures" + ".ts");
+  const out: string[] = [];
+  for (const a of [F.F1, F.F3, F.F4, F.F5, F.F6, F.F8, F.F9, F.WALKED_AWAY] as { lines: { text: string; note: string | null }[] }[]) {
+    for (const l of a.lines) out.push(l.text, ...(l.note ? [l.note] : []));
+  }
+  out.push(F.F2.text, F.F2_ESTIMATE.text, F.CANCELLED.text);
+  assert.ok(out.length > 30);
+  short(out);
+});
+
 test("PIN and tablet-name messages", () => {
   short([N.pinProblem("1234")!, N.newPinProblem("4826", "4862")!, N.deviceNameProblem("x")!]);
 });
