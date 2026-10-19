@@ -132,7 +132,7 @@ export type WifiResponse = {
 
 /**
  * Where the app is: a session, maybe with the links the server just returned; the answer
- * for a case (repair quote vs trade-in + bonus, screens/Offer.tsx) and its lock form
+ * for a case (the answer's lines: repair vs what we pay + bonus, screens/Offer.tsx) and its lock form
  * (screens/Lock.tsx), each with the screen Back returns to.
  */
 export type Screen =

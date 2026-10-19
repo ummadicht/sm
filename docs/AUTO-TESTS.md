@@ -26,13 +26,18 @@ Scan the store's QR (or the store's counter code) → SwapUp Check opens
 → "Testing your phone" (permission dialogs, then straight on)
 → "Testing your phone…" (one progress bar, steps tick by themselves)
 → two physical ACTIONS only: "Swipe over every square" · "Plug in the charger" (auto-skips after 45 s)
-→ Done — "Checks complete — the advisor confirms your price." (never a price). While the
+→ Done — "Checks complete — the advisor confirms your price." While the
    advisor checks the screen by eye ("Check the phone" in SwapUp Store), this screen shows the test
    colours full-screen by itself — white, black, red, green, blue, stripes, 2.5 s each — with
    "Advisor checking the screen — keep it face up". The customer taps nothing. A camera
    page that comes back (a retake, "Take photos anyway") gets its own colours here too. Once the
-   store applies the results the same screen reads "The store has your results", with the SwapUp
-   grade and "See the grade report" — also when the app is reopened on a check that ended that way.
+   store applies the results the same screen (src/check/ResultScreen.tsx, the browser's too) shows
+   the answer the server writes — "Current grade C · Market price for grade C ₹25,000 · We pay you
+   ₹26,000 + ₹6,199 bonus if you exchange with a new device · or repair it for ₹34,096", no partner
+   name, no store margin — or "The advisor is working out your price." until it is priced, and "See
+   the grade report"; it re-reads every 5 s until the answer is final (an older server: "The store
+   has your results", with the SwapUp grade) — also when the app is reopened on a check that ended
+   that way.
 
 Changed 2026-10-16: the photos used to come FIRST, so a customer could sit on "Waiting for the
 advisor's camera…" for 3 minutes. Tests now start at once and the photos are the last step.

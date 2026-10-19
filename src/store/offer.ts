@@ -356,7 +356,7 @@ export function swapWhyLine(o: Offer): string | null {
 }
 
 /**
- * The swap's refusal as a line in the Trade-in + bonus tile, or null when the tile already says it:
+ * The swap's refusal as a line on the swap side (an older server: the Trade-in + bonus tile), or null when it already says it:
  * as the why under "—", as the trade-in note (an expired partner quote), or as the
  * "Choose the new phone" link when no phone is chosen.
  */

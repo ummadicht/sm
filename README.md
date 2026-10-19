@@ -4,8 +4,8 @@ One Expo (SDK 57) codebase, two Android apps:
 
 | App | Package | Who | What it does |
 |---|---|---|---|
-| **SwapUp Store** | `com.swapup.store` | store staff | Sign in with the SwapUp store login — or, on a **store tablet** a manager set up in Settings, tap your name on "Who's serving?" and type your 4-digit PIN (`~/projects/swapup/docs/STORE-TABLET.md`) — start a customer trade-in **by mobile number**, show the **Wi‑Fi QR** and the **test QR**, **scan the customer's phone** with the tablet's camera (one pass: GradeIQ photographs it and sweeps its screen; **check the phone** inside that step, by name, only when the camera couldn't decide) — and the answer opens **by itself**: refurb quote against trade-in + bonus, with the SwapUp grade. Swap up: one "Take the trade-in" screen |
-| **SwapUp Check** | `com.swapup.check` | the customer | Installed from the test QR's download page (or run in the browser). It asks the customer **nothing about the phone**: it tests the phone **by itself** — two physical actions only (swipe the grid, plug in the charger) — streams every result to the store, shows the patterns the store's camera asks for, and the test colours while the advisor checks the screen |
+| **SwapUp Store** | `com.swapup.store` | store staff | Sign in with the SwapUp store login — or, on a **store tablet** a manager set up in Settings, tap your name on "Who's serving?" and type your 4-digit PIN (`~/projects/swapup/docs/STORE-TABLET.md`) — start a customer trade-in **by mobile number**, show the **Wi‑Fi QR** and the **test QR**, **scan the customer's phone** with the tablet's camera (one pass: GradeIQ photographs it and sweeps its screen; **check the phone** inside that step, by name, only when the camera couldn't decide) — and the answer opens **by itself**: the grade, the market price, then repair against what we pay + the bonus — the same lines the customer's phone shows. Swap up: one "Take the trade-in" screen |
+| **SwapUp Check** | `com.swapup.check` | the customer | Installed from the test QR's download page (or run in the browser). It asks the customer **nothing about the phone**: it tests the phone **by itself** — two physical actions only (swipe the grid, plug in the charger) — streams every result to the store, shows the patterns the store's camera asks for, and the test colours while the advisor checks the screen — then the answer, as the server writes it (the same in the browser) |
 
 SwapUp is built on **GradeIQ** (`~/projects/gradeiq`) underneath: the SwapUp server gives every test
 session a GradeIQ session, and GradeIQ's AI vision grades the glass, body and LCD from photos the
@@ -44,18 +44,22 @@ Store with one tap per row, by name, while the customer's phone shows the colour
    · Cracked) once the phone's tests are done and it loops the test colours by itself — its chips
    wait while the phone is still testing (`GET /api/device/status` says `colours`;
    `src/check/ResultColours.tsx`). Each tap goes on the case with the advisor's name and time
-   (`POST /api/cases/<id>/action {action: "certify"}`); on the answer the tapped card stays one tap
+   (`POST /api/cases/<id>/action {action: "certify"}`). On a full check by eye one button tops the
+   card — **"All fine — screen OK, body like new"** — which makes those taps (and Liquid "Can't see":
+   not looked at) in one go. On the answer the tapped card stays one tap
    away — "Checked by Asha · change" — until the trade-in is taken. An older
    SwapUp Check (tests first) gets the same single pass after its tests.
 4. **The answer — by itself.** No "Apply to case": once the phone's tests and the camera grade are
    in (and those taps), the server puts the results on the case (`session.autoApply`, swapup
    `lib/domain/autoApply.ts` — Apply's own gates still decide) and the Session screen opens the
    answer. If Apply refuses: its one-line reason and **Retry**; a phone that stopped mid-test can
-   still go on with **Apply partial results**. The answer: the refurb quote against the trade-in
-   + bonus, with the **SwapUp grade** line (Superb / Good / Fair / Best Value and its letter A–D, as
-   the server writes it). Under the trade-in, the server's one line for how it was reached — e.g.
-   "Refurbished market price ₹51,399 (Good) − 2% − 2 defects · PriceIQ 2026-W35, 52 days old" —
-   and a closed **Show details** with each deduction's % and rupees (see **Prices** below). The
+   still go on with **Apply partial results**. The answer is the server's lines, word for word —
+   the same ones the customer's phone shows (`src/shared/AnswerBlock.tsx`): **Current grade C ·
+   screen cracked · Market price for grade C ₹25,000**, then side by side **Repair** ("or repair it
+   for ₹34,096") | **Swap up** ("We pay you ₹26,000" — the market price + the SwapUp premium — "+
+   ₹6,199 bonus if you exchange with a new device"); tap the side the customer chose. Staff notes sit
+   under each line: the premium and bonus, the new phone, and behind a closed **Show details** how
+   the market price was reached, each step with its % and rupees (see **Prices** below). The
    **grade report** is one tap away ("View report", or "Show to customer" as a QR).
    **Repair** or **Walked away** end the visit here.
 5. **Swap up → Take the trade-in**, one screen (`src/store/lock.ts`): the IMEI only if the case has
@@ -67,7 +71,10 @@ Store with one tap per row, by name, while the customer's phone shows the colour
 match isn't exact (a regional version — one tap; an unknown phone picks it from the list), the storage
 only when the phone couldn't measure it, the battery-health screenshot only when the store has no
 other reading of it (an attached Phonecheck report) — and it can be skipped. No IMEI, no name or
-mobile, no condition questions. Results are saved on the phone first and sent second.
+mobile, no condition questions. Results are saved on the phone first and sent second. **Done** is one
+screen for the app and the browser (`src/check/ResultScreen.tsx`): once the store has the results it
+shows the answer the server writes (`GET /api/device/status` → `answer`) — or "The advisor is
+working out your price." until it is priced — re-read every 5 s until it is final.
 
 ## Prices
 
@@ -81,11 +88,15 @@ apps, and never made up. The apps print the server's figures and words and add o
   Data **over 14 days old** shows its age once: the server's own sentence under the price
   ("Refurbished market price, week 2026-W35, 52 days old." — or "PriceIQ unreachable, last answer …"
   while it uses its last good answer), else ", 52 days old" on the line. Data **over 90 days old is no
-  price**. The answer's trade-in line and note are the server's words, printed as sent.
+  price**. The answer's lines and notes are the server's words, printed as sent — the market price
+  is the buyback partner's (its rate card or a typed quote); a PriceIQ estimate is shown to staff
+  only, and the customer's phone waits until the partner's price is in.
 - **No price from anywhere**: "No market price yet — enter a quote." (the partner's or a typed quote).
-- **Test programme** (the server's `org.demo`): one short banner, "Test programme — no real money".
+- **Test programme** (the server's `org.demo`): one short banner, "Test programme — no real money" —
+  under the answer's lines too, on the customer's phone and the tablet.
 
-Older servers keep working: fields they don't send (`ageDays`, `stale`, `note`) are simply absent,
+Older servers keep working: fields they don't send (`ageDays`, `stale`, `note`, `answer`) are simply absent
+(no answer: the Check app's Done screen and the Store's two tiles stay as they were),
 and flags they send that newer ones dropped (a storage chip's old marker) are ignored. A
 figure an older server marks as off its placeholder card is never used as the sell price.
 `src/shared/copy.test.ts` reads the whole repo: no made-up-price wording, and the buyback partner is
