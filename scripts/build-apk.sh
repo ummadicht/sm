@@ -24,6 +24,10 @@ export ANDROID_HOME=$HOME/android-toolchain/sdk
 export ANDROID_SDK_ROOT=$ANDROID_HOME
 export PATH=$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH
 [ -f "$KEYPROPS" ] || { echo "missing $KEYPROPS" >&2; exit 1; }
+# What the APK is built from, for its manifest (deploy.sh refuses a dirty build, a commit that isn't
+# the repo's HEAD, and a reused versionCode). Read before the copy: the copy has no .git.
+COMMIT=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)
+DIRTY=$([ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ] && echo true || echo false)
 
 echo "▸ copy → $WORK"
 mkdir -p "$WORK"
@@ -88,11 +92,12 @@ node --experimental-strip-types --no-warnings "$ROOT/scripts/check-builds.ts" ap
   || { echo "✗ not shipping it" >&2; exit 1; }
 cp android/app/build/outputs/apk/release/app-release.apk "$OUT"
 "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$OUT" | grep -m1 "Signer #1 certificate DN" || true
-# The version the APK was actually built with (app.config.js wins over app.json).
+# The version and versionCode the APK was actually built with (app.config.js wins over app.json).
 VERSION=$(APP_VARIANT=$VARIANT node -e "const c=require('./app.config.js'); console.log((typeof c==='function'?c({config:{}}):c).version)")
+VERSION_CODE=$(APP_VARIANT=$VARIANT node -e "const c=require('./app.config.js'); console.log((typeof c==='function'?c({config:{}}):c).android.versionCode)")
 SIZE=$(stat -f%z "$OUT")
 SHA=$(shasum -a 256 "$OUT" | cut -d' ' -f1)
-echo "{\"app\":\"$VARIANT\",\"version\":\"$VERSION\",\"bytes\":$SIZE,\"sha256\":\"$SHA\",\"builtAt\":\"$(date -u +%FT%TZ)\"}" > "$ROOT/dist/swapup-$VARIANT.json"
+echo "{\"app\":\"$VARIANT\",\"version\":\"$VERSION\",\"versionCode\":$VERSION_CODE,\"commit\":\"$COMMIT\",\"dirty\":$DIRTY,\"bytes\":$SIZE,\"sha256\":\"$SHA\",\"builtAt\":\"$(date -u +%FT%TZ)\"}" > "$ROOT/dist/swapup-$VARIANT.json"
 # The APK and its manifest together, as deploy.sh will check them.
 node --experimental-strip-types --no-warnings "$ROOT/scripts/check-builds.ts" apk "$VARIANT" \
   || { rm -f "$OUT" "$ROOT/dist/swapup-$VARIANT.json"; echo "✗ removed $OUT" >&2; exit 1; }
