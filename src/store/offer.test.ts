@@ -3,10 +3,23 @@
 // and the labels the app owns. Same import trick as ./buySell.test.ts.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { register } from "node:module";
+
+// offer.ts imports ../shared/answer without an extension (Metro's way); this adds ".ts" for plain node.
+register(
+  "data:text/javascript," +
+    encodeURIComponent(
+      `export async function resolve(s, c, next) {
+        try { return await next(s, c); }
+        catch (e) { if (/^\\.\\.?\\//.test(s) && !/\\.[cm]?[jt]sx?$/.test(s)) return next(s + ".ts", c); throw e; }
+      }`
+    )
+);
 
 const O: typeof import("./offer") = await import("./offer" + ".ts");
 const B: typeof import("./buySell") = await import("./buySell" + ".ts");
 const G: typeof import("../shared/nameGuard") = await import("../shared/nameGuard" + ".ts");
+const F: typeof import("../shared/answer.fixtures") = await import("../shared/answer.fixtures" + ".ts");
 
 /** The server's note on a PriceIQ trade-in whose data is stale (~/projects/swapup lib/domain/marketSell.ts), shown as sent. */
 const STALE_NOTE = "Refurbished market price, week 2026-W35, 52 days old.";
@@ -444,6 +457,52 @@ test("wantsReprice: an expired quote, or storage chips with no price at all — 
   const noChips = read(priced({ asks: [{ kind: "storage", title: "Which storage is it?", text: STORAGE_TEXT, options: [], note: null }] }));
   assert.equal(O.wantsReprice(true, false, noChips), false, "no sizes to price — the full case chooses it");
   assert.equal(O.wantsReprice(true, false, null), false);
+});
+
+test("wantsReprice: a decision made under other rules is re-priced once (R8: before the premium was in what we pay)", () => {
+  assert.equal(O.RULESET_VERSION, "2026-10-18.1");
+  assert.equal(O.wantsReprice(true, false, offer(), "2026-10-15.2"), true);
+  assert.equal(O.wantsReprice(true, false, offer(), O.RULESET_VERSION), false);
+  assert.equal(O.wantsReprice(true, false, offer(), null), false, "no decision yet: nothing to re-decide");
+  assert.equal(O.wantsReprice(true, false, offer()), false);
+  assert.equal(O.wantsReprice(false, false, offer(), "2026-10-15.2"), false, "a closed case is never re-priced");
+});
+
+// ── the answer's lines (offer.answer; answer spec §A, fixtures in ../shared/answer.fixtures.ts) ─────
+
+test("readOffer: the answer's lines and staff notes, the premium and what we pay — F6 in its CaseView", () => {
+  const o = read(priced({ answer: F.F6, swap: { ...priced().swap, ...F.F6_SWAP } }));
+  assert.deepEqual(o.answer, { ready: true, final: false, headline: F.F1.headline, lines: F.F1.lines, text: null, test: false });
+  assert.deepEqual(o.staffNotes, { market: null, we_pay: "Includes ₹1,000 SwapUp premium (4%).", bonus: "Upgrade bonus · 4%" });
+  assert.equal(o.swap.tradeIn, 25000);
+  assert.deepEqual(o.swap.premium, { amount: 1000, bp: 400 });
+  assert.equal(o.swap.wePay, 26000);
+  assert.equal(o.swap.total, 32199);
+  assert.equal(o.swap.customerPays, 122800);
+  assert.equal(O.newPhoneLine(o), "Galaxy S26 Ultra 256GB ₹1,54,999 · customer pays ₹1,22,800");
+});
+
+test("readOffer: the advisor keeps the lines while the customer waits — F8, a PriceIQ estimate", () => {
+  const o = read(priced({ answer: F.F8 }));
+  assert.equal(o.answer?.ready, false);
+  assert.equal(o.answer?.text, "The advisor is confirming your price.");
+  assert.deepEqual(o.answer?.lines, F.F1.lines);
+  assert.equal(o.staffNotes.market, "Estimate from the refurbished market — enter the buyback partner's quote to show it to the customer.");
+});
+
+test("readOffer: an older server (F7) sends no answer — the two tiles, as before", () => {
+  const o = read(priced());
+  assert.equal(o.answer, null);
+  assert.deepEqual(o.staffNotes, { market: null, we_pay: null, bonus: null });
+  assert.equal(o.swap.premium, null);
+  assert.equal(o.swap.wePay, null);
+  assert.equal(O.bonusLine(o), "Trade-in ₹18,800 + bonus ₹6,199 (4%)");
+});
+
+test("readOffer: a junk answer, premium or we-pay reads as none", () => {
+  for (const answer of [null, "x", [], { ready: "yes" }, { ready: true, lines: [{ key: "we_pay" }] }]) assert.equal(read(priced({ answer })).answer, null, JSON.stringify(answer));
+  for (const premium of [null, 1000, { amount: 1000 }, { amount: "1000", bp: 400 }, { bp: 400 }]) assert.equal(read(priced({ swap: { ...priced().swap, premium } })).swap.premium, null, JSON.stringify(premium));
+  assert.equal(read(priced({ swap: { ...priced().swap, wePay: "26000" } })).swap.wePay, null);
 });
 
 // ── the SwapUp grade (CaseView.grading; grading spec §4.5 + the owner's letter) ─────

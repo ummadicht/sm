@@ -1,8 +1,15 @@
 // THE ANSWER, once the test is on the case (owner, 2026-10-17: "Why asking questions when
-// we have all tested data ... just refurb quote vs bonus + trade in price"):
+// we have all tested data ... just refurb quote vs bonus + trade in price"; 2026-10-18: "Current
+// grade C · Market price for grade C ₹25,000 · We pay you ₹26,000 + ₹6,199 bonus if you exchange
+// with a new device"):
 //
-//   one headline (the verdict) · one sentence · two numbers side by side —
-//   REFURB QUOTE (what the customer pays to fix it) | TRADE-IN + BONUS — · one docked pill.
+//   one headline (the verdict) · one sentence · THE ANSWER'S LINES — the server's words, the SAME
+//   lines the customer's phone shows, drawn by the one ../../shared/AnswerBlock: the grade, the
+//   market price, then REPAIR | SWAP UP side by side (each side a tap: what the customer chose)
+//   — · one docked pill. The staff's own extras sit under the matching line (the grade's why and
+//   report links; how the market price was reached, behind "Show details"; the premium and bonus
+//   notes, the new phone; the repair's detail and cover). An older server sends no lines: the two
+//   tiles REFURB QUOTE | TRADE-IN + BONUS, as before.
 //
 // Whatever the test couldn't fill is a one-tap ask above the numbers (storage chips with
 // each size's trade-in — and the server's one note under them, as sent — a quote, the new
@@ -11,12 +18,12 @@
 // says why. The store's own refurb cost and margin sit at the bottom, closed: "Store margin ·
 // staff only" (./PriceCard, drawn from this screen's case and saved through its queue).
 //
-// The SwapUp grade (CaseView.grading, grading spec §5) is one line between the headline and
-// the asks — "SwapUp grade: Good (B)", the server's label as sent, " · provisional" in amber —
-// with the server's one-line why, "View report" (the public report page, in the app's browser)
-// and "Show to customer" (a QR of it, ./ReportQrSheet). Never inside the two tiles: those stay
-// the partner's money only, and the grade never moves a price. "Get Phonecheck results" shows
-// only when the server says the store can pull them (Phonecheck ships switched off).
+// The SwapUp grade is the answer's first line ("Current grade C · screen cracked"); under it the
+// server's one-line why (CaseView.grading, grading spec §5), "View report" (the public report
+// page, in the app's browser) and "Show to customer" (a QR of it, ./ReportQrSheet). With no grade
+// line (an older server, nothing graded) it is its own card, "SwapUp grade: Good (B)" — the label
+// as sent, " · provisional" in amber. The grade never moves a price. "Get Phonecheck results"
+// shows only when the server says the store can pull them (Phonecheck ships switched off).
 //
 // It is reached BY ITSELF (owner, 2026-10-17: "Reduce the flow"): the server puts the phone's
 // results on the case once its tests and the camera grade are in, and the Session screen opens
@@ -32,6 +39,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, AppState, Pressable, ScrollView, Text, View } from "react-native";
 import { QuietLink } from "../../shared/kit";
+import { AnswerBlock } from "../../shared/AnswerBlock";
+import { type StaffAnswer, lineOf } from "../../shared/answer";
 import {
   type CaseGrading,
   type CaseHead,
@@ -84,6 +93,8 @@ type Extra = {
   bonusValue: number | null;
   payable: number | null;
   upgradeLabel: string | null;
+  /** The rules the case's decision was made under (CaseView.decision.version); another version is re-priced once. */
+  decisionVersion: string | null;
 };
 
 function readExtra(x: unknown): Extra {
@@ -92,6 +103,7 @@ function readExtra(x: unknown): Extra {
   const sub = (v: unknown) => (v && typeof v === "object" ? (v as Record<string, unknown>) : null);
   const dev = sub(o.device);
   const up = sub(o.upgrade);
+  const dec = sub(o.decision);
   return {
     series: typeof dev?.series === "string" && dev.series ? dev.series : null,
     quoteExpired: o.quoteExpired === true,
@@ -99,6 +111,7 @@ function readExtra(x: unknown): Extra {
     bonusValue: num(o.bonusValue),
     payable: num(o.payable),
     upgradeLabel: typeof up?.label === "string" && up.label ? up.label : null,
+    decisionVersion: typeof dec?.version === "string" && dec.version ? dec.version : null,
   };
 }
 
@@ -263,14 +276,15 @@ export function OfferScreen({
     };
   }, [fetchCase]);
 
-  // An expired partner quote, or storage chips none of which has a price (the case was priced
-  // before the server kept a price per size), is fetched again by a re-price — once, quietly.
+  // An expired partner quote, storage chips none of which has a price (the case was priced
+  // before the server kept a price per size), or a decision made under older rules, is fetched
+  // again by a re-price — once, quietly, never re-asking the partner.
   const repriced = useRef(false);
-  const reprice = load.state === "ready" && wantsReprice(OPEN.has(load.head.status), load.extra.quoteExpired, load.offer);
+  const reprice = load.state === "ready" && wantsReprice(OPEN.has(load.head.status), load.extra.quoteExpired, load.offer, load.extra.decisionVersion);
   useEffect(() => {
     if (!reprice || repriced.current) return;
     repriced.current = true;
-    void run(() => api.post<unknown>(`${path}/action`, { action: "reprice" }), null);
+    void run(() => api.post<unknown>(`${path}/action`, { action: "reprice", requote: false }), null);
   }, [reprice, api, path, run]);
 
   /**
@@ -363,6 +377,8 @@ export function OfferScreen({
     const cancelled = head.status === "cancelled";
     const headline = head.status === "repair_chosen" ? "Customer will repair" : head.status === "walked_away" ? "Customer walked away" : cancelled ? "Trade-in cancelled" : "Traded in";
     const rows = traded && !cancelled;
+    // The final lines, as locked (or last shown) — the customer's phone shows the same ones.
+    const final = o?.answer && o.answer.lines.length ? o.answer : null;
     return (
       <View style={{ flex: 1 }}>
         {top}
@@ -370,13 +386,18 @@ export function OfferScreen({
           <H1>{headline}</H1>
           {head.status === "repair_chosen" ? <Body muted>Book it in the job system.</Body> : null}
           {banner}
+          {final && !cancelled ? <AnswerBlock answer={final} wide={wide} /> : null}
           {rows ? (
             <Card style={{ gap: 0 }}>
-              <KV label="Trade-in" value={inr(extra.tradeValue ?? o?.swap.tradeIn ?? null)} />
-              <KV label="Bonus" value={inr(extra.bonusValue ?? o?.swap.bonus ?? null)} />
-              <KV label="New phone" value={extra.upgradeLabel ?? o?.swap.newPhone?.label ?? "—"} />
+              {final ? null : (
+                <>
+                  <KV label="Trade-in" value={inr(extra.tradeValue ?? o?.swap.tradeIn ?? null)} />
+                  <KV label="Bonus" value={inr(extra.bonusValue ?? o?.swap.bonus ?? null)} />
+                  <KV label="New phone" value={extra.upgradeLabel ?? o?.swap.newPhone?.label ?? "—"} />
+                </>
+              )}
               <KV label="Customer pays" value={inr(extra.payable ?? o?.swap.customerPays ?? null)} />
-              {grading ? <KV label="SwapUp grade" value={gradeLine(grading).full} /> : null}
+              {grading && !(final && lineOf(final.lines, "grade")) ? <KV label="SwapUp grade" value={gradeLine(grading).full} /> : null}
               {reportUrl ? (
                 <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 20, paddingTop: 8 }}>
                   <TextLink title="Grade report" onPress={viewReport} />
@@ -441,6 +462,37 @@ export function OfferScreen({
   const swapWhy = swapWhyLine(o);
   // The server's reason the swap can't be taken, unless the tile already says it (the why, the note, the link).
   const swapRefusal = swapRefusalLine(o);
+  const phoneRow = phoneLine ? (
+    <View style={{ gap: 4, marginTop: 2 }}>
+      {w.newPhone?.suggested ? <Chip text="Suggested" tone="fix" /> : null}
+      <Small color={L.ink}>{phoneLine}</Small>
+      <TextLink title="Change" onPress={() => setSheet("phone")} />
+    </View>
+  ) : (
+    <TextLink title={CHOOSE_PHONE} onPress={() => setSheet("phone")} />
+  );
+  const repairLinks = (
+    <>
+      {r.amount !== null && r.detail ? <Small>{r.detail}</Small> : null}
+      {repairWhy ? <Small>{repairWhy}</Small> : null}
+      {repairRefusal ? <Small color={L.ink}>{repairRefusal}</Small> : null}
+      {r.amount !== null && !r.nothingToRepair ? <TextLink title="Change" onPress={() => setSheet("refurb")} /> : null}
+      {!r.nothingToRepair ? <TextLink title={`Cover: ${COVER_LABEL[r.coverage]} · change`} onPress={() => setSheet("cover")} /> : null}
+    </>
+  );
+
+  // The server's lines (an older server sends none: the two tiles below, as before).
+  const ans = o.answer;
+  const has = (k: Parameters<typeof lineOf>[1]) => !!ans && !!lineOf(ans.lines, k);
+  const dash = (
+    <Figure size={wide ? 30 : 22} color={L.muted}>
+      —
+    </Figure>
+  );
+  const gradeCard = (bare: boolean) =>
+    grading ? (
+      <GradeCard g={grading} bare={bare} canReport={!!reportUrl} pulling={pulling} note={pullNote} onView={viewReport} onShow={() => setSheet("report")} onPull={() => void pullPhonecheck()} />
+    ) : null;
 
   return (
     <View style={{ flex: 1 }}>
@@ -462,18 +514,8 @@ export function OfferScreen({
         </View>
         {banner}
 
-        {/* The SwapUp grade: beside the answer, never inside its tiles */}
-        {grading ? (
-          <GradeCard
-            g={grading}
-            canReport={!!reportUrl}
-            pulling={pulling}
-            note={pullNote}
-            onView={viewReport}
-            onShow={() => setSheet("report")}
-            onPull={() => void pullPhonecheck()}
-          />
-        ) : null}
+        {/* The SwapUp grade on its own card only when the answer has no grade line of its own */}
+        {has("grade") ? null : gradeCard(false)}
 
         {/* What the camera couldn't decide, still open — the advisor's taps, by name (the server says which rows) */}
         {/* Tapped in full: closed, one tap to change a wrong last tap (the answer opened by itself after it) */}
@@ -510,48 +552,83 @@ export function OfferScreen({
           />
         ))}
 
-        {/* The two numbers, side by side even on a phone */}
-        <View style={{ flexDirection: "row", gap: wide ? 16 : 10, alignItems: "stretch" }}>
-          <Tile label="Refurb quote" selected={pick === "repair"} disabled={!pickAllowed(o, "repair")} recommended={badge === "repair"} wide={wide} onPress={() => setChosen("repair")}>
-            {r.nothingToRepair && r.amount === null ? (
-              <NothingToRepair wide={wide} />
-            ) : (
-              <Figure size={figSize(repairTxt)} color={r.amount === null ? L.muted : L.ink}>
-                {repairTxt}
-              </Figure>
-            )}
-            {r.amount !== null && r.detail ? <Small>{r.detail}</Small> : null}
-            {repairWhy ? <Small>{repairWhy}</Small> : null}
-            {repairRefusal ? <Small color={L.ink}>{repairRefusal}</Small> : null}
-            {r.amount !== null && !r.nothingToRepair ? <TextLink title="Change" onPress={() => setSheet("refurb")} /> : null}
-            {!r.nothingToRepair ? <TextLink title={`Cover: ${COVER_LABEL[r.coverage]} · change`} onPress={() => setSheet("cover")} /> : null}
-          </Tile>
+        {ans ? (
+          // The answer's lines — the customer's phone shows the same — with the staff extras under each.
+          <AnswerBlock
+            answer={ans}
+            wide={wide}
+            recommended={badge}
+            choose={{ picked: pick, can: { repair: pickAllowed(o, "repair"), swap: pickAllowed(o, "swap") }, onPick: setChosen }}
+            slots={{
+              grade: has("grade") ? gradeCard(true) : null,
+              market:
+                w.tradeInDetail || w.tradeInNote || o.staffNotes.market ? (
+                  <>
+                    {w.tradeInDetail ? <TradeInHow d={w.tradeInDetail} closed /> : null}
+                    {w.tradeInNote ? (
+                      <Small color={L.warn} weight="600">
+                        {w.tradeInNote}
+                      </Small>
+                    ) : null}
+                    {/* Why the customer doesn't see it yet (a PriceIQ estimate) is the advisor's to act on. */}
+                    {o.staffNotes.market ? (
+                      <Small color={ans.ready ? L.muted : L.warn} weight={ans.ready ? undefined : "600"}>
+                        {o.staffNotes.market}
+                      </Small>
+                    ) : null}
+                  </>
+                ) : null,
+              swap: (
+                <>
+                  {has("we_pay") ? null : dash}
+                  {swapWhy ? <Small>{swapWhy}</Small> : null}
+                  {o.staffNotes.we_pay ? <Small>{o.staffNotes.we_pay}</Small> : null}
+                  {o.staffNotes.bonus ? <Small>{o.staffNotes.bonus}</Small> : null}
+                  {phoneRow}
+                  {vs ? <Small>{vs}</Small> : null}
+                  {swapRefusal ? <Small color={L.ink}>{swapRefusal}</Small> : null}
+                </>
+              ),
+              repair: (
+                <>
+                  {has("repair") ? null : r.nothingToRepair ? <NothingToRepair wide={wide} /> : dash}
+                  {repairLinks}
+                </>
+              ),
+            }}
+          />
+        ) : (
+          /* An older server: the two numbers, side by side even on a phone */
+          <View style={{ flexDirection: "row", gap: wide ? 16 : 10, alignItems: "stretch" }}>
+            <Tile label="Refurb quote" selected={pick === "repair"} disabled={!pickAllowed(o, "repair")} recommended={badge === "repair"} wide={wide} onPress={() => setChosen("repair")}>
+              {r.nothingToRepair && r.amount === null ? (
+                <NothingToRepair wide={wide} />
+              ) : (
+                <Figure size={figSize(repairTxt)} color={r.amount === null ? L.muted : L.ink}>
+                  {repairTxt}
+                </Figure>
+              )}
+              {repairLinks}
+            </Tile>
 
-          <Tile label="Trade-in + bonus" selected={pick === "swap"} disabled={!pickAllowed(o, "swap")} recommended={badge === "swap"} wide={wide} onPress={() => setChosen("swap")}>
-            <Figure size={figSize(totalTxt)} color={w.total === null ? L.muted : L.ink}>
-              {totalTxt}
-            </Figure>
-            {swapWhy ? <Small>{swapWhy}</Small> : null}
-            {bonus ? <Small>{bonus}</Small> : null}
-            {w.tradeInDetail ? <TradeInHow d={w.tradeInDetail} /> : null}
-            {w.tradeInNote ? (
-              <Small color={L.warn} weight="600">
-                {w.tradeInNote}
-              </Small>
-            ) : null}
-            {phoneLine ? (
-              <View style={{ gap: 4, marginTop: 2 }}>
-                {w.newPhone?.suggested ? <Chip text="Suggested" tone="fix" /> : null}
-                <Small color={L.ink}>{phoneLine}</Small>
-                <TextLink title="Change" onPress={() => setSheet("phone")} />
-              </View>
-            ) : (
-              <TextLink title={CHOOSE_PHONE} onPress={() => setSheet("phone")} />
-            )}
-            {vs ? <Small>{vs}</Small> : null}
-            {swapRefusal ? <Small color={L.ink}>{swapRefusal}</Small> : null}
-          </Tile>
-        </View>
+            <Tile label="Trade-in + bonus" selected={pick === "swap"} disabled={!pickAllowed(o, "swap")} recommended={badge === "swap"} wide={wide} onPress={() => setChosen("swap")}>
+              <Figure size={figSize(totalTxt)} color={w.total === null ? L.muted : L.ink}>
+                {totalTxt}
+              </Figure>
+              {swapWhy ? <Small>{swapWhy}</Small> : null}
+              {bonus ? <Small>{bonus}</Small> : null}
+              {w.tradeInDetail ? <TradeInHow d={w.tradeInDetail} /> : null}
+              {w.tradeInNote ? (
+                <Small color={L.warn} weight="600">
+                  {w.tradeInNote}
+                </Small>
+              ) : null}
+              {phoneRow}
+              {vs ? <Small>{vs}</Small> : null}
+              {swapRefusal ? <Small color={L.ink}>{swapRefusal}</Small> : null}
+            </Tile>
+          </View>
+        )}
 
         {/* The quiet row */}
         <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
@@ -629,9 +706,11 @@ function OfferTop({ title, sub, claimed, left, busy }: { title: string; sub?: st
 /**
  * "SwapUp grade: Good (B)" and the server's one-line why, with the report's two links — and the
  * Phonecheck pull only where the server allows it. Provisional is the amber " · provisional".
+ * `bare`: under the answer's own grade line — no card and no "SwapUp grade:" line (one grade on the screen).
  */
 function GradeCard({
   g,
+  bare = false,
   canReport,
   pulling,
   note,
@@ -640,6 +719,7 @@ function GradeCard({
   onPull,
 }: {
   g: CaseGrading;
+  bare?: boolean;
   canReport: boolean;
   pulling: boolean;
   /** What the last Phonecheck pull came to. */
@@ -650,12 +730,8 @@ function GradeCard({
 }) {
   const line = gradeLine(g);
   const canPull = g.phonecheck?.canPull === true;
-  return (
-    <Card style={{ gap: 6, padding: 16 }}>
-      <Text style={{ color: L.ink, fontSize: 18, lineHeight: 24, fontWeight: "700" }} accessibilityLabel={`SwapUp grade ${line.full}`}>
-        SwapUp grade: {line.text}
-        {line.provisional ? <Text style={{ color: L.warn }}> · provisional</Text> : null}
-      </Text>
+  const body = (
+    <>
       {g.why ? <Small>{g.why}</Small> : null}
       {note ? <Small color={L.ink}>{note}</Small> : null}
       {canReport || canPull ? (
@@ -665,6 +741,16 @@ function GradeCard({
           {canPull ? <TextLink title={pulling ? "Getting Phonecheck results…" : "Get Phonecheck results"} onPress={onPull} /> : null}
         </View>
       ) : null}
+    </>
+  );
+  if (bare) return g.why || note || canReport || canPull ? <View style={{ gap: 4 }}>{body}</View> : null;
+  return (
+    <Card style={{ gap: 6, padding: 16 }}>
+      <Text style={{ color: L.ink, fontSize: 18, lineHeight: 24, fontWeight: "700" }} accessibilityLabel={`SwapUp grade ${line.full}`}>
+        SwapUp grade: {line.text}
+        {line.provisional ? <Text style={{ color: L.warn }}> · provisional</Text> : null}
+      </Text>
+      {body}
     </Card>
   );
 }
@@ -804,14 +890,15 @@ function Small({ children, color = L.muted, weight }: { children: React.ReactNod
 /**
  * How the trade-in was reached, in the server's words: its one line ("Refurbished market price
  * ₹51,399 (Good) − 2% − 2 defects · PriceIQ 2026-W35", with ", 52 days old" when the data is stale) and,
- * behind "Show details", each step with its % and rupees — the desk's same list.
+ * behind "Show details", each step with its % and rupees — the desk's same list. `closed`: under the
+ * answer's market line, the one line goes behind "Show details" too (R7: staff extras collapsed).
  */
-function TradeInHow({ d }: { d: TradeInDetail }) {
+function TradeInHow({ d, closed = false }: { d: TradeInDetail; closed?: boolean }) {
   const [open, setOpen] = useState(false);
-  const more = d.lines.length > 0 || !!d.note;
+  const more = d.lines.length > 0 || !!d.note || (closed && !!d.line);
   return (
     <View style={{ gap: 4 }}>
-      {d.line ? <Small>{d.line}</Small> : null}
+      {d.line && (!closed || open) ? <Small>{d.line}</Small> : null}
       {more ? <TextLink title={open ? "Hide details" : "Show details"} onPress={() => setOpen((x) => !x)} /> : null}
       {open && more ? (
         <View style={{ gap: 4 }}>

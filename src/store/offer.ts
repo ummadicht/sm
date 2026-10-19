@@ -1,23 +1,31 @@
 // THE ANSWER the advisor shows the customer once the test is applied (owner, 2026-10-17:
-// "Why asking questions when we have all tested data ... just refurb quote vs bonus + trade in price"):
+// "Why asking questions when we have all tested data ... just refurb quote vs bonus + trade in price";
+// 2026-10-18: "Current grade C · Market price for grade C ₹25,000 · We pay you ₹26,000 + ₹6,199 bonus
+// if you exchange with a new device"):
 //
+//   The lines         = offer.answer.lines    the server's words, word for word: the grade, the market
+//                                              price, what we pay (market + the SwapUp premium), the bonus
+//                                              and the repair — the SAME lines the customer's phone shows
+//                                              (../shared/answer.ts readStaffAnswer, ../shared/AnswerBlock)
+//   Staff notes       = offer.answer.staffNotes  staff-only words under them ("Includes ₹1,000 SwapUp premium (4%).")
 //   Refurb quote      = offer.repair.amount   what the CUSTOMER pays to fix this phone (the price book,
 //                                              a bench/service-centre quote, or ₹0 when covered). Not the
 //                                              store's refurb cost — that stays in the "Store margin" card.
-//   Trade-in + bonus  = offer.swap.total      the as-is price + the upgrade bonus; offer.swap.tradeInDetail
-//                                              says how the trade-in was reached (PriceIQ's refurbished-market
-//                                              price at the grade less the markdown and a % per defect, the
-//                                              partner's rate card, or a quote staff typed in)
+//   Market price      = offer.swap.tradeIn    the buyback partner's quote (or PriceIQ's estimate, which the
+//                                              customer isn't shown); offer.swap.tradeInDetail says how it
+//                                              was reached; swap.premium / swap.wePay what we add and pay
 //   Verdict           = offer.headline        decide()'s headline, unchanged; the bonus is never a signal
 //
 // The server builds every number and every reason (lib/domain/offer.ts buildOffer, carried on
 // CaseView.offer — spec §3). The app never invents a reason: it reads the server's strings and
 // owns only the labels below. A missing number stays null with the server's why — never a made-up
-// price; with no why at all the tile says NO_MARKET_PRICE.
+// price; with no why at all the screen says NO_MARKET_PRICE. An older server sends no `answer`: the
+// screen then keeps its two tiles (Refurb quote | Trade-in + bonus), as before.
 // Shapes: ~/projects/swapup lib/domain/offer.ts and lib/server/cases.ts CaseView; MOBILE-API.md §3c.
 // The SwapUp grade (CaseView.grading, read by readCaseGrade at the bottom) sits beside the answer,
 // never inside it: nothing here that prices reads it.
-// No React Native imports: the test runs under plain node (./offer.test.ts).
+// No React Native imports: the test runs under plain node (./offer.test.ts, which adds the ".ts" Metro leaves off).
+import { readStaffAnswer, readStaffNotes, type StaffAnswer, type StaffNotes } from "../shared/answer";
 
 /** Where the case's storage size came from. "customer" = typed on their phone, never measured. */
 export type VariantSource = "measured" | "catalogue" | "customer" | "advisor";
@@ -69,13 +77,21 @@ export type Offer = {
     nothingToRepair: boolean;
     coverage: Coverage;
   };
+  /** The server's lines and staff notes (null = an older server: the two tiles, as before). */
+  answer: StaffAnswer | null;
+  staffNotes: StaffNotes;
   swap: {
+    /** The market price: the buyback partner's quote for this phone (null = none yet). */
     tradeIn: number | null;
+    /** The SwapUp premium on it (programme-funded, like the bonus); null without a market price, or a case locked before premiums. */
+    premium: { amount: number; bp: number } | null;
+    /** What we pay the customer: tradeIn + premium; null when tradeIn is null. */
+    wePay: number | null;
     tradeInNote: string | null;
     bonus: number | null;
     bonusBp: number | null;
     bonusWhy: string | null;
-    /** tradeIn + (bonus ?? 0); null when tradeIn is null. */
+    /** wePay + (bonus ?? 0) (an older server: tradeIn + bonus); null when tradeIn is null. */
     total: number | null;
     /** Why tradeIn is null. */
     why: string | null;
@@ -167,6 +183,13 @@ function readNewPhone(x: unknown): Offer["swap"]["newPhone"] {
   return { deviceId, label, price, suggested: o.suggested === true, why: str(o.why) };
 }
 
+/** offer.swap.premium, or null. */
+function readPremium(x: unknown): Offer["swap"]["premium"] {
+  const o = obj(x);
+  const amount = money(o?.amount), bp = money(o?.bp);
+  return o && amount !== null && bp !== null ? { amount, bp } : null;
+}
+
 /** offer.swap.tradeInDetail, or null when there is nothing to show (or it can't be read). */
 export function readTradeInDetail(x: unknown): TradeInDetail | null {
   const o = obj(x);
@@ -214,6 +237,8 @@ export function readOffer(x: unknown): Offer | null {
     recommendation,
     recommended,
     asks: (Array.isArray(o.asks) ? o.asks : []).map(readAsk).filter((a): a is OfferAsk => !!a),
+    answer: readStaffAnswer(o.answer),
+    staffNotes: readStaffNotes(o.answer),
     storage: { variant: str(st?.variant), source: oneOf(st?.source, SOURCES), note: str(st?.note) },
     repair: {
       amount: money(rep?.amount),
@@ -226,6 +251,8 @@ export function readOffer(x: unknown): Offer | null {
     },
     swap: {
       tradeIn: money(sw?.tradeIn),
+      premium: readPremium(sw?.premium),
+      wePay: money(sw?.wePay),
       tradeInNote: str(sw?.tradeInNote),
       bonus: money(sw?.bonus),
       bonusBp: money(sw?.bonusBp),
@@ -322,7 +349,7 @@ export const CHOOSE_PHONE = "Choose the new phone";
 /** No price from PriceIQ, a rate card or a typed quote — the desk's words (owner, 2026-10-18). Same as ../buySell.ts. */
 export const NO_MARKET_PRICE = "No market price yet — enter a quote.";
 
-/** The line under "—" on the Trade-in + bonus tile: the server's why; with none, NO_MARKET_PRICE. null while there is a total. */
+/** The line under "—" where we pay (or, from an older server, the Trade-in + bonus tile): the server's why; with none, NO_MARKET_PRICE. null while there is a total. */
 export function swapWhyLine(o: Offer): string | null {
   if (o.swap.total !== null) return null;
   return o.swap.why ?? (o.swap.tradeIn === null ? NO_MARKET_PRICE : null);
@@ -343,16 +370,22 @@ export function swapRefusalLine(o: Offer): string | null {
   return why;
 }
 
+/** The server's decide() rules this app's answer is drawn for (~/projects/swapup lib/domain/decision.ts RULESET_VERSION). */
+export const RULESET_VERSION = "2026-10-18.1";
+
 /**
  * Re-price the case once, quietly, when the answer opens: a partner quote that has expired
  * (the server re-quotes a rate-card or live one; one typed from the partner's app comes back as
- * the "Enter the partner's quote" ask), or storage chips none of which has a price — the case was
- * priced before the server kept a trade-in per size, and a re-price makes it work them out.
+ * the "Enter the partner's quote" ask), storage chips none of which has a price — the case was
+ * priced before the server kept a trade-in per size, and a re-price makes it work them out — or a
+ * decision made under other rules (`decisionVersion` ≠ RULESET_VERSION: decided before the premium
+ * was in what we pay). The re-price never asks the partner again for that last one.
  * Never on a closed case; a size the partner truly can't price stays a bare chip after the one re-price.
  */
-export function wantsReprice(open: boolean, quoteExpired: boolean, o: Offer | null): boolean {
+export function wantsReprice(open: boolean, quoteExpired: boolean, o: Offer | null, decisionVersion: string | null = null): boolean {
   if (!open) return false;
   if (quoteExpired) return true;
+  if (decisionVersion !== null && decisionVersion !== RULESET_VERSION) return true;
   const ask = o?.asks.find((a) => a.kind === "storage");
   return !!ask && ask.kind === "storage" && ask.options.length > 0 && ask.options.every((x) => x.tradeIn === null);
 }
@@ -376,7 +409,11 @@ export function chipLabel(opt: StorageOption): string {
 /** "4%" from 400 bp, "2.5%" from 250. */
 const percent = (bp: number) => `${Math.round(bp) / 100}%`;
 
-/** Under Trade-in + bonus: "Trade-in ₹18,800 + bonus ₹6,199 (4%)", or "Trade-in ₹18,800 · <why no bonus>". null without a trade-in (the tile shows swapWhyLine). */
+/**
+ * An older server only (no `answer`), under its Trade-in + bonus tile: "Trade-in ₹18,800 + bonus ₹6,199 (4%)",
+ * or "Trade-in ₹18,800 · <why no bonus>". null without a trade-in (the tile shows swapWhyLine).
+ * With an answer the server's own lines say it.
+ */
 export function bonusLine(o: Offer): string | null {
   const s = o.swap;
   if (s.tradeIn === null) return null;

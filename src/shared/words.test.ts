@@ -5,6 +5,18 @@
 // the server's strings are shortened at their source. Same import trick as ../store/buySell.test.ts.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { register } from "node:module";
+
+// offer.ts imports ../shared/answer without an extension (Metro's way); this adds ".ts" for plain node.
+register(
+  "data:text/javascript," +
+    encodeURIComponent(
+      `export async function resolve(s, c, next) {
+        try { return await next(s, c); }
+        catch (e) { if (/^\\.\\.?\\//.test(s) && !/\\.[cm]?[jt]sx?$/.test(s)) return next(s + ".ts", c); throw e; }
+      }`
+    )
+);
 
 const F: typeof import("../store/flow") = await import("../store/flow" + ".ts");
 const L: typeof import("../store/phoneLed") = await import("../store/phoneLed" + ".ts");

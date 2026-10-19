@@ -33,6 +33,8 @@ test("the native run and the browser run both finish on ResultScreen; the restar
 
 test("the result screen draws the answer with the shared AnswerBlock — the one SwapUp Store uses", () => {
   assert.match(src("./ResultScreen.tsx"), /import \{ AnswerBlock \} from "\.\.\/shared\/AnswerBlock";/);
+  assert.match(src("../store/screens/Offer.tsx"), /import \{ AnswerBlock \} from "\.\.\/\.\.\/shared\/AnswerBlock";/);
+  assert.match(code("../store/screens/Offer.tsx"), /<AnswerBlock\b/);
   // Its words and states come from the pure, tested module — none of its own.
   const r = src("./ResultScreen.tsx");
   for (const fn of ["resultHead", "resultFacts", "clearDataGuide", "readAnswer"]) assert.match(r, new RegExp(`\\b${fn}\\(`), fn);

@@ -1,6 +1,6 @@
 // The trade-in PRICE card, as BUY vs SELL (owner, 2026-10-17 — DESIGN.md "FINAL owner decisions"):
 //
-//   Buy    = case.quote.amount          what the store pays the customer (the case's trade-in)
+//   Buy    = case.quote.amount          the market price: what the store pays (the customer also gets the programme's SwapUp premium)
 //   Refurb = the advisor's refurb cost (case.refurbCost, PATCH { refurbCost: { amount } }); starts
 //            from SwapUp's repair estimate at list price (case.repair.listTotal), ₹0 with nothing
 //            to repair. It is the STORE's figure: saving it re-asks nobody and moves no price.

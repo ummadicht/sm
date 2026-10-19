@@ -1,5 +1,6 @@
 // The STORE MARGIN card — staff only, closed by default at the bottom of the answer
-// (./Offer.tsx, "Store margin · staff only"): BUY (what the store pays the customer)
+// (./Offer.tsx, "Store margin · staff only"): BUY (the market price — what the store pays; the
+// customer also gets the SwapUp premium, which the programme funds)
 // against SELL (what it sells for refurbished — PriceIQ's refurbished listing less 2–5%),
 // the STORE'S refurb cost between them, and the MARGIN they leave. The store's refurb
 // cost is not the customer's refurb quote on the answer — hence its label.
@@ -57,7 +58,8 @@ export function PriceCard({ c, save }: { c: CasePrice; save: SaveFn }) {
       </View>
 
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-        <Tile label="Buy" caption="Pay the customer" fig={m.buy} wide={wide} />
+        {/* The store's buy cost is the market price; the SwapUp premium on top is the programme's, like the bonus. */}
+        <Tile label="Buy" caption="Market price" fig={m.buy} wide={wide} />
         <Tile label="Sell" caption={m.sell.source ?? "After refurb"} fig={m.sell} wide={wide} />
       </View>
 
