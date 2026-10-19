@@ -466,9 +466,9 @@ function Root() {
           <NewTradeIn
             api={api}
             onCancel={() => setScreen({ name: "home" })}
-            onCreated={(l) => {
+            onCreated={(l, imeiSkipped) => {
               links.current.set(l.session.id, l);
-              setScreen({ name: "session", id: l.session.id, links: l });
+              setScreen({ name: "session", id: l.session.id, links: l, imeiSkipped });
             }}
           />
         );
@@ -480,6 +480,7 @@ function Root() {
             user={auth.user}
             id={screen.id}
             links={screen.links ?? links.current.get(screen.id)}
+            imeiSkipped={screen.imeiSkipped}
             onLinks={(l) => links.current.set(l.session.id, l)}
             onBack={() => setScreen({ name: "home" })}
             onSwitch={(id, l) => {

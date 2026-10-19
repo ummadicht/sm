@@ -1,7 +1,7 @@
 // The Session screen — steps 2 to 4 of the store flow, REDUCED (owner, 2026-10-17: "Reduce
 // the flow" — ../flow.ts holds the rules, tested under node):
 //
-//   1 New trade-in (./NewTradeIn) →
+//   1 New trade-in (./NewTradeIn): the IMEI first, then the customer →
 //   2 Connect the customer's phone (Wi‑Fi + test code) →
 //   3 ONE camera pass: photos + the colour sweep together (./CameraParts — the customer's phone
 //     shows a code to scan, or "Take photos"; an older phone asks to be photographed after its
@@ -13,6 +13,10 @@
 //     reason and a Retry; a phone that stopped mid-test can still be applied as it is.
 //   5 Swap up on the answer → one "Take the trade-in" screen (./Lock.tsx).
 //
+// The IMEI card (./ImeiCard.tsx CaseImeiCard) tops the screen until the answer: a test the
+// customer started from the counter QR had no New trade-in, so its IMEI is scanned here; after a
+// store-led Start it shows what the server found (model, GSMA blacklist) and the government check
+// (KYM) to send while the phone tests.
 // The customer is never asked about the phone's condition: the camera checks it, and the
 // advisor certifies what it couldn't, by name. The status polls every 2 s while this screen is
 // up; "Open full case" (the web desk) is on the answer.
@@ -31,6 +35,7 @@ import { readPhonePhase, scanFirstNow, scanStage, sessionLayout } from "../phone
 import { type CertifyRow, certifyBody, readCertify } from "../certify";
 import { type AutoApply, activeStep, answerStepText, cameraOver, certifyInCamera, holdScreen, readAutoApply, sessionNow } from "../flow";
 import { CheckThePhone } from "./CertifyCard";
+import { CaseImeiCard } from "./ImeiCard";
 
 const POLL_MS = 2_000;
 const KEEP_AWAKE_TAG = "swapup-store-session";
@@ -54,6 +59,7 @@ export function SessionScreen({
   user,
   id,
   links: initialLinks,
+  imeiSkipped,
   onLinks,
   onBack,
   onSwitch,
@@ -63,6 +69,8 @@ export function SessionScreen({
   user: StaffUser;
   id: string;
   links?: SessionLinks;
+  /** New trade-in skipped the IMEI: its card starts folded ("Scan now" opens it). */
+  imeiSkipped?: boolean;
   /** Remember the links the server returned (join URL, Wi‑Fi) for this session. */
   onLinks: (links: SessionLinks) => void;
   onBack: () => void;
@@ -402,6 +410,8 @@ export function SessionScreen({
       />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <ScrollView contentContainerStyle={{ padding: pad, gap: 16, alignSelf: "center", width: content + pad * 2 }} keyboardShouldPersistTaps="handled">
+          {/* 1 · the IMEI, until the answer opens */}
+          {!terminal ? <CaseImeiCard api={api} caseId={v.caseId} skipped={imeiSkipped} /> : null}
           {/* Where we are: one sentence */}
           <Card style={{ gap: 12 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>

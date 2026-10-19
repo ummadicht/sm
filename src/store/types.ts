@@ -138,7 +138,8 @@ export type WifiResponse = {
 export type Screen =
   | { name: "home" }
   | { name: "new" }
-  | { name: "session"; id: string; links?: SessionLinks }
+  /** `imeiSkipped`: New trade-in skipped the IMEI ("scan at hand-over") — the session's IMEI card starts folded. */
+  | { name: "session"; id: string; links?: SessionLinks; imeiSkipped?: boolean }
   | { name: "settings" }
   | { name: "web"; url: string; title: string; back: Screen }
   | { name: "offer"; caseId: string; ref: string; back: Screen }

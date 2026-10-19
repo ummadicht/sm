@@ -1,13 +1,22 @@
-// New customer trade-in: the customer's mobile number FIRST. At 10 digits the app
-// looks the number up (GET /api/customers?phone=, ../customers.ts) — a returning
-// customer's name fills in and their earlier trade-ins are listed; a new one gets a
-// name field. Both stay optional, and the create call is the same as before.
+// New customer trade-in: the IMEI FIRST (owner, 2026-10-19: "Scan IMEI first ... by *#06#") —
+// the customer dials *#06#, the advisor scans it, has the server read the screen, or types it
+// (./ImeiCard.tsx) — or "Skip — scan at hand-over" (Take the trade-in asks for it then, as before).
+// Then the customer's mobile number: at 10 digits the app looks it up (GET /api/customers?phone=,
+// ../customers.ts) — a returning customer's name fills in and their earlier trade-ins are listed;
+// a new one gets a name field. Both stay optional.
+// Start (../imei.ts startTradeIn): with an IMEI, POST /api/cases → PATCH {imei, imei2} (the server
+// looks it up: model, GSMA blacklist) → a blacklisted phone stops HERE, before any test → POST
+// /api/test-sessions {caseId}. Skipped: today's one call. What the server found shows on the
+// Session screen's IMEI card, with the government check (KYM) to send while the phone tests.
 import React, { useEffect, useRef, useState } from "react";
 import { KeyboardAvoidingView, ScrollView, Text, View } from "react-native";
 import { ApiError } from "../../shared/api";
 import { StaffClient, errText } from "../staffClient";
 import type { SessionLinks } from "../types";
 import { normaliseMobile, pastTradeInLine, readCustomerLookup, type CustomerLookup } from "../customers";
+import { type Scanned, startTradeIn } from "../imei";
+import { readCaseHead } from "../offer";
+import { ImeiCapture, ImeiFound, ImeiLater, ImeiStop, SKIP_TITLE } from "./ImeiCard";
 import { Banner, Body, Btn, Card, Field, H1, Label, TopBar, useLayout, L } from "../ui";
 
 export { normaliseMobile } from "../customers";
@@ -20,8 +29,27 @@ type Lookup =
   /** The server can't look numbers up (older server, or not allowed for this role): just type the name. */
   | { state: "unavailable"; phone: string; why: string | null };
 
-export function NewTradeIn({ api, onCancel, onCreated }: { api: StaffClient; onCancel: () => void; onCreated: (links: SessionLinks) => void }) {
+/** Said above Start until the IMEI card has an answer. */
+export const IMEI_FIRST = "Scan the IMEI first — or skip it.";
+
+export function NewTradeIn({
+  api,
+  onCancel,
+  onCreated,
+}: {
+  api: StaffClient;
+  onCancel: () => void;
+  /** `imeiSkipped`: the advisor chose "scan at hand-over" — the Session screen keeps the card folded. */
+  onCreated: (links: SessionLinks, imeiSkipped: boolean) => void;
+}) {
   const { pad } = useLayout();
+  const [imei, setImei] = useState<Scanned | null>(null);
+  const [skipped, setSkipped] = useState(false);
+  /** A Start that stopped or failed after opening the case: the next one uses the same case. */
+  const [caseId, setCaseId] = useState<string | null>(null);
+  /** The case as the IMEI save answered (what the server found), and why the trade-in stops. */
+  const [caseView, setCaseView] = useState<unknown>(null);
+  const [stop, setStop] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [mobileErr, setMobileErr] = useState<string | null>(null);
@@ -75,26 +103,37 @@ export function NewTradeIn({ api, onCancel, onCreated }: { api: StaffClient; onC
     };
   }, [api, phone]);
 
+  const ready = !!imei?.imei || skipped;
+
   async function create() {
     setError(null);
+    if (!ready || stop) return;
     if (!m.ok) {
       setMobileErr("10 digits, or leave it empty.");
       return;
     }
     setMobileErr(null);
     setBusy(true);
-    try {
-      const body: { customerName?: string; customerPhone?: string } = {};
-      if (name.trim()) body.customerName = name.trim();
-      if (m.value) body.customerPhone = m.value;
-      const r = await api.post<SessionLinks>("/api/test-sessions", body);
-      if (!r?.session?.id) throw new Error("No test came back. Try again.");
-      onCreated(r);
-    } catch (e) {
-      setError(errText(e));
-      setBusy(false);
+    const r = await startTradeIn(api, { customerName: name, customerPhone: m.value, imei: skipped ? null : imei, caseId });
+    if (r.kind === "started") {
+      onCreated(r.links, skipped || !imei?.imei);
+      return;
     }
+    setCaseId(r.caseId);
+    setCaseView(r.caseView);
+    if (r.kind === "stopped") setStop(r.text);
+    else setError(r.text);
+    setBusy(false);
   }
+
+  /** A new IMEI (or none): what the server said about the old one goes with it; the case stays. */
+  function changeImei(v: Scanned | null) {
+    setImei(v);
+    setCaseView(null);
+    setStop(null);
+    setError(null);
+  }
+  const imeiHead = caseView && imei?.imei ? readCaseHead(caseView) : null;
 
   const found = lookup.state === "found" ? lookup.result : null;
   const returning = !!found?.customer;
@@ -106,6 +145,19 @@ export function NewTradeIn({ api, onCancel, onCreated }: { api: StaffClient; onC
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <ScrollView contentContainerStyle={{ padding: pad, alignItems: "center" }} keyboardShouldPersistTaps="handled">
           <View style={{ width: "100%", maxWidth: 560, gap: 16 }}>
+            {/* 1 · the IMEI, first */}
+            <Card style={{ gap: 12 }}>
+              {skipped ? (
+                <ImeiLater onScan={() => setSkipped(false)} />
+              ) : (
+                <ImeiCapture api={api} value={imei} onChange={changeImei} skip={{ title: SKIP_TITLE, onPress: () => setSkipped(true) }} busy={busy}>
+                  {imeiHead ? <ImeiFound head={imeiHead} /> : null}
+                </ImeiCapture>
+              )}
+              <ImeiStop text={stop} />
+            </Card>
+
+            {/* 2 · who */}
             <H1>Who's trading in?</H1>
             <Body muted>Both optional.</Body>
             <Card style={{ gap: 16 }}>
@@ -118,7 +170,6 @@ export function NewTradeIn({ api, onCancel, onCreated }: { api: StaffClient; onC
                 }}
                 keyboardType="phone-pad"
                 autoComplete="off"
-                autoFocus
                 returnKeyType="next"
                 editable={!busy}
                 placeholder="10 digits"
@@ -166,7 +217,8 @@ export function NewTradeIn({ api, onCancel, onCreated }: { api: StaffClient; onC
                 hint={returning && name === found?.customer?.name ? "From their last trade-in." : undefined}
               />
               {error ? <Banner tone="bad" title="Couldn't start the trade-in">{error}</Banner> : null}
-              <Btn title="Start" onPress={create} busy={busy} big />
+              {!ready ? <Text style={{ color: L.muted, fontSize: 15, lineHeight: 21, textAlign: "center" }}>{IMEI_FIRST}</Text> : null}
+              <Btn title="Start" onPress={create} busy={busy} disabled={!ready || !!stop} big />
               <Btn title="Back" kind="ghost" onPress={onCancel} disabled={busy} />
             </Card>
           </View>

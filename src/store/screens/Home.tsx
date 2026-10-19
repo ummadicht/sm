@@ -411,6 +411,10 @@ function SessionRow({ s: x, onPress }: { s: TestSessionView; onPress: () => void
         <Chip text={st.label} tone={st.tone} />
         {flag ? <Chip text={flag.text} tone={flag.tone} /> : null}
         {customerStarted(x) ? <Chip text="Started by the customer" tone="muted" /> : null}
+        {/* No New trade-in on this path: the IMEI card tops its Session screen. */}
+        {customerStarted(x) && (x.status === "waiting" || x.status === "opened" || x.status === "joined") ? (
+          <Btn title="Scan IMEI" kind="secondary" onPress={onPress} />
+        ) : null}
       </View>
       <Text style={{ fontSize: 24, color: L.muted }}>›</Text>
     </Pressable>

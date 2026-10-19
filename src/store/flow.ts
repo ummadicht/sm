@@ -1,7 +1,8 @@
 // THE STORE FLOW, REDUCED (owner, 2026-10-17: "Reduce the flow" — the fewest steps that keep
 // the law, the money and safety):
 //
-//   1 New trade-in (the customer's mobile) → 2 the customer's phone connects (code / QR) →
+//   1 New trade-in (the IMEI first — or skipped to the hand-over — then the customer's mobile) →
+//   2 the customer's phone connects (code / QR) →
 //   3 ONE camera pass (photos + the colour sweep together; "Check the phone" inside it only
 //     when the camera can't decide) → 4 THE ANSWER, by itself → 5 Swap up: one "Take the
 //     trade-in" screen. Repair / Walked away end the visit from the answer.
