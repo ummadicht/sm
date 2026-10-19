@@ -58,7 +58,9 @@ export function AnswerBlock({
   const both = hasRepair && hasSwap;
 
   const topRows: React.ReactNode[] = [];
-  for (const key of ["grade", "market"] as const) {
+  // The server's order; a staff slot whose line is absent goes after the lines.
+  const topKeys = [...top.map((l) => l.key as "grade" | "market"), ...(["grade", "market"] as const).filter((k) => !top.some((l) => l.key === k))];
+  for (const key of topKeys) {
     const line = top.find((l) => l.key === key) ?? null;
     if (!line && slots?.[key] == null) continue;
     topRows.push(
@@ -70,7 +72,7 @@ export function AnswerBlock({
   }
 
   const figure = (line: AnswerLine | null) =>
-    line ? <LineText line={line} size={both ? (wide ? 30 : 22) : wide ? 36 : 28} lineHeight={both ? (wide ? 36 : 28) : wide ? 42 : 34} face={face} /> : null;
+    line ? <LineText line={line} size={both ? (wide ? 30 : 20) : wide ? 36 : 28} lineHeight={both ? (wide ? 36 : 26) : wide ? 42 : 34} face={face} /> : null;
   const sideBody: Record<AnswerSide, React.ReactNode> = {
     repair: (
       <>
@@ -81,7 +83,7 @@ export function AnswerBlock({
     swap: (
       <>
         {figure(wePay)}
-        {bonus ? <LineText line={bonus} size={both ? 15 : 17} lineHeight={both ? 21 : 24} /> : null}
+        {bonus ? <LineText line={bonus} size={both ? (wide ? 16 : 14) : 17} lineHeight={both ? (wide ? 22 : 20) : 24} /> : null}
         {slots?.swap ?? null}
       </>
     ),
@@ -89,10 +91,10 @@ export function AnswerBlock({
 
   return (
     <View style={{ gap: 12 }}>
-      <Card pad={false} style={{ paddingHorizontal: wide ? 24 : 20, paddingVertical: 6 }}>
+      <Card pad={false} style={{ paddingHorizontal: wide ? 24 : 16, paddingVertical: 6 }}>
         {topRows}
         {both ? (
-          <View style={[st.sides, { gap: wide ? 14 : 10 }, topRows.length > 0 && st.rule]}>
+          <View style={[st.sides, { gap: wide ? 14 : 8 }, topRows.length > 0 && st.rule]}>
             {(["repair", "swap"] as const).map((side) => (
               <Side key={side} side={side} wide={wide} recommended={recommended === side} choose={choose}>
                 {sideBody[side]}
@@ -139,7 +141,7 @@ function Side({
     flexBasis: 0,
     minWidth: 0,
     gap: 6,
-    padding: wide ? 18 : 14,
+    padding: wide ? 18 : 12,
     borderRadius: P.radiusSm,
     borderWidth: 2,
     borderColor: selected ? P.ink : recommended ? P.primary : disabled ? P.line : "transparent",

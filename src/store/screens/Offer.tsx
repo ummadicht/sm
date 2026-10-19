@@ -485,7 +485,7 @@ export function OfferScreen({
   const ans = o.answer;
   const has = (k: Parameters<typeof lineOf>[1]) => !!ans && !!lineOf(ans.lines, k);
   const dash = (
-    <Figure size={wide ? 30 : 22} color={L.muted}>
+    <Figure size={wide ? 30 : 20} color={L.muted}>
       —
     </Figure>
   );
