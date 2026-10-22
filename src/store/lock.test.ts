@@ -1,6 +1,6 @@
 // node --test --experimental-strip-types --no-warnings src/store/lock.test.ts
 // TAKE THE TRADE-IN: the store app's form against the desk's (~/projects/swapup
-// components/counter/LockForm.tsx) and the server's lockTradeIn. Same import trick as ./buySell.test.ts.
+// components/counter/LockForm.tsx) and the server's lockTradeIn. Same import trick as ./pin.test.ts.
 import test from "node:test";
 import assert from "node:assert/strict";
 

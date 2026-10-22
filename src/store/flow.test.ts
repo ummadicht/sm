@@ -1,7 +1,7 @@
 // node --test --experimental-strip-types --no-warnings src/store/flow.test.ts
 // The reduced store flow: the answer by itself (no "Apply to case" on the way), "Check the
 // phone" inside the camera step only when the camera can't decide, and the top line. Same
-// import trick as ./buySell.test.ts.
+// import trick as ./pin.test.ts.
 import test from "node:test";
 import assert from "node:assert/strict";
 

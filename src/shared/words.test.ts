@@ -2,7 +2,7 @@
 // The owner, 2026-10-17, on a real phone: "reduce the words". Every sentence the apps write
 // themselves is ONE short sentence (≤ 15 words), every button 1–3 words. This guards the
 // app-owned sentences in the pure modules (the screens' own words are checked by reading them);
-// the server's strings are shortened at their source. Same import trick as ../store/buySell.test.ts.
+// the server's strings are shortened at their source. Same import trick as ../store/pin.test.ts.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { register } from "node:module";
@@ -24,6 +24,7 @@ const C: typeof import("../store/certify") = await import("../store/certify" + "
 const K: typeof import("../store/lock") = await import("../store/lock" + ".ts");
 const O: typeof import("../store/offer") = await import("../store/offer" + ".ts");
 const N: typeof import("../store/pin") = await import("../store/pin" + ".ts");
+const R: typeof import("../store/refurbEconomics") = await import("../store/refurbEconomics" + ".ts");
 
 const words = (s: string) => s.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
 /** A sentence end followed by another sentence ("Done. Next…") — "e.g." and "*#06#." don't count. */
@@ -96,6 +97,12 @@ test("the answer's lines and waiting sentences (the server's, as the fixtures ho
   out.push(F.F2.text, F.F2_ESTIMATE.text, F.CANCELLED.text);
   assert.ok(out.length > 30);
   short(out);
+});
+
+test("the refurb decision's own words: the title, the five labels, the box", () => {
+  short([R.TITLE, ...Object.values(R.LABEL), R.readCost("1.5").problem!, R.readCost("900000").problem!]);
+  for (const t of Object.values(R.LABEL).filter((l) => !l.includes("·"))) assert.ok(words(t) <= 3, t);
+  assert.ok(words(R.OWN_COST) <= 3, R.OWN_COST);
 });
 
 test("PIN and tablet-name messages", () => {

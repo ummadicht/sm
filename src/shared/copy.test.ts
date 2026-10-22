@@ -16,7 +16,7 @@ const FILES = G.repoFiles(ROOT);
 
 test("the repo has the files the checks read", () => {
   const paths = FILES.map((f) => f.path.replace(/\\/g, "/"));
-  for (const p of ["README.md", "app.config.js", "src/store/offer.ts", "src/store/buySell.ts", "src/store/screens/Offer.tsx", "src/shared/copy.test.ts"]) assert.ok(paths.includes(p), p);
+  for (const p of ["README.md", "app.config.js", "src/store/offer.ts", "src/store/refurbEconomics.ts", "src/store/screens/Offer.tsx", "src/shared/copy.test.ts"]) assert.ok(paths.includes(p), p);
   assert.ok(FILES.filter((f) => f.text !== null).length > 100);
 });
 

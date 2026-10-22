@@ -101,15 +101,21 @@ Every price comes from the SwapUp server, which gets it from **PriceIQ** (the li
 price by grade) or the **partner's uploaded rate card** — never typed in, never from the apps, and
 never made up. The apps print the server's figures and words and add only these:
 
-- **Store margin › Sell** (`src/store/buySell.ts`): "Refurbished market price ₹53,499 (Superb) − 2% ·
-  PriceIQ 2026-W35" — the market price less the store's markdown (5% up to ₹15k, 4% to ₹30k, 3% to
-  ₹50k, 2% above), PriceIQ's data week, and " · none at Superb" when a lower grade had to be used.
-  Data **over 14 days old** shows its age once: the server's own sentence under the price
-  ("Refurbished market price, week 2026-W35, 52 days old." — or "PriceIQ unreachable, last answer …"
-  while it uses its last good answer), else ", 52 days old" on the line. Data **over 90 days old is no
-  price**. The answer's lines and notes are the server's words, printed as sent — the market price
-  is the buyback partner's (its rate card); a PriceIQ estimate is shown to staff only, and the
-  customer's phone waits until the partner's price is in.
+- **Refurb decision · staff only** (`src/store/refurbEconomics.ts`, Linear SUP-92): closed at the
+  bottom of the answer, the server's five lines (`refurbEconomics` on the staff case) printed as sent,
+  in the desk's words and order — **Pre-refurb value** (the trade-in, "grade A ₹34,960 − 15% back
+  glass cracked"), **Repair cost** (the store's own figure, else SwapUp's repair estimate, else
+  "Nothing to repair"), **Post-repair value** (the same price list's price for the phone repaired,
+  "grade B price"), the **repair uplift** said as the decision ("Repair before pickup: +₹1,864" /
+  "Send as-is — repairing costs ₹732 more than it adds") and the **SwapUp offer** (what we pay, "+
+  ₹4,649 bonus with the Galaxy S26 Ultra 256GB"). The app works nothing out. A missing figure is "—"
+  with the server's why. The box on the Repair cost line saves the store's own figure (`PATCH
+  {refurbCost}`) — it moves no price. A server older than SUP-92 sends no lines: no panel, never
+  half the numbers. It replaced "Store margin" (buy / refurb / sell / margin): PriceIQ's sell price
+  is no longer shown.
+- **The answer's lines and notes** are the server's words, printed as sent — the market price is the
+  buyback partner's (its rate card); a PriceIQ estimate is shown to staff only, with its data's age
+  when stale, and the customer's phone waits until the partner's price is in.
 - **No price from anywhere**: "No market price yet." — under it, the server's one reason (no rate card
   live, this phone not on it, a measured size not on file); text only, nothing to type in.
 - **The price moves only with the condition** (owner, 2026-10-19): the answer's quiet row has
@@ -119,10 +125,10 @@ never made up. The apps print the server's figures and words and add only these:
 - **Test programme** (the server's `org.demo`): one short banner, "Test programme — no real money" —
   under the answer's lines too, on the customer's phone and the tablet.
 
-Older servers keep working: fields they don't send (`ageDays`, `stale`, `note`, `answer`) are simply absent
-(no answer: the Check app's Done screen and the Store's two tiles stay as they were),
-and flags they send that newer ones dropped (a storage chip's old marker) are ignored. A
-figure an older server marks as off its placeholder card is never used as the sell price.
+Older servers keep working: fields they don't send (`answer`, `refurbEconomics`) are simply absent
+(no answer: the Check app's Done screen and the Store's two tiles stay as they were; no
+`refurbEconomics`: no refurb decision panel), and flags they send that newer ones dropped (a storage
+chip's old marker) are ignored.
 `src/shared/copy.test.ts` reads the whole repo: no made-up-price wording, and the buyback partner is
 never named — not in a screen, comment, identifier, test, doc or file name.
 
@@ -160,8 +166,8 @@ npx tsc --noEmit
 node --test --experimental-strip-types --no-warnings src/diagnostics/auto/*.test.ts src/store/*.test.ts src/check/*.test.ts src/shared/*.test.ts
 # verdict maths, pairing + the result screen's colours, plan, touch · store: the reduced flow (the
 # answer by itself, the card in the camera step), PIN rules, Check the phone, the one hand-over
-# confirm, find by mobile · check: engine, report, "Is this your phone?" · no partner name anywhere,
-# one short sentence per line
+# confirm, find by mobile, the refurb decision as the server sends it · check: engine, report, "Is
+# this your phone?" · no partner name anywhere, one short sentence per line
 ```
 
 Where the native run lives: `src/diagnostics/auto/` — pure logic with no app imports
@@ -171,8 +177,10 @@ Where the native run lives: `src/diagnostics/auto/` — pure logic with no app i
 `NativeCheck.web.tsx` is an empty stand-in so the browser bundle never contains them. Store side:
 `src/store/flow.ts` (the reduced flow: `autoApply`, where the card goes, the top line),
 `src/store/grading.ts` (reads `session.grading`), `src/store/certify.ts` (reads `certify`, "Check the
-phone"), `src/store/customers.ts` (find by mobile), `screens/CameraParts.tsx` (the one camera pass),
-`screens/CertifyCard.tsx`, `screens/SessionParts.tsx` (the connect step),
+phone"), `src/store/customers.ts` (find by mobile), `src/store/refurbEconomics.ts` (reads
+`refurbEconomics`, the staff refurb decision; `screens/RefurbDecision.tsx` prints it),
+`screens/CameraParts.tsx` (the one camera pass), `screens/CertifyCard.tsx`, `screens/SessionParts.tsx`
+(the connect step),
 `openCamera.ts` / `openCamera.web.ts`. Customer side: `src/check/ResultColours.tsx` (the colours on
 the result screen).
 

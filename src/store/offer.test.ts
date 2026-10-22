@@ -1,6 +1,6 @@
 // node --test --experimental-strip-types --no-warnings src/store/offer.test.ts
 // THE ANSWER screen's reading of CaseView.offer (spec §3; ~/projects/swapup lib/domain/offer.ts)
-// and the labels the app owns. Same import trick as ./buySell.test.ts.
+// and the labels the app owns. Same import trick as ./pin.test.ts.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { register } from "node:module";
@@ -17,7 +17,6 @@ register(
 );
 
 const O: typeof import("./offer") = await import("./offer" + ".ts");
-const B: typeof import("./buySell") = await import("./buySell" + ".ts");
 const G: typeof import("../shared/nameGuard") = await import("../shared/nameGuard" + ".ts");
 const F: typeof import("../shared/answer.fixtures") = await import("../shared/answer.fixtures" + ".ts");
 
@@ -757,7 +756,6 @@ test("tradeInDetail: the rate card's fallback keeps its note; nothing to show re
 
 test("swapWhyLine: the server's why under '—'; with none, the one no-price line; nothing beside a total", () => {
   assert.equal(O.NO_MARKET_PRICE, "No market price yet.");
-  assert.equal(O.NO_MARKET_PRICE, B.NO_MARKET_PRICE, "the answer and the margin card say the same words");
   const none = { tradeIn: null, tradeInNote: null, bonus: null, bonusBp: null, bonusWhy: null, total: null, why: null, newPhone: null, customerPays: null, vsRepair: null };
   // The server's own why wins.
   assert.equal(O.swapWhyLine(read(storageUnknown())), TAP_STORAGE);

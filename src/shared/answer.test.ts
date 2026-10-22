@@ -1,6 +1,6 @@
 // node --test --experimental-strip-types --no-warnings src/shared/answer.test.ts
 // Reading THE ANSWER the server writes (./answer.ts): the contract fixtures F1–F10 (./answer.fixtures.ts),
-// an older server, and junk. Same import trick as ../store/buySell.test.ts.
+// an older server, and junk. Same import trick as ../store/pin.test.ts.
 import test from "node:test";
 import assert from "node:assert/strict";
 

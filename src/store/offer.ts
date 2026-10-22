@@ -10,7 +10,7 @@
 //   Staff notes       = offer.answer.staffNotes  staff-only words under them ("Includes ₹1,000 SwapUp premium (4%).")
 //   Refurb quote      = offer.repair.amount   what the CUSTOMER pays to fix this phone (the price book,
 //                                              a bench/service-centre quote, or ₹0 when covered). Not the
-//                                              store's refurb cost — that stays in the "Store margin" card.
+//                                              store's own repair cost — that is the "Refurb decision" panel's.
 //   Market price      = offer.swap.tradeIn    the system's price — PriceIQ's estimate by grade (which the
 //                                              customer isn't shown), else the rate card's; never typed in, it
 //                                              moves only with the phone's condition. offer.swap.tradeInDetail
@@ -359,7 +359,7 @@ export function pill(o: Offer, pick: Pick | null): { title: string; disabled: bo
 /** The trade-in tile's link to the new-phone sheet (and the new-phone ask's button). */
 export const CHOOSE_PHONE = "Choose the new phone";
 
-/** No price from PriceIQ or the rate card — the desk's words (owner, 2026-10-19). Same as ../buySell.ts. */
+/** No price from PriceIQ or the rate card — the desk's words (owner, 2026-10-19). */
 export const NO_MARKET_PRICE = "No market price yet.";
 
 /** The line under "—" where we pay (or, from an older server, the Trade-in + bonus tile): the server's why; with none, NO_MARKET_PRICE. null while there is a total. */

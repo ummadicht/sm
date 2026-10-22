@@ -2,7 +2,7 @@
 // The join's `identity`, storage sizes included. The customer is no longer asked to
 // confirm the model or its storage (2026-10-17): a recognised phone goes straight to the
 // scan (core.ts identifyDone, tested in src/diagnostics/auto/phoneled.test.ts). Same
-// import trick as src/store/buySell.test.ts.
+// import trick as src/store/pin.test.ts.
 import test from "node:test";
 import assert from "node:assert/strict";
 
