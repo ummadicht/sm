@@ -12,62 +12,53 @@ import assert from "node:assert/strict";
 
 const R: typeof import("./refurbEconomics") = await import("./refurbEconomics" + ".ts");
 
-const BONUS_LINE = "+ ₹4,649 bonus with the Galaxy S26 Ultra 256GB";
+const BONUS_LINE = "As on the answer · + ₹4,649 bonus with the Galaxy S26 Ultra 256GB";
 const S26U = "Galaxy S26 Ultra 256GB";
 const SCREEN_ESTIMATE = "SwapUp's repair estimate: display assembly ₹28,470 + labour ₹425 + GST ₹5,201";
 const BACK_ESTIMATE = "SwapUp's repair estimate: back glass / cover ₹3,470 + labour ₹425 + GST ₹701";
+const BACK_MARKET = "Market price — priced at grade A ₹34,960, less 15% back glass cracked";
 
 /**
- * (a) Cracked back, screen flawless. SUP-92's spec expected grade A ₹34,960 once repaired, an uplift
- * of +₹654 and "Repair before pickup". The server prices it at grade B ₹33,574: healedCondition —
- * the one healing rule the post-repair value, the answer's grade line and the report all read —
- * heals a cracked back only as far as "scuffed" (a new back panel on a frame nobody has seen bare).
- * So the uplift is 33,574 − 29,710 − 4,596 = −₹732: send as-is. The app prints the server's lines.
+ * (a) Cracked back, screen flawless: the card priced it at grade A less 15% for the back glass;
+ * repaired, the 15% comes back at grade A ₹34,960 — 34,960 − 29,710 − 4,596 = +₹654, repair before
+ * pickup (owner, SUP-92). "priced at grade A", never "grade A": the answer's grade line says B.
  */
 const A = {
-  preRefurb: { amount: 29710, grade: "A", source: "grade A ₹34,960 − 15% back glass cracked", why: null },
+  preRefurb: { amount: 29710, grade: "A", source: BACK_MARKET, why: null },
   repairCost: { amount: 4596, basis: "estimate", source: BACK_ESTIMATE, why: null },
-  postRepair: { amount: 33574, grade: "B", source: "grade B price", why: null },
-  uplift: { amount: -732, verdict: "as_is", text: "Send as-is — repairing costs ₹732 more than it adds", why: null },
+  postRepair: { amount: 34960, grade: "A", source: "Grade A price", why: null },
+  uplift: { amount: 654, verdict: "repair", text: "Repair before pickup: +₹654", why: null },
   offer: { amount: 30898, bonus: 4649, newPhone: S26U, source: BONUS_LINE, why: null },
 };
 /** (b) Cracked screen: the display costs more than it adds. */
 const B = {
-  preRefurb: { amount: 20970, grade: "A", source: "grade A ₹34,960 − 40% screen cracked", why: null },
+  preRefurb: { amount: 20970, grade: "A", source: "Market price — priced at grade A ₹34,960, less 40% screen cracked", why: null },
   repairCost: { amount: 34096, basis: "estimate", source: SCREEN_ESTIMATE, why: null },
-  postRepair: { amount: 34960, grade: "A", source: "grade A price", why: null },
+  postRepair: { amount: 34960, grade: "A", source: "Grade A price", why: null },
   uplift: { amount: -20106, verdict: "as_is", text: "Send as-is — repairing costs ₹20,106 more than it adds", why: null },
   offer: { amount: 21808, bonus: 4649, newPhone: S26U, source: BONUS_LINE, why: null },
 };
 /** (c) Light wear (scratched screen, scuffed body), no faults: grade B, nothing to repair. */
 const C = {
-  preRefurb: { amount: 33574, grade: "B", source: "grade B price", why: null },
+  preRefurb: { amount: 33574, grade: "B", source: "Market price — grade B price", why: null },
   repairCost: { amount: 0, basis: "none", source: "Nothing to repair", why: null },
-  postRepair: { amount: 33574, grade: "B", source: "grade B price", why: null },
+  postRepair: { amount: 33574, grade: "B", source: "Grade B price", why: null },
   uplift: { amount: null, verdict: "nothing_to_repair", text: "Nothing to repair", why: null },
   offer: { amount: 34581, bonus: 4649, newPhone: S26U, source: BONUS_LINE, why: null },
 };
-/** (d) A cracked screen with no price list price: the phone isn't on the card, or no card is active. */
-const D = (why: string) => ({
-  preRefurb: { amount: null, grade: null, source: null, why },
-  repairCost: { amount: 34096, basis: "estimate", source: SCREEN_ESTIMATE, why: null },
-  postRepair: { amount: null, grade: null, source: null, why },
-  uplift: { amount: null, verdict: null, text: null, why: "Needs the pre-refurb value and the post-repair value." },
-  offer: { amount: null, bonus: null, newPhone: S26U, source: null, why },
-});
 const NOT_ON_CARD = "This phone isn't on the rate card yet.";
 const NO_CARD = "No rate card is active yet.";
-/** (a) with the store's own repair cost: repairing now adds money. */
+/** (a) with the store's own repair cost. */
 const STORE = {
   ...A,
   repairCost: { amount: 2000, basis: "store", source: "The store's own figure, entered by Ravi", why: null },
-  uplift: { amount: 1864, verdict: "repair", text: "Repair before pickup: +₹1,864", why: null },
+  uplift: { amount: 3250, verdict: "repair", text: "Repair before pickup: +₹3,250", why: null },
 };
 /** Liquid damage: a bench check, so no repair cost and no decision. */
 const WET = {
-  preRefurb: { amount: 19220, grade: "A", source: "grade A ₹34,960 − 45% signs of liquid damage", why: null },
+  preRefurb: { amount: 19220, grade: "A", source: "Market price — priced at grade A ₹34,960, less 45% signs of liquid damage", why: null },
   repairCost: { amount: null, basis: null, source: null, why: "Bench check needed (Liquid damage) — enter the store's repair cost." },
-  postRepair: { amount: 34960, grade: "A", source: "grade A price", why: null },
+  postRepair: { amount: 34960, grade: "A", source: "Grade A price", why: null },
   uplift: { amount: null, verdict: null, text: null, why: "Needs the repair cost." },
   offer: { amount: 19988, bonus: 4649, newPhone: S26U, source: BONUS_LINE, why: null },
 };
@@ -106,31 +97,33 @@ function printed(d: NonNullable<ReturnType<typeof R.readRefurbDecision>>) {
 
 // ── the worked examples ─────────────────────────────────────────────────────
 
-test("(a) cracked back: ₹29,710 · ₹4,596 · ₹33,574 (grade B) · send as-is · ₹30,898 + ₹4,649 — as the server sent it", () => {
+test("(a) cracked back: ₹29,710 · ₹4,596 · ₹34,960 (grade A) · repair before pickup +₹654 · ₹30,898 + ₹4,649 — as the server sent it", () => {
   const d = read(A);
   assert.deepEqual(d.lines, A, "every field reads back as sent");
   assert.equal(d.editable, true);
   assert.deepEqual(printed(d), [
-    ["Pre-refurb value", 29710, "grade A ₹34,960 − 15% back glass cracked"],
+    ["Pre-refurb value", 29710, BACK_MARKET],
     ["Repair cost", 4596, BACK_ESTIMATE],
-    ["Post-repair value", 33574, "grade B price"],
-    ["Repair uplift · post-repair − pre-refurb − repair cost", "Send as-is — repairing costs ₹732 more than it adds", null],
-    ["SwapUp offer", 30898, BONUS_LINE],
+    ["Post-repair value", 34960, "Grade A price"],
+    ["Repair uplift · post-repair − pre-refurb − repair cost", "Repair before pickup: +₹654", null],
+    ["SwapUp offer · we pay you", 30898, BONUS_LINE],
   ]);
   // The server's uplift is its own three figures' difference; the app only prints it.
-  assert.equal(d.lines.uplift.amount, 33574 - 29710 - 4596);
-  assert.equal(R.costText(d.lines), "4596");
+  assert.equal(d.lines.uplift.amount, 34960 - 29710 - 4596);
+  // SwapUp's estimate is on the line, not in the store's box.
+  assert.equal(R.costText(d.lines), "");
+  assert.equal(R.costPlaceholder(d.lines), "enter if different");
 });
 
 test("(b) cracked screen: ₹20,970 · ₹34,096 · ₹34,960 (grade A) · send as-is, −₹20,106", () => {
   const d = read(B);
   assert.deepEqual(d.lines, B);
   assert.deepEqual(printed(d), [
-    ["Pre-refurb value", 20970, "grade A ₹34,960 − 40% screen cracked"],
+    ["Pre-refurb value", 20970, "Market price — priced at grade A ₹34,960, less 40% screen cracked"],
     ["Repair cost", 34096, SCREEN_ESTIMATE],
-    ["Post-repair value", 34960, "grade A price"],
+    ["Post-repair value", 34960, "Grade A price"],
     ["Repair uplift · post-repair − pre-refurb − repair cost", "Send as-is — repairing costs ₹20,106 more than it adds", null],
-    ["SwapUp offer", 21808, BONUS_LINE],
+    ["SwapUp offer · we pay you", 21808, BONUS_LINE],
   ]);
 });
 
@@ -138,37 +131,30 @@ test("(c) light wear, no faults: ₹33,574 (grade B) · nothing to repair (₹0)
   const d = read(C);
   assert.deepEqual(d.lines, C);
   assert.deepEqual(printed(d), [
-    ["Pre-refurb value", 33574, "grade B price"],
+    ["Pre-refurb value", 33574, "Market price — grade B price"],
     ["Repair cost", 0, "Nothing to repair"],
-    ["Post-repair value", 33574, "grade B price"],
+    ["Post-repair value", 33574, "Grade B price"],
     ["Repair uplift · post-repair − pre-refurb − repair cost", "Nothing to repair", null],
-    ["SwapUp offer", 34581, BONUS_LINE],
+    ["SwapUp offer · we pay you", 34581, BONUS_LINE],
   ]);
   assert.equal(d.lines.uplift.amount, null, "no uplift figure");
-  assert.equal(R.costText(d.lines), "0");
+  assert.equal(R.costText(d.lines), "", "₹0 is the line's, not the store's");
 });
 
-test("(d) not on the card, or no card: pre-refurb and post-repair missing with the specific reason; no uplift; no offer", () => {
+test("(d) not on the card, or no card: no trade-in price, so the server sends no panel (the answer's Swap up side says why, once)", () => {
   for (const why of [NOT_ON_CARD, NO_CARD]) {
-    const d = read(D(why), { quote: { status: "unpriced", amount: null, reason: why } });
-    assert.deepEqual(d.lines, D(why));
-    assert.deepEqual(printed(d), [
-      ["Pre-refurb value", null, why],
-      ["Repair cost", 34096, SCREEN_ESTIMATE],
-      ["Post-repair value", null, why],
-      ["Repair uplift · post-repair − pre-refurb − repair cost", "—", "Needs the pre-refurb value and the post-repair value."],
-      ["SwapUp offer", null, why],
-    ]);
+    assert.equal(R.readRefurbDecision(caseView(null, { quote: { status: "unpriced", amount: null, reason: why } })), null, why);
   }
 });
 
 // ── the other decisions ─────────────────────────────────────────────────────
 
-test("the store's own repair cost: the server's line says so, and 'Repair before pickup' when repairing adds money", () => {
+test("the store's own repair cost: the server's line says so, the box holds it, and the decision is the server's", () => {
   const d = read(STORE, { refurbCost: { amount: 2000, by: "Ravi" } });
   assert.deepEqual(d.lines.repairCost, { amount: 2000, basis: "store", source: "The store's own figure, entered by Ravi", why: null });
-  assert.deepEqual(d.lines.uplift, { amount: 1864, verdict: "repair", text: "Repair before pickup: +₹1,864", why: null });
-  assert.equal(R.decisionText(d.lines.uplift), "Repair before pickup: +₹1,864");
+  assert.deepEqual(d.lines.uplift, { amount: 3250, verdict: "repair", text: "Repair before pickup: +₹3,250", why: null });
+  assert.equal(R.decisionText(d.lines.uplift), "Repair before pickup: +₹3,250");
+  assert.equal(R.costText(d.lines), "2000", "the store's own figure is in its box");
 });
 
 test("a repair with no price: the repair cost is '—' with the server's why, the box is empty, and the decision says what it needs", () => {
@@ -176,15 +162,16 @@ test("a repair with no price: the repair cost is '—' with the server's why, th
   assert.deepEqual(printed(d)[1], ["Repair cost", null, "Bench check needed (Liquid damage) — enter the store's repair cost."]);
   assert.deepEqual(printed(d)[3], ["Repair uplift · post-repair − pre-refurb − repair cost", "—", "Needs the repair cost."]);
   assert.equal(R.costText(d.lines), "");
+  assert.equal(R.costPlaceholder(d.lines), "—");
 });
 
-test("no new phone: the offer is what we pay, nothing under it", () => {
-  const d = read({ ...A, offer: { amount: 30898, bonus: null, newPhone: null, source: null, why: null } });
-  assert.deepEqual(printed(d)[4], ["SwapUp offer", 30898, null]);
+test("no new phone: the offer is what we pay, as on the answer, no bonus", () => {
+  const d = read({ ...A, offer: { amount: 30898, bonus: null, newPhone: null, source: "As on the answer", why: null } });
+  assert.deepEqual(printed(d)[4], ["SwapUp offer · we pay you", 30898, "As on the answer"]);
 });
 
 test("the line under a figure is where it came from, else why it's missing", () => {
-  assert.equal(R.subLine({ amount: 1, source: "grade B price", why: null }), "grade B price");
+  assert.equal(R.subLine({ amount: 1, source: "Grade B price", why: null }), "Grade B price");
   assert.equal(R.subLine({ amount: null, source: null, why: NO_CARD }), NO_CARD);
   assert.equal(R.subLine({ amount: null, source: null, why: null }), null);
 });
@@ -203,7 +190,7 @@ test("an older server (no refurbEconomics), the partner (null), or a field that 
     noUplift,
     noOffer,
     { ...A, preRefurb: null },
-    { ...A, postRepair: "₹33,574" },
+    { ...A, postRepair: "₹34,960" },
     { ...A, repairCost: { ...A.repairCost, amount: "4596" } },
     { ...A, offer: { ...A.offer, bonus: Number.NaN } },
     { ...A, uplift: { ...A.uplift, text: 654 } },
@@ -212,16 +199,17 @@ test("an older server (no refurbEconomics), the partner (null), or a field that 
   }
   // An enum a newer server adds reads as null; the figures still show.
   const d = read({ ...A, postRepair: { ...A.postRepair, grade: "Premium" }, uplift: { ...A.uplift, verdict: "later" } });
-  assert.deepEqual([d.lines.postRepair.grade, d.lines.postRepair.amount, d.lines.uplift.verdict, d.lines.uplift.text], [null, 33574, null, A.uplift.text]);
+  assert.deepEqual([d.lines.postRepair.grade, d.lines.postRepair.amount, d.lines.uplift.verdict, d.lines.uplift.text], [null, 34960, null, A.uplift.text]);
 });
 
-test("shown where the desk shows it: a case with a quote, at the counter (editable) or ended there (read-only); not once traded in", () => {
+test("shown exactly when the server sends it — at the counter (editable) and traded in until pickup (read-only); the server sends null otherwise", () => {
   assert.equal(read(A, { status: "draft" }).editable, true);
   assert.equal(read(A, { status: "quoted" }).editable, true);
-  assert.equal(read(A, { status: "repair_chosen" }).editable, false);
-  assert.equal(read(A, { status: "walked_away" }).editable, false);
-  for (const status of ["locked", "collected", "cancelled"]) assert.equal(R.readRefurbDecision(caseView(A, { status })), null, status);
-  assert.equal(R.readRefurbDecision(caseView(A, { quote: null })), null, "no quote on the case");
+  // "Repair before pickup" is acted on between the lock and the partner's pickup.
+  assert.equal(read(A, { status: "locked" }).editable, false);
+  assert.equal(read(A, { status: "in_pickup" }).editable, false);
+  // Repair chosen, walked away, cancelled, collected: no trade-in to decide on — the server sends null.
+  for (const status of ["repair_chosen", "walked_away", "cancelled", "collected"]) assert.equal(R.readRefurbDecision(caseView(null, { status })), null, status);
   for (const bad of [null, undefined, "x", 3, [], {}, { status: 1, quote: {}, refurbEconomics: A }]) assert.equal(R.readRefurbDecision(bad), null, JSON.stringify(bad));
 });
 
@@ -231,14 +219,14 @@ test("the title, the five labels and their order are the desk's", () => {
   assert.equal(R.TITLE, "Refurb decision · staff only");
   assert.deepEqual(
     R.ORDER.map((k) => R.LABEL[k]),
-    ["Pre-refurb value", "Repair cost", "Post-repair value", "Repair uplift · post-repair − pre-refurb − repair cost", "SwapUp offer"]
+    ["Pre-refurb value", "Repair cost", "Post-repair value", "Repair uplift · post-repair − pre-refurb − repair cost", "SwapUp offer · we pay you"]
   );
   assert.deepEqual(Object.keys(read(A).lines), [...R.ORDER]);
 });
 
 // ── the store's own repair cost box ─────────────────────────────────────────
 
-test("the box: digits only, whole rupees up to ₹5,00,000; Save only for a figure that differs from the line's, at the counter", () => {
+test("the box: digits only, whole rupees up to ₹5,00,000; it holds the store's own figure only, and Save takes any usable figure until the line is the store's", () => {
   assert.equal(R.costInput("₹4,596"), "4596");
   assert.equal(R.costInput("3200.50"), "3200.50");
   assert.equal(R.costInput("1234567890"), "123456789");
@@ -248,13 +236,24 @@ test("the box: digits only, whole rupees up to ₹5,00,000; Save only for a figu
   assert.deepEqual(R.readCost(" 2000 "), { amount: 2000, problem: null });
   assert.deepEqual(R.readCost("0"), { amount: 0, problem: null });
 
+  // SwapUp's estimate on the line: the box is empty, and any usable figure saves — the estimate's own too.
   const d = read(A);
-  assert.equal(R.canSaveCost(d, "4596"), false, "the line's own figure");
+  assert.equal(R.costText(d.lines), "");
+  assert.equal(R.canSaveCost(d, "4596"), true, "staff may adopt SwapUp's estimate as the store's own");
   assert.equal(R.canSaveCost(d, "2000"), true);
   assert.equal(R.canSaveCost(d, ""), false);
   assert.equal(R.canSaveCost(d, "3200.50"), false);
   assert.equal(R.canSaveCost(d, "500001"), false);
-  assert.equal(R.canSaveCost(read(A, { status: "repair_chosen" }), "2000"), false, "past the counter");
+  // Nothing to repair (₹0 on the line): the box is empty too, and ₹0 can be saved as the store's.
+  assert.equal(R.canSaveCost(read(C), "0"), true);
+  // The store's own figure: in the box, and Save only once it differs.
+  const own = read(STORE);
+  assert.equal(R.costText(own.lines), "2000");
+  assert.equal(R.costPlaceholder(own.lines), "—");
+  assert.equal(R.canSaveCost(own, "2000"), false, "the store's own figure, unchanged");
+  assert.equal(R.canSaveCost(own, "2500"), true);
+  // Past the counter: read-only.
+  assert.equal(R.canSaveCost(read(A, { status: "locked" }), "2000"), false, "past the counter");
   // No figure on the line: any usable number can be saved, ₹0 included.
   assert.equal(R.canSaveCost(read(WET), "0"), true);
   assert.deepEqual(R.costPatch(2000), { refurbCost: { amount: 2000 } });

@@ -5,27 +5,32 @@
 // (components/counter/RefurbDecision.tsx) and this app print them AS SENT, in the same order and
 // under the same labels:
 //
-//   Pre-refurb value   M, the market price for the phone as it is (the case's trade-in quote)
+//   Pre-refurb value   M, the market price for the phone as it is (the case's trade-in quote):
+//                      "Market price — priced at grade A ₹34,960, less 15% back glass cracked"
 //   Repair cost        the store's own figure, else SwapUp's repair estimate, else "Nothing to repair"
 //   Post-repair value  the same rate card's price for the phone with its faults repaired
 //   Repair uplift      post-repair − pre-refurb − repair cost, said as the decision ("Repair before
-//                      pickup: +₹1,864" / "Send as-is — repairing costs ₹732 more than it adds")
-//   SwapUp offer       what we pay, "+ ₹4,649 bonus with the Galaxy S26 Ultra 256GB"
+//                      pickup: +₹654" / "Send as-is — repairing costs ₹20,106 more than it adds")
+//   SwapUp offer · we pay you   the answer's "We pay you": "As on the answer · + ₹4,649 bonus with …"
 //
 // It replaced the "Store margin" card (buy / refurb / sell / margin, with PriceIQ's sell price):
 // nothing is worked out here — every figure, and every reason one is missing, is the server's.
-// A server that doesn't send the field (older than SUP-92), or sends one that doesn't read, shows
+// WHEN is the server's call, once: it sends the field only while there is a priced trade-in to
+// decide on — at the counter (draft, quoted: the box is editable) and traded in until the partner's
+// pickup (locked, in_pickup: read-only) — and null otherwise (no trade-in price, repair chosen,
+// walked away, cancelled, collected; the partner). The app draws the panel exactly when the field
+// reads. A server that doesn't send it (older than SUP-92), or sends one that doesn't read, shows
 // no panel at all: never half the numbers. The one thing the app adds is the store's own repair
 // cost box (PATCH { refurbCost: { amount } }) — the STORE's figure, which moves no price; the
-// server answers with the whole case and its new lines.
+// server answers with the whole case and its new lines. The box holds the store's figure only:
+// empty ("enter if different") while the line is SwapUp's estimate, so the estimate is never read
+// as entered — the line prints its figure either way.
 // No React Native imports: the test runs under plain node.
 
 /** The server's ceiling for the store's repair cost (lib/server/cases.ts updateCase), in rupees. */
 export const REFURB_MAX = 500_000;
 /** Case statuses the server still lets the counter edit (lib/server/cases.ts EDITABLE). */
 const EDITABLE = new Set(["draft", "quoted"]);
-/** Statuses past the counter: the desk shows no panel for them (CaseWorkspace lockedOrLater). */
-const AT_OR_ENDED_AT_COUNTER = new Set(["draft", "quoted", "repair_chosen", "walked_away"]);
 
 /** The panel's title and its labels — the desk's words, in the desk's order. */
 export const TITLE = "Refurb decision · staff only";
@@ -34,11 +39,13 @@ export const LABEL = {
   repairCost: "Repair cost",
   postRepair: "Post-repair value",
   uplift: "Repair uplift · post-repair − pre-refurb − repair cost",
-  offer: "SwapUp offer",
+  offer: "SwapUp offer · we pay you",
 } as const;
 export const ORDER = ["preRefurb", "repairCost", "postRepair", "uplift", "offer"] as const;
 /** Before the repair cost box (the desk's "Store's own ₹"; the box carries its own ₹). */
 export const OWN_COST = "Store's own";
+/** The empty box under SwapUp's estimate (the desk's placeholder). */
+export const IF_DIFFERENT = "enter if different";
 
 export type Grade = "A" | "B" | "C" | "D";
 /** One figure, where it came from, or why there is none (the server sets one of the two). */
@@ -97,13 +104,13 @@ export function readRefurbEconomics(x: unknown): RefurbEconomics | null {
 }
 
 /**
- * GET/PATCH /api/cases/<id> (or an /action answer) → the panel, or null for no panel. Shown when
- * the desk shows it: the server sent the lines, the case has a quote, and it is at the counter or
- * ended there (repair chosen, walked away) — not once the trade-in is taken.
+ * GET/PATCH /api/cases/<id> (or an /action answer) → the panel, or null for no panel. Shown exactly
+ * when the server sends the lines (it decides when there is a trade-in to decide on); the box is
+ * editable only at the counter.
  */
 export function readRefurbDecision(x: unknown): RefurbDecision | null {
   const c = obj(x);
-  if (!c || typeof c.status !== "string" || !AT_OR_ENDED_AT_COUNTER.has(c.status) || !obj(c.quote)) return null;
+  if (!c || typeof c.status !== "string") return null;
   const lines = readRefurbEconomics(c.refurbEconomics);
   return lines ? { lines, editable: EDITABLE.has(c.status) } : null;
 }
@@ -116,9 +123,16 @@ export const decisionText = (u: RefurbEconomics["uplift"]): string => u.text ?? 
 
 // ── the store's own repair cost (PATCH { refurbCost }) ──────────────────────────
 
-/** The box's first text: the repair cost line's figure, or empty. */
+/** The box's first text: the store's own figure when the line is the store's, else empty. */
 export function costText(e: RefurbEconomics): string {
-  return e.repairCost.amount === null ? "" : String(Math.round(e.repairCost.amount));
+  const c = e.repairCost;
+  return c.basis === "store" && c.amount !== null ? String(Math.round(c.amount)) : "";
+}
+
+/** The empty box's hint: "enter if different" under SwapUp's figure, "—" with no figure. */
+export function costPlaceholder(e: RefurbEconomics): string {
+  const c = e.repairCost;
+  return c.basis !== "store" && c.amount !== null ? IF_DIFFERENT : "—";
 }
 
 /** What the box keeps while typing: digits and a point (so "3200.50" can be refused, not misread). */
@@ -136,10 +150,14 @@ export function readCost(t: string): { amount: number | null; problem: string | 
   return { amount: n, problem: null };
 }
 
-/** Save is offered only for a usable figure that differs from the line's (as the desk). */
+/**
+ * Save is offered for a usable figure at the counter (as the desk): any one while the line isn't the
+ * store's own (the estimate's own figure too — staff may adopt it), one that differs once it is.
+ */
 export function canSaveCost(d: RefurbDecision, t: string): boolean {
   const n = readCost(t).amount;
-  return d.editable && n !== null && n !== d.lines.repairCost.amount;
+  const c = d.lines.repairCost;
+  return d.editable && n !== null && (c.basis !== "store" || n !== c.amount);
 }
 
 /** PATCH /api/cases/<id> body that saves the store's own repair cost. */

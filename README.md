@@ -103,16 +103,19 @@ never made up. The apps print the server's figures and words and add only these:
 
 - **Refurb decision · staff only** (`src/store/refurbEconomics.ts`, Linear SUP-92): closed at the
   bottom of the answer, the server's five lines (`refurbEconomics` on the staff case) printed as sent,
-  in the desk's words and order — **Pre-refurb value** (the trade-in, "grade A ₹34,960 − 15% back
-  glass cracked"), **Repair cost** (the store's own figure, else SwapUp's repair estimate, else
-  "Nothing to repair"), **Post-repair value** (the same price list's price for the phone repaired,
-  "grade B price"), the **repair uplift** said as the decision ("Repair before pickup: +₹1,864" /
-  "Send as-is — repairing costs ₹732 more than it adds") and the **SwapUp offer** (what we pay, "+
-  ₹4,649 bonus with the Galaxy S26 Ultra 256GB"). The app works nothing out. A missing figure is "—"
-  with the server's why. The box on the Repair cost line saves the store's own figure (`PATCH
-  {refurbCost}`) — it moves no price. A server older than SUP-92 sends no lines: no panel, never
-  half the numbers. It replaced "Store margin" (buy / refurb / sell / margin): PriceIQ's sell price
-  is no longer shown.
+  in the desk's words and order — **Pre-refurb value** (the answer's market price, "Market price —
+  priced at grade A ₹34,960, less 15% back glass cracked"), **Repair cost** (the store's own figure,
+  else SwapUp's repair estimate, else "Nothing to repair"), **Post-repair value** (the same price
+  list's price for the phone repaired, "Grade A price"), the **repair uplift** said as the decision
+  ("Repair before pickup: +₹654" / "Send as-is — repairing costs ₹20,106 more than it adds") and the
+  **SwapUp offer · we pay you** (the answer's "We pay you", "As on the answer · + ₹4,649 bonus with
+  the Galaxy S26 Ultra 256GB"). The app works nothing out. A missing figure is "—" with the server's
+  why. The server sends it only while there is a priced trade-in to decide on — at the counter, and
+  read-only on the "Traded in" screen until the partner's pickup — and the app draws it exactly then.
+  The box under the Repair cost line holds the store's own figure only (empty, "enter if different",
+  under SwapUp's estimate) and saves it (`PATCH {refurbCost}`) — it moves no price. A server older
+  than SUP-92 sends no lines: no panel, never half the numbers. It replaced "Store margin" (buy /
+  refurb / sell / margin): PriceIQ's sell price is no longer shown.
 - **The answer's lines and notes** are the server's words, printed as sent — the market price is the
   buyback partner's (its rate card); a PriceIQ estimate is shown to staff only, with its data's age
   when stale, and the customer's phone waits until the partner's price is in.

@@ -19,7 +19,8 @@
 // choice the server refuses (no new phone yet, no market price) can't be tapped, and
 // says why. The staff's refurb decision sits at the bottom, closed: "Refurb decision · staff only"
 // (./RefurbDecision — the server's five lines from this screen's case; the store's own repair cost
-// saved through its queue).
+// saved through its queue), and stays, read-only, on the "Traded in" screen until the partner's
+// pickup — whenever the server sends it.
 //
 // The SwapUp grade is the answer's first line ("Current grade C · screen cracked"); under it the
 // server's one-line why (CaseView.grading, grading spec §5), "View report" (the public report
@@ -413,6 +414,8 @@ export function OfferScreen({
               ) : null}
             </Card>
           ) : null}
+          {/* Traded in, before the partner's pickup: the staff's refurb decision ("Repair before pickup"), read-only — the server sends it only then */}
+          {refurb ? <RefurbDecisionPanel d={refurb} save={save} /> : null}
         </ScrollView>
         <View style={[column, { paddingHorizontal: pad, paddingTop: 8, paddingBottom: 14, gap: 4 }]}>
           {rows ? (
@@ -645,7 +648,7 @@ export function OfferScreen({
           <QuietLink title={handoff ? "Opening…" : "Open full case"} disabled={handoff} onPress={() => void openFull(answerPath)} />
         </View>
 
-        {/* The staff's refurb decision — closed by default; none from a server that doesn't send it */}
+        {/* The staff's refurb decision — closed by default; none when the server doesn't send it (no priced trade-in) */}
         {refurb ? <RefurbDecisionPanel d={refurb} save={save} /> : null}
       </ScrollView>
 

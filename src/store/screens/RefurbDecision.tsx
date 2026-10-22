@@ -3,13 +3,15 @@
 // desk's order and words (~/projects/swapup components/counter/RefurbDecision.tsx): the phone's
 // value as it is, what repairing it costs the store, its value repaired off the same price list,
 // the uplift said as the decision, and what SwapUp pays — the answer's own figures. Each figure
-// carries where it came from, or why it is missing. Nothing is worked out here.
-// The repair cost is the store's to set: the box on its line saves the case's refurbCost through
+// carries where it came from, or why it is missing. Nothing is worked out here. It shows whenever
+// the server sends it: at the counter, and read-only once traded in until the partner's pickup.
+// The repair cost is the store's to set: the box under its line saves the case's refurbCost through
 // the answer's write queue (a PATCH — it moves no price) and the server's answer repaints the
-// lines. Never an offer to the customer.
+// lines. The line prints its figure; the box holds the store's own figure only (empty, "enter if
+// different", under SwapUp's estimate). Never an offer to the customer.
 import React, { useEffect, useRef, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
-import { LABEL, OWN_COST, type RefurbDecision, TITLE, canSaveCost, costInput, costPatch, costText, decisionText, readCost, subLine } from "../refurbEconomics";
+import { LABEL, OWN_COST, type RefurbDecision, TITLE, canSaveCost, costInput, costPatch, costPlaceholder, costText, decisionText, readCost, subLine } from "../refurbEconomics";
 import { Btn, Card, Figure, L, inr, useLayout } from "../ui";
 import type { SaveFn } from "./OfferSheets";
 
@@ -39,7 +41,7 @@ function Lines({ d, save }: { d: RefurbDecision; save: SaveFn }) {
   return (
     <Card style={{ gap: 0, paddingVertical: 4 }}>
       <Row label={LABEL.preRefurb} sub={subLine(pre)} amount={pre.amount} size={fig} />
-      {d.editable ? <CostRow d={d} save={save} /> : <Row label={LABEL.repairCost} sub={subLine(cost)} amount={cost.amount} size={fig} />}
+      {d.editable ? <CostRow d={d} save={save} size={fig} /> : <Row label={LABEL.repairCost} sub={subLine(cost)} amount={cost.amount} size={fig} />}
       <Row label={LABEL.postRepair} sub={subLine(post)} amount={post.amount} size={fig} />
       {/* The decision says its own figure: the uplift is not printed a second time beside it. */}
       <View style={{ marginVertical: 8, padding: 14, gap: 2, borderRadius: L.radius, backgroundColor: L.bg }}>
@@ -55,7 +57,15 @@ function Lines({ d, save }: { d: RefurbDecision; save: SaveFn }) {
 /** One line: the label and the server's line under it on the left, the figure (or —) on the right. */
 function Row({ label, sub, amount, size, last }: { label: string; sub: string | null; amount: number | null; size: number; last?: boolean }) {
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 16, paddingVertical: 12, borderBottomWidth: last ? 0 : 1, borderBottomColor: L.border }}>
+    <View style={{ paddingVertical: 12, borderBottomWidth: last ? 0 : 1, borderBottomColor: L.border }}>
+      <Figures label={label} sub={sub} amount={amount} size={size} />
+    </View>
+  );
+}
+
+function Figures({ label, sub, amount, size }: { label: string; sub: string | null; amount: number | null; size: number }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         <Text style={{ color: L.ink, fontSize: 16, fontWeight: "600" }}>{label}</Text>
         {sub ? <Text style={{ color: L.muted, fontSize: 14, lineHeight: 20 }}>{sub}</Text> : null}
@@ -67,8 +77,11 @@ function Row({ label, sub, amount, size, last }: { label: string; sub: string | 
   );
 }
 
-/** The repair cost line with the store's own box: prefilled with the line's figure, Save once it differs. */
-function CostRow({ d, save }: { d: RefurbDecision; save: SaveFn }) {
+/**
+ * The repair cost line, its figure printed as on every line, and the store's own box under it:
+ * prefilled only with the store's own figure (empty, "enter if different", under SwapUp's estimate).
+ */
+function CostRow({ d, save, size }: { d: RefurbDecision; save: SaveFn; size: number }) {
   const cost = d.lines.repairCost;
   const start = costText(d.lines);
   const [text, setText] = useState(start);
@@ -107,10 +120,7 @@ function CostRow({ d, save }: { d: RefurbDecision; save: SaveFn }) {
 
   return (
     <View style={{ gap: 8, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: L.border }}>
-      <View style={{ gap: 2 }}>
-        <Text style={{ color: L.ink, fontSize: 16, fontWeight: "600" }}>{LABEL.repairCost}</Text>
-        {subLine(cost) ? <Text style={{ color: L.muted, fontSize: 14, lineHeight: 20 }}>{subLine(cost)}</Text> : null}
-      </View>
+      <Figures label={LABEL.repairCost} sub={subLine(cost)} amount={cost.amount} size={size} />
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
         <Text style={{ color: L.muted, fontSize: 15 }}>{OWN_COST}</Text>
         <View
@@ -139,7 +149,7 @@ function CostRow({ d, save }: { d: RefurbDecision; save: SaveFn }) {
             returnKeyType="done"
             onSubmitEditing={() => void submit()}
             editable={!saving}
-            placeholder="—"
+            placeholder={costPlaceholder(d.lines)}
             placeholderTextColor={L.faint}
             accessibilityLabel="The store's own repair cost in rupees"
             style={{ flex: 1, minWidth: 0, fontSize: 18, color: L.ink, paddingVertical: 10, textAlign: "right", fontVariant: ["tabular-nums"] }}
