@@ -91,8 +91,8 @@ function fixture(): { root: string; done: () => void } {
     writeFileSync(join(root, p), c);
   };
   put("app.json", JSON.stringify({ expo: { version: "0.8.0" } }));
-  put("src/store/buySell.ts", "export const x = 1;\n");
-  for (const f of ["app.json", "src/store/buySell.ts"]) utimesSync(join(root, f), new Date(T0), new Date(T0));
+  put("src/store/refurbEconomics.ts", "export const x = 1;\n");
+  for (const f of ["app.json", "src/store/refurbEconomics.ts"]) utimesSync(join(root, f), new Date(T0), new Date(T0));
   const built = iso(T0 + 3600_000);
   for (const v of S.VARIANTS) {
     const bundle = `/app/${v}/_expo/static/js/web/index-abc.js`;
@@ -210,24 +210,24 @@ test("a build made before the source last changed is refused; test files and the
   const { root, done } = fixture();
   try {
     const later = new Date(T0 + 2 * 3600_000);
-    for (const f of ["src/store/buySell.test.ts", "src/shared/answer.fixtures.ts", "src/shared/nameGuard.ts", "src/shared/buildScan.ts"]) {
+    for (const f of ["src/store/refurbEconomics.test.ts", "src/shared/answer.fixtures.ts", "src/shared/nameGuard.ts", "src/shared/buildScan.ts"]) {
       mkdirSync(dirname(join(root, f)), { recursive: true });
       writeFileSync(join(root, f), "//\n");
       utimesSync(join(root, f), later, later);
     }
     assert.deepEqual(S.scanBuilds(root), []);
-    assert.equal(S.newestSource(root)?.file, "src/store/buySell.ts");
+    assert.equal(S.newestSource(root)?.file, "src/store/refurbEconomics.ts");
 
-    utimesSync(join(root, "src/store/buySell.ts"), later, later);
+    utimesSync(join(root, "src/store/refurbEconomics.ts"), later, later);
     const f = S.scanBuilds(root);
     assert.deepEqual(
       f.map((x) => x.file),
       ["dist-web/store/version.json", "dist/swapup-store.json", "dist-web/check/version.json", "dist/swapup-check.json"]
     );
-    assert.match(f[0].problem, /^was built 2026-10-18T09:00:00\.000Z, before src\/store\/buySell\.ts changed \(2026-10-18T10:00:00\.000Z\) — rebuild$/);
+    assert.match(f[0].problem, /^was built 2026-10-18T09:00:00\.000Z, before src\/store\/refurbEconomics\.ts changed \(2026-10-18T10:00:00\.000Z\) — rebuild$/);
     // Within the build's own second is not "after".
     const same = new Date(T0 + 3600_000 + 500);
-    utimesSync(join(root, "src/store/buySell.ts"), same, same);
+    utimesSync(join(root, "src/store/refurbEconomics.ts"), same, same);
     assert.deepEqual(S.scanBuilds(root), []);
   } finally {
     done();

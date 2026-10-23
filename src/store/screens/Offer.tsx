@@ -17,8 +17,10 @@
 // the system's and is never typed in: with none, the server's why is text only, and the one lever
 // is the phone's condition ("Change condition" opens the desk's What's wrong, which re-prices). A
 // choice the server refuses (no new phone yet, no market price) can't be tapped, and
-// says why. The store's own refurb cost and margin sit at the bottom, closed: "Store margin ·
-// staff only" (./PriceCard, drawn from this screen's case and saved through its queue).
+// says why. The staff's refurb decision sits at the bottom, closed: "Refurb decision · staff only"
+// (./RefurbDecision — the server's five lines from this screen's case; the store's own repair cost
+// saved through its queue), and stays, read-only, on the "Traded in" screen until the partner's
+// pickup — whenever the server sends it.
 //
 // The SwapUp grade is the answer's first line ("Current grade C · screen cracked"); under it the
 // server's one-line why (CaseView.grading, grading spec §5), "View report" (the public report
@@ -70,14 +72,14 @@ import {
   vsRepairLine,
   wantsReprice,
 } from "../offer";
-import { type CasePrice, readCasePrice } from "../buySell";
+import { type RefurbDecision, readRefurbDecision } from "../refurbEconomics";
 import { type CertifyView, answerCertify, readCertify } from "../certify";
 import { answerCertifyMode, checkedByLine } from "../flow";
 import { CheckThePhone } from "./CertifyCard";
 import { type StaffClient, absolute, errText } from "../staffClient";
 import type { Screen } from "../types";
 import { Banner, Body, Btn, Card, Chip, Figure, H1, H2, KV, L, Label, Segmented, inr, s as ui, useHead, useLayout } from "../ui";
-import { PriceCard } from "./PriceCard";
+import { RefurbDecisionPanel } from "./RefurbDecision";
 import { COVER_LABEL, CoverSheet, NewPhoneSheet, RefurbQuoteSheet, RepairConfirmSheet, WalkAwaySheet, WhySheet } from "./OfferSheets";
 import { ReportQrSheet } from "./ReportQrSheet";
 
@@ -90,6 +92,8 @@ type Extra = {
   /** The customer's phone's series ("S", "A"…): the new-phone list opens there. */
   series: string | null;
   quoteExpired: boolean;
+  /** The case's trade-in quote: "priced", or why not ("unpriced"…); null = no quote. A quote that isn't priced is re-priced once. */
+  quoteStatus: string | null;
   /** What was locked (lockTradeIn): the traded-in summary prefers these to today's offer. */
   tradeValue: number | null;
   bonusValue: number | null;
@@ -106,9 +110,11 @@ function readExtra(x: unknown): Extra {
   const dev = sub(o.device);
   const up = sub(o.upgrade);
   const dec = sub(o.decision);
+  const quote = sub(o.quote);
   return {
     series: typeof dev?.series === "string" && dev.series ? dev.series : null,
     quoteExpired: o.quoteExpired === true,
+    quoteStatus: typeof quote?.status === "string" ? quote.status : null,
     tradeValue: num(o.tradeValue),
     bonusValue: num(o.bonusValue),
     payable: num(o.payable),
@@ -117,9 +123,9 @@ function readExtra(x: unknown): Extra {
   };
 }
 
-/** `price`: the same case as the store-margin card reads it (../buySell.ts). */
+/** `refurb`: the staff's refurb decision, as the server sent it (../refurbEconomics.ts); null = no panel. */
 /** `cert`: the case's own `certify` / `certification`, as sent (../certify.ts answerCertify reads them). */
-type Ready = { state: "ready"; head: CaseHead; offer: Offer | null; grading: CaseGrading | null; price: CasePrice | null; extra: Extra; cert: { certify?: unknown; certification?: unknown } };
+type Ready = { state: "ready"; head: CaseHead; offer: Offer | null; grading: CaseGrading | null; refurb: RefurbDecision | null; extra: Extra; cert: { certify?: unknown; certification?: unknown } };
 type Load = { state: "loading" } | { state: "error"; text: string } | Ready;
 type SheetName = "phone" | "refurb" | "cover" | "repair" | "walk" | "report" | null;
 
@@ -159,7 +165,6 @@ export function OfferScreen({
   const [chosen, setChosen] = useState<Choice | null>(null);
   const [sheet, setSheet] = useState<SheetName>(null);
   const [certifyOpen, setCertifyOpen] = useState(false);
-  const [margin, setMargin] = useState(false);
   const [handoff, setHandoff] = useState(false);
   /** The storage chip just tapped, outlined until the server's answer lands. */
   const [tapped, setTapped] = useState<string | null>(null);
@@ -181,7 +186,7 @@ export function OfferScreen({
     if (!head) throw new Error("Bad answer from the server.");
     const v = r as { offer?: unknown; grading?: unknown };
     const o = r as { certify?: unknown; certification?: unknown };
-    setLoad({ state: "ready", head, offer: readOffer(v.offer), grading: readCaseGrade(v.grading), price: readCasePrice(r), extra: readExtra(r), cert: { certify: o.certify, certification: o.certification } });
+    setLoad({ state: "ready", head, offer: readOffer(v.offer), grading: readCaseGrade(v.grading), refurb: readRefurbDecision(r), extra: readExtra(r), cert: { certify: o.certify, certification: o.certification } });
   }, []);
 
   // ── writes: one at a time; only the newest answer is painted (the desk's CaseWorkspace.run)
@@ -283,7 +288,7 @@ export function OfferScreen({
   // decision made under older rules, is fetched again by a re-price — once per open, quietly.
   const repriced = useRef(false);
   const reprice =
-    load.state === "ready" && wantsReprice(OPEN.has(load.head.status), load.extra.quoteExpired, load.offer, load.extra.decisionVersion, load.price?.quote?.status ?? null);
+    load.state === "ready" && wantsReprice(OPEN.has(load.head.status), load.extra.quoteExpired, load.offer, load.extra.decisionVersion, load.extra.quoteStatus);
   useEffect(() => {
     if (!reprice || repriced.current) return;
     repriced.current = true;
@@ -348,7 +353,7 @@ export function OfferScreen({
     );
   }
 
-  const { head, offer: o, grading, price, extra } = load;
+  const { head, offer: o, grading, refurb, extra } = load;
   const certify = answerCertify(load.cert, sessionCertify, sessionId);
   const ref = head.ref || caseRef;
   // The public report page: no sign-in and no hand-off — it carries no prices.
@@ -409,6 +414,8 @@ export function OfferScreen({
               ) : null}
             </Card>
           ) : null}
+          {/* Traded in, before the partner's pickup: the staff's refurb decision ("Repair before pickup"), read-only — the server sends it only then */}
+          {refurb ? <RefurbDecisionPanel d={refurb} save={save} /> : null}
         </ScrollView>
         <View style={[column, { paddingHorizontal: pad, paddingTop: 8, paddingBottom: 14, gap: 4 }]}>
           {rows ? (
@@ -641,20 +648,8 @@ export function OfferScreen({
           <QuietLink title={handoff ? "Opening…" : "Open full case"} disabled={handoff} onPress={() => void openFull(answerPath)} />
         </View>
 
-        {/* The store's buy vs sell — staff only, closed by default */}
-        <View style={{ gap: 12 }}>
-          <Pressable
-            onPress={() => setMargin((m) => !m)}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: margin }}
-            style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, paddingHorizontal: 4, opacity: pressed ? 0.6 : 1 })}
-          >
-            <Text style={{ flex: 1, color: L.muted, fontSize: 16, fontWeight: "600" }}>Store margin · staff only</Text>
-            <Text style={{ color: L.muted, fontSize: 22, transform: [{ rotate: margin ? "90deg" : "0deg" }] }}>›</Text>
-          </Pressable>
-          {/* The case this screen holds: every answer from the server repaints it, so BUY is never stale. */}
-          {margin && price ? <PriceCard c={price} save={save} /> : null}
-        </View>
+        {/* The staff's refurb decision — closed by default; none when the server doesn't send it (no priced trade-in) */}
+        {refurb ? <RefurbDecisionPanel d={refurb} save={save} /> : null}
       </ScrollView>
 
       {/* One docked pill: what the customer chose */}

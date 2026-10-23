@@ -34,7 +34,7 @@ Scan the store's QR (or the store's counter code) → SwapUp Check opens
    store applies the results the same screen (src/check/ResultScreen.tsx, the browser's too) shows
    the answer the server writes — "Current grade C · Market price for grade C ₹25,000 · We pay you
    ₹26,000 + ₹6,199 bonus if you exchange with a new device · or repair it for ₹34,096", no partner
-   name, no store margin — or "The advisor is working out your price." until it is priced, and "See
+   name, no staff refurb decision — or "The advisor is working out your price." until it is priced, and "See
    the grade report"; it re-reads every 5 s until the answer is final, then every 15 s while it says
    "Traded in" (a locked trade-in can still be cancelled before pickup: "This trade-in was
    cancelled." replaces it and the clear-your-phone card goes), and stops once it can no longer
