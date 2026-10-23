@@ -9,6 +9,7 @@ import { Row, P } from "../../shared/ui";
 import { Result } from "../catalog";
 import { CantBody } from "../web/WebParts";
 import { batteryApi } from "../web/browser";
+import { BATTERY_IN_BROWSER } from "../../check/copy";
 
 export function BatteryTest(p: TestProps) {
   const [lvl, setLvl] = useState<number | null>(null);
@@ -47,7 +48,7 @@ export function BatteryTest(p: TestProps) {
         <Row label="State" value={st} />
         <Row label="Low power mode" value="not visible to a browser" tone="skip" />
         <Row label="Health (max capacity)" value="not exposed" tone="skip" />
-        <P muted style={{ marginTop: 12, fontSize: 13 }}>The advisor checks battery health.</P>
+        <P muted style={{ marginTop: 12, fontSize: 13 }}>{BATTERY_IN_BROWSER}</P>
       </View>
     </TestShell>
   );

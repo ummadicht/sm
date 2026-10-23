@@ -120,6 +120,23 @@ test("the Check app's privacy line is one short sentence, the same on the native
   }
 });
 
+test("battery health nobody read (SUP-42): one short honest sentence each — and no screen promises a battery check the Store app doesn't have", async () => {
+  const W: typeof import("../check/copy") = await import("../check/copy" + ".ts");
+  const said = [W.BATTERY_READER_OFF, W.BATTERY_ODD_ANSWER, W.BATTERY_IN_BROWSER];
+  short(said);
+  for (const t of said) assert.match(t, /the advisor may ask to see Settings › Battery\.$/, t);
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+  assert.match(read("../check/BatteryScreen.tsx"), /\{BATTERY_READER_OFF\}/);
+  assert.match(read("../check/BatteryScreen.tsx"), /setNote\(BATTERY_ODD_ANSWER\)/);
+  assert.match(read("../diagnostics/tests/BatteryTest.web.tsx"), /\{BATTERY_IN_BROWSER\}/);
+  const src = new URL("..", import.meta.url);
+  const files = (readdirSync(src, { recursive: true }) as string[]).filter((f) => /\.tsx?$/.test(f));
+  assert.ok(files.length > 50);
+  const promises = files.filter((f) => /advisor checks (the )?battery/i.test(readFileSync(new URL(f, src), "utf8")));
+  assert.deepEqual(promises, []);
+});
+
 test("sign-up and the blocked-tab screens: one short sentence per banner", async () => {
   const { readFileSync } = await import("node:fs");
   const said = (f: string, title: string) => {

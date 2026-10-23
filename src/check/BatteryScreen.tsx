@@ -4,7 +4,8 @@
 // store's server has GradeIQ read the % off it (POST /api/device/battery) and
 // records it — below 80 % it counts against the price as battery drain, so the
 // screen only ever shows what was read, never what it means for the offer.
-// Optional: Skip is always there. Native and browser (the browser's picker is a
+// Optional: Skip is always there — skipped, or with no reader, no % is recorded and the case says
+// "not checked" (SwapUp Store has no battery check, so this never promises one). Native and browser (the browser's picker is a
 // file input — ./batteryShot.web.ts). Look: the kit — a battery is the hero, and
 // once read it shows the % the store recorded.
 import React, { useMemo, useState } from "react";
@@ -13,6 +14,7 @@ import { P } from "../shared/theme";
 import { BatteryArt, Caption, Headline, Hero, Lead, Notice, PillButton, QuietLink, Screen } from "../shared/kit";
 import { openAndroidSettings } from "../diagnostics/parts";
 import { batteryGuide, readBatteryAnswer } from "./battery";
+import { BATTERY_ODD_ANSWER, BATTERY_READER_OFF } from "./copy";
 import { chooseScreenshot } from "./batteryShot";
 import { onIphone } from "./onIphone";
 import type { BatteryRec, CheckState } from "./core";
@@ -43,7 +45,7 @@ export function BatteryScreen({ engine, state, onDone }: { engine: CheckEngine; 
       const r = await engine.sendBattery(shot.dataUrl);
       if (r.ok) {
         const a = readBatteryAnswer(r.body);
-        if (!a) setNote("Unexpected answer — skip; the advisor checks the battery.");
+        if (!a) setNote(BATTERY_ODD_ANSWER);
         else setLast({ healthPct: a.healthPct });
       } else if (r.status === 404 || (r.status === 409 && /isn't available/i.test(r.message))) {
         // No reader for this check (an older server, camera grading off, or its AI service out of
@@ -70,7 +72,7 @@ export function BatteryScreen({ engine, state, onDone }: { engine: CheckEngine; 
     return (
       <Screen footer={<PillButton title="Continue" onPress={leave} />}>
         <Headline>Battery health</Headline>
-        <Lead>Can&apos;t read screenshots now — the advisor checks the battery.</Lead>
+        <Lead>{BATTERY_READER_OFF}</Lead>
         <Hero>
           <BatteryArt width={180} level={0.6} />
         </Hero>

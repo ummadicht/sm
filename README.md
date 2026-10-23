@@ -88,7 +88,9 @@ Store with one tap per row, by name, while the customer's phone shows the colour
 **SwapUp Check — 3 steps: Scan → Test → Done.** "Is this your phone?" only when the store's model
 match isn't exact (a regional version — one tap; an unknown phone picks it from the list), the storage
 only when the phone couldn't measure it, the battery-health screenshot only when the store has no
-other reading of it (an attached Phonecheck report) — and it can be skipped. No IMEI, no name or
+other reading of it (an attached Phonecheck report) — and it can be skipped (skipped, or with no
+reader, no % is recorded and the case says "not checked"; SwapUp Store has no battery check, so the
+phone only says the advisor may ask to see Settings › Battery). No IMEI, no name or
 mobile, no condition questions. Results are saved on the phone first and sent second. **Done** is one
 screen for the app and the browser (`src/check/ResultScreen.tsx`): once the store has the results it
 shows the answer the server writes (`GET /api/device/status` → `answer`) — or "The advisor is
