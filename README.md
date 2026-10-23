@@ -42,7 +42,8 @@ Store with one tap per row, by name, while the customer's phone shows the colour
    *"Galaxy S23 Ultra · not blacklisted (GSMA)"* ("Blacklist not checked" when GSMA didn't
    answer — never as clean), any warning, and **Text KYM to 14422** with the KYM chips, so the
    government check runs while the phone tests (its answer is recorded as `kymEarly`; Take the
-   trade-in starts from it and still needs it "clear"). A test the customer started from the
+   trade-in starts from it and still needs it "clear"; one that isn't stops the trade-in in the
+   register's own words, *IMEI register says "Duplicate IMEI" — check it before testing.*). A test the customer started from the
    counter QR has no New trade-in: the same card tops its Session screen ("Scan IMEI" on its Home
    row).
 2. **Connect the customer's phone.** The **Wi‑Fi QR** (the store's router, saved once by the

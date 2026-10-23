@@ -156,16 +156,33 @@ export const BLACKLIST_TEXT: Record<Blacklist, string> = {
   blacklisted: "reported lost or stolen (GSMA)",
 };
 
-/** The owner's sentences when the trade-in stops before the tests: GSMA's register, or the government check. */
+/** The owner's sentence when GSMA's register stops the trade-in before the tests (the desk's IMEI card). */
 export const STOP_GSMA = "This phone is reported lost or stolen (GSMA). It can't be traded in.";
-export const STOP_BLACKLISTED = "This phone is reported lost or stolen. It can't be traded in.";
+
+/** The government register's answers in its own words — the server's KYM_LABEL (lib/domain/imei.ts). */
+export const KYM_LABEL: Record<Kym, string> = {
+  clear: "No block — OK to buy",
+  blacklisted: "Black-listed (reported lost/stolen)",
+  duplicate: "Duplicate IMEI",
+  in_use: "Already in use",
+};
+
+/**
+ * Why no test starts on an early KYM answer that isn't clear — the register's own words, as the
+ * server's kymEarlyStop (lib/domain/imei.ts, SUP-17) and the desk's IMEI card say it: never "lost or
+ * stolen" for a duplicate or in-use IMEI. A status it doesn't know prints as sent.
+ */
+export function kymEarlyStop(status: string): string {
+  const said = Object.hasOwn(KYM_LABEL, status) ? KYM_LABEL[status as Kym] : status;
+  return `IMEI register says "${said}" — check it before testing.`;
+}
 
 type ImeiHead = { imeiLookup: ImeiLookup | null; kymEarly: KymEarly | null };
 
-/** Why the trade-in stops here, or null: GSMA says blacklisted, or the early KYM answer is anything but clear. */
+/** Why the trade-in stops here, or null: GSMA says blacklisted (it wins), or the early KYM answer is anything but clear. */
 export function imeiStop(h: ImeiHead): string | null {
   if (h.imeiLookup?.blacklist === "blacklisted") return STOP_GSMA;
-  if (h.kymEarly && h.kymEarly.status !== "clear") return STOP_BLACKLISTED;
+  if (h.kymEarly && h.kymEarly.status !== "clear") return kymEarlyStop(h.kymEarly.status);
   return null;
 }
 
