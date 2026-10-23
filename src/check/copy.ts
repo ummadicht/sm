@@ -13,5 +13,6 @@ export const PRIVACY_LINE = "Nothing personal is read — only test results and 
 export const BATTERY_READER_OFF = "Can't read screenshots now — the advisor may ask to see Settings › Battery.";
 /** The battery step when the store's answer can't be read. */
 export const BATTERY_ODD_ANSWER = "Unexpected answer — skip; the advisor may ask to see Settings › Battery.";
-/** The browser's battery gauge: no web page can read battery health. */
-export const BATTERY_IN_BROWSER = "A browser can't read battery health — the advisor may ask to see Settings › Battery.";
+// The browser's battery gauge has no sentence of its own: its "Health (max capacity): not exposed"
+// row says it, and it may come right after the battery step read the health (or with a Phonecheck
+// reading on the case) — so it never says the health can't be read or that the advisor may ask.

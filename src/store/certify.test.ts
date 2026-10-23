@@ -204,7 +204,19 @@ test("the server's real shapes: session card while the colours show, then the ca
 // the tap through the staff client and hand the card errText(e) (Session.certifyTap; Offer's write
 // queue) — the card puts that sentence under the row and leaves the row as the server holds it.
 
-const CAMERA_SAYS = "The camera saw lines on the screen — it can't be certified OK.";
+// The server's own sentence (swapup lib/domain/certify.ts certifyAgainstCamera): what the camera
+// confirmed, in the condition's words, then the chip the advisor tapped, in the chip's own label —
+// the one on this card (LIVE_CHOICES) — then where the reason goes.
+const CAMERA_SAYS = 'Camera confirmed the screen "Lines, spots or dead pixels" — "OK" needs a reason, given under "Why it\'s better" on the desk.';
+const CAMERA_SAYS_BODY = 'Camera confirmed the body "Back glass cracked" — "Dents" needs a reason, given under "Why it\'s better" on the desk.';
+/** The chip a refusal quotes: the second quoted value. */
+const quotedTap = (why: string) => why.match(/ — "([^"]+)" needs a reason/)?.[1];
+
+test("SUP-5: the camera's sentence quotes the chip the advisor tapped, by the label on the card", () => {
+  const label = (row: "screen" | "body", value: string) => LIVE_CHOICES[row].find((c) => c.value === value)?.label;
+  assert.equal(quotedTap(CAMERA_SAYS), label("screen", "ok"));
+  assert.equal(quotedTap(CAMERA_SAYS_BODY), label("body", "dents"));
+});
 
 test("SUP-5: the camera overrules a tap — its sentence, word for word, under the row; the row stays untapped", async () => {
   const S: typeof import("./staffClient") = await import("./staffClient" + ".ts");
@@ -246,6 +258,6 @@ test("the card's taps: recorded → the server's view takes over; held too long 
   assert.equal(C.tapsSettled(sent, v, 1_000 + C.TAPPED_MS), sent, "not yet");
   assert.deepEqual(C.tapsSettled(sent, v, 1_001 + C.TAPPED_MS), C.NO_TAPS, "held too long");
   // A refused re-tap of a certified row: the stamp it had is back, with the sentence.
-  const face = C.rowFace(v, "body", C.tapAnswered(C.tapSent(C.NO_TAPS, "body", "dents", 1), "body", CAMERA_SAYS));
-  assert.deepEqual(face, { chosen: "like_new", stamp: `✓ Asha K. · ${local(AT)}`, notChecked: false, error: CAMERA_SAYS });
+  const face = C.rowFace(v, "body", C.tapAnswered(C.tapSent(C.NO_TAPS, "body", "dents", 1), "body", CAMERA_SAYS_BODY));
+  assert.deepEqual(face, { chosen: "like_new", stamp: `✓ Asha K. · ${local(AT)}`, notChecked: false, error: CAMERA_SAYS_BODY });
 });

@@ -122,14 +122,19 @@ test("the Check app's privacy line is one short sentence, the same on the native
 
 test("battery health nobody read (SUP-42): one short honest sentence each — and no screen promises a battery check the Store app doesn't have", async () => {
   const W: typeof import("../check/copy") = await import("../check/copy" + ".ts");
-  const said = [W.BATTERY_READER_OFF, W.BATTERY_ODD_ANSWER, W.BATTERY_IN_BROWSER];
+  const said = [W.BATTERY_READER_OFF, W.BATTERY_ODD_ANSWER];
   short(said);
   for (const t of said) assert.match(t, /the advisor may ask to see Settings › Battery\.$/, t);
   const { readFileSync, readdirSync } = await import("node:fs");
   const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
   assert.match(read("../check/BatteryScreen.tsx"), /\{BATTERY_READER_OFF\}/);
   assert.match(read("../check/BatteryScreen.tsx"), /setNote\(BATTERY_ODD_ANSWER\)/);
-  assert.match(read("../diagnostics/tests/BatteryTest.web.tsx"), /\{BATTERY_IN_BROWSER\}/);
+  // The browser gauge can follow a battery step that just read the health (or a Phonecheck reading on
+  // the case): its "not exposed" row says what a browser can't do, and no sentence says more.
+  assert.equal("BATTERY_IN_BROWSER" in W, false, "no browser battery sentence");
+  const gauge = read("../diagnostics/tests/BatteryTest.web.tsx");
+  assert.match(gauge, /<Row label="Health \(max capacity\)" value="not exposed" tone="skip" \/>/);
+  assert.doesNotMatch(gauge, /advisor|<P\b|check\/copy/, "the gauge says nothing under its rows");
   const src = new URL("..", import.meta.url);
   const files = (readdirSync(src, { recursive: true }) as string[]).filter((f) => /\.tsx?$/.test(f));
   assert.ok(files.length > 50);

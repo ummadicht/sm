@@ -536,6 +536,11 @@ test("wantsRequote: ONE Re-quote in the quiet row — an open case whose quote h
   assert.doesNotMatch(src, /action: "reprice"/, "no second, different re-price");
   assert.equal(src.match(/title="Re-quote"/g)?.length, 1);
   assert.match(src, /wantsRequote\(OPEN\.has\(head\.status\), extra\.quoteExpired, extra\.quoteStatus\) \? <QuietLink title="Re-quote"/);
+  // The README's account of the quiet row names it too, next to Change condition.
+  const readme = readFileSync(new URL("../../README.md", import.meta.url), "utf8");
+  const quietRow = readme.slice(readme.indexOf("**The price moves only with the condition**"), readme.indexOf("- **Test programme**"));
+  assert.match(quietRow, /\*\*Change condition\*\*/);
+  assert.match(quietRow, /the quiet row's one \*\*Re-quote\*\* asks\s+again \(the same re-price, never a typed price\)/);
 });
 
 // ── the answer's lines (offer.answer; answer spec §A, fixtures in ../shared/answer.fixtures.ts) ─────

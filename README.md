@@ -127,7 +127,8 @@ never made up. The apps print the server's figures and words and add only these:
 - **The price moves only with the condition** (owner, 2026-10-19): the answer's quiet row has
   **Change condition**, which opens the desk's "What's wrong with it?" (`#step-faults`); the desk
   re-prices, and Back re-reads the case. An expired or unpriced quote is re-priced once, quietly, each
-  time the answer opens.
+  time the answer opens; while it stays expired or unpriced, the quiet row's one **Re-quote** asks
+  again (the same re-price, never a typed price).
 - **Test programme** (the server's `org.demo`): one short banner, "Test programme — no real money" —
   under the answer's lines too, on the customer's phone and the tablet.
 
