@@ -12,9 +12,9 @@
 // It sits INSIDE the camera step of the Session screen (step 3, `inline` — no card of its own),
 // only when the camera couldn't decide; the answer opens by itself after the last tap. The
 // answer (./Offer.tsx) shows it only when a row is still open there (the results went on first).
-// On a full check by eye one button tops it (owner, 2026-10-19: "Skip and get on advisor app
-// fast"): ALL_FINE is ONE call, {action: "certify", allFine: true}, as the desk's — the server taps
-// Screen OK, Body Like new and Liquid "Can't see" (not looked at) on the rows nobody has tapped yet,
+// While a row on it is still untapped one button tops it, as on the desk (owner, 2026-10-19: "Skip
+// and get on advisor app fast"; ../certify.ts allFineTaps): ALL_FINE is ONE call, {action:
+// "certify", allFine: true}, as the desk's — the server taps Screen OK, Body Like new and Liquid "Can't see" (not looked at) on the rows nobody has tapped yet,
 // and on a row the camera confirmed worse the camera's own chip, never refused for it — so the
 // answer opens straight after. The chips stay for anything else.
 import React, { useEffect, useRef, useState } from "react";

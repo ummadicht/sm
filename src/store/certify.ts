@@ -224,13 +224,17 @@ export const ALL_FINE = "All fine — screen OK, body like new";
  * What ALL_FINE taps, in order: Screen OK, Body Like new, and the liquid indicator "Can't see" —
  * honest, it wasn't looked at. The server's own rule (swapup lib/server/cases.ts allFineTaps): only
  * the rows nobody has tapped yet — a row already tapped was looked at and keeps its tap — and the
- * liquid indicator only when the card asks for it. Only on a full check by eye (the screen and the
- * body both asked for) and only where the server lists those choices; an empty list = no button.
- * The server, not this list, decides the values: on a row the store camera confirmed worse it
- * records the camera's own chip (allFineBody).
+ * liquid indicator only when the card asks for it. The button shows when the desk's does
+ * (docs/MOBILE-API.md §8b "while the card is waiting for a tap"; swapup lib/domain/autoApply.ts
+ * certifyWaiting, ../flow.ts certifyStillOpen): the camera left the screen or the body, a row asked
+ * for is still untapped, and the card can still be tapped — so also on a card that asks only the
+ * screen or only the body. And only where the server lists those choices; an empty list = no
+ * button. The server, not this list, decides the values: on a row the store camera confirmed worse
+ * it records the camera's own chip (allFineBody).
  */
 export function allFineTaps(v: CertifyView): { row: CertifyRow; value: string }[] {
-  if (!v.canEdit || !v.needed.includes("screen") || !v.needed.includes("body")) return [];
+  const undecided = v.needed.includes("screen") || v.needed.includes("body");
+  if (!v.canEdit || !undecided || !v.needed.some((r) => !v.rows[r])) return [];
   const want: [CertifyRow, string][] = [
     ["screen", "ok"],
     ["body", "like_new"],
