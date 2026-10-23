@@ -3,7 +3,9 @@
 // rows are needed). While the card is up the customer's phone shows the test colours by
 // itself (the server's `colours` on its status), so the Screen row is tapped while
 // looking at white, black, the primaries and the stripes. No forms, no confirm: tapping
-// another chip replaces the earlier one, and the server audits every tap. Apply is never
+// another chip replaces the earlier one, and the server audits every tap. A tap it refuses — one
+// better than what the camera found is a 409 with the camera's sentence, nothing recorded (SUP-5) —
+// says that sentence under the row, and the row stays as the server holds it. Apply is never
 // blocked by it — a row left untapped keeps the SwapUp grade provisional; the AUTOMATIC
 // apply waits for it, since applying ends the test colours (swapup lib/domain/autoApply.ts).
 //
@@ -17,22 +19,25 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import {
+  type CardTaps,
   type CertifyRow,
   type CertifyView,
   ALL_FINE,
+  NO_TAPS,
   ROW_TITLE,
   allFineTaps,
   certifyLead,
   coloursLine,
+  letGo,
   pendingRows,
+  rowFace,
   shownRows,
-  stampLine,
+  tapAnswered,
+  tapSent,
+  tapsSettled,
   valueTone,
 } from "../certify";
 import { Body, Btn, Card, H2, L, Label, Segmented, toneColor } from "../ui";
-
-/** How long a tap shows as chosen while the server's answer is on its way back to this screen. */
-const TAPPED_MS = 6000;
 
 export function CheckThePhone({
   view,
@@ -49,15 +54,15 @@ export function CheckThePhone({
   label?: string;
   /** Inside another card (the camera step): a ruled section, not a card of its own. */
   inline?: boolean;
-  /** Send one tap. Resolves to the server's reason when it refused, else null. */
+  /** Send one tap. Resolves to the server's reason when it refused (its sentence as sent — ../staffClient errText), else null. */
   onTap: (row: CertifyRow, value: string) => Promise<string | null>;
   /** What goes under the rows (Apply, on the Session screen). */
   children?: React.ReactNode;
 }) {
   const rows = shownRows(view);
-  const [tapped, setTapped] = useState<Partial<Record<CertifyRow, { value: string; at: number }>>>({});
+  // The taps on their way and the server's refusals (../certify.ts tapSent / tapAnswered / rowFace).
+  const [taps, setTaps] = useState<CardTaps>(NO_TAPS);
   const [busy, setBusy] = useState<CertifyRow | null>(null);
-  const [err, setErr] = useState<Partial<Record<CertifyRow, string>>>({});
   const [allBusy, setAllBusy] = useState(false);
   const [allErr, setAllErr] = useState<string | null>(null);
   const alive = useRef(true);
@@ -70,38 +75,21 @@ export function CheckThePhone({
 
   // A tap shows as chosen until the server's view has it (or a few seconds pass).
   useEffect(() => {
-    setTapped((t) => {
-      let changed = false;
-      const next = { ...t };
-      for (const r of Object.keys(t) as CertifyRow[]) {
-        if (view.rows[r]?.value === t[r]!.value || Date.now() - t[r]!.at > TAPPED_MS) {
-          delete next[r];
-          changed = true;
-        }
-      }
-      return changed ? next : t;
-    });
+    setTaps((s) => tapsSettled(s, view, Date.now()));
   }, [view]);
 
   async function tap(row: CertifyRow, value: string) {
-    const current = tapped[row]?.value ?? view.rows[row]?.value ?? null;
+    const current = taps.tapped[row]?.value ?? view.rows[row]?.value ?? null;
     // The same chip twice does nothing — except the Screen, tapped before the colours showed and showing them now.
-    const upgrade = row === "screen" && view.colours === "showing" && view.rows.screen?.withColours === false && !tapped.screen;
+    const upgrade = row === "screen" && view.colours === "showing" && view.rows.screen?.withColours === false && !taps.tapped.screen;
     if ((value === current && !upgrade) || busy || allBusy) return;
-    setErr((e) => ({ ...e, [row]: undefined }));
-    setTapped((t) => ({ ...t, [row]: { value, at: Date.now() } }));
+    setTaps((s) => tapSent(s, row, value, Date.now()));
     setBusy(row);
     const why = await onTap(row, value);
     if (!alive.current) return;
     setBusy(null);
-    if (why) {
-      setErr((e) => ({ ...e, [row]: why }));
-      setTapped((t) => {
-        const next = { ...t };
-        delete next[row];
-        return next;
-      });
-    }
+    // Refused (e.g. better than the camera found — a 409, nothing recorded): its sentence under the row, the row untapped.
+    setTaps((s) => tapAnswered(s, row, why));
   }
 
   /** ALL_FINE: its taps in order, stopping at the first the server refuses (its reason under the button). */
@@ -111,16 +99,12 @@ export function CheckThePhone({
     setAllErr(null);
     setAllBusy(true);
     for (const t of fine) {
-      setTapped((x) => ({ ...x, [t.row]: { value: t.value, at: Date.now() } }));
+      setTaps((s) => tapSent(s, t.row, t.value, Date.now()));
       const why = await onTap(t.row, t.value);
       if (!alive.current) return;
       if (why) {
         setAllErr(why);
-        setTapped((x) => {
-          const next = { ...x };
-          delete next[t.row];
-          return next;
-        });
+        setTaps((s) => letGo(s, t.row));
         break;
       }
     }
@@ -146,8 +130,7 @@ export function CheckThePhone({
       <Body muted>{certifyLead(view)}</Body>
       {rows.map((row) => {
         const entry = view.rows[row] ?? null;
-        const chosen = tapped[row]?.value ?? entry?.value ?? "";
-        const stamp = entry && !tapped[row] ? stampLine(entry) : null;
+        const { chosen, stamp, notChecked, error } = rowFace(view, row, taps);
         return (
           <View key={row} style={{ gap: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: L.border }}>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
@@ -156,9 +139,9 @@ export function CheckThePhone({
                 <ActivityIndicator color={L.primary} accessibilityLabel="Saving" />
               ) : stamp ? (
                 <Text style={{ color: toneColor(valueTone(entry!.value)), fontSize: 15, fontWeight: "700" }}>{stamp}</Text>
-              ) : !view.needed.includes(row) ? null : (
+              ) : notChecked ? (
                 <Text style={{ color: L.muted, fontSize: 15 }}>Not checked yet</Text>
-              )}
+              ) : null}
             </View>
             {view.canEdit ? (
               <Segmented options={view.choices[row]} value={chosen} disabled={row === "screen" && holdScreen} onChange={(value) => void tap(row, value)} />
@@ -166,7 +149,7 @@ export function CheckThePhone({
               <Body>{entry ? entry.label : "Not checked"}</Body>
             )}
             {row === "screen" && colours && view.canEdit ? <Text style={{ color: toneColor(colours.tone), fontSize: 15, lineHeight: 21, fontWeight: "600" }}>{colours.text}</Text> : null}
-            {err[row] ? <Text style={{ color: L.bad, fontSize: 15, lineHeight: 21 }}>{err[row]}</Text> : null}
+            {error ? <Text style={{ color: L.bad, fontSize: 15, lineHeight: 21 }}>{error}</Text> : null}
           </View>
         );
       })}

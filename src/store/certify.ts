@@ -242,6 +242,66 @@ export function allFineTaps(v: CertifyView): { row: CertifyRow; value: string }[
   return taps;
 }
 
+/* ── the card's own state between a tap and the server's answer (./screens/CertifyCard.tsx) ── */
+
+/** How long a tap shows as chosen while the server's answer is on its way back to the screen. */
+export const TAPPED_MS = 6000;
+
+/** The taps on their way (a chip shows as chosen until the server's view has it), and the server's refusal under each row. */
+export type CardTaps = {
+  tapped: Partial<Record<CertifyRow, { value: string; at: number }>>;
+  err: Partial<Record<CertifyRow, string>>;
+};
+export const NO_TAPS: CardTaps = { tapped: {}, err: {} };
+
+/** A tap sent: its chip shows as chosen, and the row's last refusal goes. */
+export function tapSent(s: CardTaps, row: CertifyRow, value: string, at: number): CardTaps {
+  const err = { ...s.err };
+  delete err[row];
+  return { tapped: { ...s.tapped, [row]: { value, at } }, err };
+}
+
+/** The chip let go: the row shows what the server holds again. */
+export function letGo(s: CardTaps, row: CertifyRow): CardTaps {
+  if (!s.tapped[row]) return s;
+  const tapped = { ...s.tapped };
+  delete tapped[row];
+  return { ...s, tapped };
+}
+
+/**
+ * The server's answer to one tap. Recorded (null): nothing changes here — its view brings the row.
+ * Refused (its sentence): the sentence under the row, word for word, and the chip let go, so the row
+ * shows what the server holds. That is how a tap better than what the camera found is told (SUP-5):
+ * the server answers 409 with the camera's sentence and records nothing, so the row stays untapped
+ * and says why — never a generic failure, never a tap that looks taken.
+ */
+export function tapAnswered(s: CardTaps, row: CertifyRow, why: string | null): CardTaps {
+  if (!why) return s;
+  return { ...letGo(s, row), err: { ...s.err, [row]: why } };
+}
+
+/** The server's view moved on: a chip it now holds, or one held too long, is let go. Unchanged → the same object. */
+export function tapsSettled(s: CardTaps, v: CertifyView, now: number, maxMs: number = TAPPED_MS): CardTaps {
+  let out = s;
+  for (const r of Object.keys(s.tapped) as CertifyRow[]) {
+    const t = s.tapped[r]!;
+    if (v.rows[r]?.value === t.value || now - t.at > maxMs) out = letGo(out, r);
+  }
+  return out;
+}
+
+/**
+ * What one row shows: the chip chosen ("" = none), the stamp on the right ("✓ Asha · 14:02") or
+ * "Not checked yet" when the row is asked for and has none, and the server's refusal under it.
+ */
+export function rowFace(v: CertifyView, row: CertifyRow, s: CardTaps): { chosen: string; stamp: string | null; notChecked: boolean; error: string | null } {
+  const entry = v.rows[row] ?? null;
+  const held = s.tapped[row];
+  const stamp = entry && !held ? stampLine(entry) : null;
+  return { chosen: held?.value ?? entry?.value ?? "", stamp, notChecked: !stamp && v.needed.includes(row), error: s.err[row] ?? null };
+}
+
 /** The POST body for one tap. */
 export function certifyBody(row: CertifyRow, value: string, testSessionId: string | null): Record<string, unknown> {
   return { action: "certify", row, value, ...(testSessionId ? { testSessionId } : {}) };
