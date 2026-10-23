@@ -30,7 +30,7 @@ import { Settings } from "./screens/Settings";
 import { SignIn, staffProblem } from "./screens/SignIn";
 import { TabletLock } from "./screens/TabletLock";
 import { WebScreen } from "./screens/Web";
-import { staffClient, errText } from "./staffClient";
+import { staffClient, errText, tooOld } from "./staffClient";
 import {
   clearDevice,
   clearToken,
@@ -191,7 +191,8 @@ function Root() {
         if (tabletRef.current?.token !== t.token) return;
         if (e instanceof ApiError && e.status === 401) return deviceGone(e.message);
         // 403: the store was turned down. The tablet isn't removed, but no one can serve from it — say why.
-        if (e instanceof ApiError && e.status === 403) {
+        // 426: this build is too old for the server — its sentence, not "Can't reach SwapUp".
+        if ((e instanceof ApiError && e.status === 403) || tooOld(e)) {
           setPhase({ kind: "signin", notice: errText(e) });
           return;
         }
@@ -277,6 +278,12 @@ function Root() {
       if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
         await clearToken();
         setPhase({ kind: "signin", notice: e.status === 401 ? ENDED : errText(e) });
+        return;
+      }
+      // 426: this build is too old for the server — its sentence, not "Can't reach SwapUp" (the sign-in is kept).
+      const old = tooOld(e);
+      if (old) {
+        setPhase({ kind: "signin", notice: old });
         return;
       }
       setPhase({ kind: "offline", server: base, message: errText(e), tablet: false });

@@ -27,6 +27,15 @@ export function errText(e: unknown): string {
   return "Something went wrong. Try again.";
 }
 
+/**
+ * HTTP 426: the server refuses this build as too old (SUP-27). Its one sentence ("Update SwapUp
+ * Store from /downloads.") is the whole message — at launch it is the sign-in screen's notice,
+ * never "Can't reach SwapUp — check the Wi‑Fi". null for anything else.
+ */
+export function tooOld(e: unknown): string | null {
+  return e instanceof ApiError && e.status === 426 ? e.message : null;
+}
+
 /** Server URLs may come back relative ("/api/auth/handoff/…"). */
 export function absolute(base: string, url: string): string {
   if (/^https?:\/\//i.test(url)) return url;
