@@ -98,7 +98,7 @@ export const F5 = {
 export const F6 = {
   ...F1,
   text: null,
-  market: { ...F1.market, source: "partner_manual" },
+  market: { ...F1.market, source: "partner_ratecard" },
   premium: { amount: 1000, bp: 400, rule: "2026-10-18.1" },
   bonus: { amount: 6199, bp: 400 },
   newPhone: { label: S26, price: 154999 },

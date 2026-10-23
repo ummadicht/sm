@@ -68,7 +68,8 @@ test("F6: the staff answer — the same lines; the staff notes read; nothing sta
   assert.deepEqual(A.readStaffNotes(F.F6), { market: null, we_pay: "Includes ₹1,000 SwapUp premium (4%).", bonus: "Upgrade bonus · 4%" });
   // The view holds the lines only: no source, premium, bp, phone price or staff notes.
   assert.deepEqual(Object.keys(view(F.F6)).sort(), ["final", "headline", "lines", "ready", "test"]);
-  assert.doesNotMatch(JSON.stringify(view(F.F6)), /premium|154999|partner_manual|staffNotes|"bp"/);
+  assert.doesNotMatch(JSON.stringify(view(F.F6)), /premium|154999|"source"|partner_ratecard|staffNotes|"bp"/);
+  assert.equal(F.F6.market.source, "partner_ratecard", "the server's F6: the rate card's price (lib/domain/answer.test.ts)");
   // F6's swap, the same numbers: we pay = market + premium; total = we pay + bonus; the customer pays the rest.
   assert.equal(F.F6_SWAP.wePay, F.F6_SWAP.tradeIn + F.F6_SWAP.premium.amount);
   assert.equal(F.F6_SWAP.total, F.F6_SWAP.wePay + 6199);
