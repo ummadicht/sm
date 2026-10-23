@@ -49,7 +49,9 @@ test("F4: a covered repair — free, amount 0, the covered headline", () => {
   assert.ok(v.ready);
   assert.equal(v.headline, "Repair it — it's covered");
   assert.deepEqual(A.lineOf(v.lines, "repair"), { key: "repair", text: "or repair it free — covered by warranty", note: null, amount: 0 });
-  assert.deepEqual(A.lineOf(v.lines, "grade"), { key: "grade", text: "Current grade A", note: "screen cracked", amount: null });
+  assert.deepEqual(A.lineOf(v.lines, "grade"), { key: "grade", text: "Current grade A", note: "screen lines or spots", amount: null });
+  // No campaign on this case: no bonus line.
+  assert.deepEqual(keys(v), ["grade", "market", "we_pay", "repair"]);
 });
 
 test("F5: nothing to repair, no campaign — grade, market and we-pay only", () => {
