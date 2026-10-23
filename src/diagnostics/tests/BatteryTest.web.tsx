@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { TestProps, TestShell } from "../TestShell";
-import { Row, P } from "../../shared/ui";
+import { Row } from "../../shared/ui";
 import { Result } from "../catalog";
 import { CantBody } from "../web/WebParts";
 import { batteryApi } from "../web/browser";
@@ -47,7 +47,6 @@ export function BatteryTest(p: TestProps) {
         <Row label="State" value={st} />
         <Row label="Low power mode" value="not visible to a browser" tone="skip" />
         <Row label="Health (max capacity)" value="not exposed" tone="skip" />
-        <P muted style={{ marginTop: 12, fontSize: 13 }}>The advisor checks battery health.</P>
       </View>
     </TestShell>
   );

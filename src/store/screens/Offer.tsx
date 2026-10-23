@@ -37,7 +37,8 @@
 //
 // The server builds every number and every reason (CaseView.offer, read by ../offer.ts);
 // this screen owns the labels only. Load: GET /api/cases/<id> (an expired or unpriced quote, or storage
-// chips with no price at all, is re-priced once, quietly), again quietly every 30 s and when
+// chips with no price at all, is re-priced once, quietly — and while the quote stays expired or
+// unpriced, the quiet row's one "Re-quote" asks again), again quietly every 30 s and when
 // the app returns to the front. Writes go one at a time and only the newest answer is painted (the
 // desk's CaseWorkspace.run); a refusal re-reads the case and says why in the server's words.
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -71,6 +72,8 @@ import {
   swapWhyLine,
   vsRepairLine,
   wantsReprice,
+  wantsRequote,
+  REPRICE,
 } from "../offer";
 import { type RefurbDecision, readRefurbDecision } from "../refurbEconomics";
 import { type CertifyView, answerCertify, readCertify } from "../certify";
@@ -292,8 +295,10 @@ export function OfferScreen({
   useEffect(() => {
     if (!reprice || repriced.current) return;
     repriced.current = true;
-    void run(() => api.post<unknown>(`${path}/action`, { action: "reprice", requote: false }), null);
+    void run(() => api.post<unknown>(`${path}/action`, REPRICE), null);
   }, [reprice, api, path, run]);
+  /** The quiet row's "Re-quote" (wantsRequote): the same re-price, by hand — the answer redraws from what it brings. */
+  const requote = useCallback(() => void run(() => api.post<unknown>(`${path}/action`, REPRICE), "Not re-quoted"), [api, path, run]);
 
   /**
    * POST /api/cases/<id>/phonecheck {mode: "pull"} through the write queue. Its answer is
@@ -643,6 +648,8 @@ export function OfferScreen({
         {/* The quiet row */}
         <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
           {o.actions.walkAway === null ? <QuietLink title="Customer walked away" onPress={() => setSheet("walk")} /> : null}
+          {/* The quiet re-price is once per open; an expired or unpriced quote can be asked again here. */}
+          {wantsRequote(OPEN.has(head.status), extra.quoteExpired, extra.quoteStatus) ? <QuietLink title="Re-quote" disabled={pending > 0} onPress={requote} /> : null}
           {/* The one lever on the price: what's wrong with the phone (the desk re-prices; Back re-reads the case). */}
           <QuietLink title="Change condition" disabled={handoff} onPress={() => void openFull(`${answerPath}#step-faults`)} />
           <QuietLink title={handoff ? "Opening…" : "Open full case"} disabled={handoff} onPress={() => void openFull(answerPath)} />

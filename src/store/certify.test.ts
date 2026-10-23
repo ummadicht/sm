@@ -4,6 +4,18 @@
 // it needs; the app only reads and words it. Same import trick as ./pin.test.ts.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { register } from "node:module";
+
+// ./staffClient imports ../shared/api without an extension (Metro's way); this adds ".ts" for plain node.
+register(
+  "data:text/javascript," +
+    encodeURIComponent(
+      `export async function resolve(s, c, next) {
+        try { return await next(s, c); }
+        catch (e) { if (/^\\.\\.?\\//.test(s) && !/\\.[cm]?[jt]sx?$/.test(s)) return next(s + ".ts", c); throw e; }
+      }`
+    )
+);
 
 const C: typeof import("./certify") = await import("./certify" + ".ts");
 const G: typeof import("../shared/nameGuard") = await import("../shared/nameGuard" + ".ts");
@@ -185,4 +197,67 @@ test("the server's real shapes: session card while the colours show, then the ca
   assert.match(C.certifiedScreenLine(a)!.text, /^Certified OK by Rahul Desai · \d\d:\d\d$/);
   // Past the counter the server says canEdit false: shown, not tappable.
   assert.equal(C.readCertify({ ...LIVE_CASE, certify: { ...LIVE_CASE.certify, canEdit: false } })!.canEdit, false);
+});
+
+// ── SUP-5: a tap better than what the camera found ───────────────────────────────────────────────
+// The server answers 409 {error: "<the camera's sentence>"} and records nothing. Both screens send
+// the tap through the staff client and hand the card errText(e) (Session.certifyTap; Offer's write
+// queue) — the card puts that sentence under the row and leaves the row as the server holds it.
+
+// The server's own sentence (swapup lib/domain/certify.ts certifyAgainstCamera): what the camera
+// confirmed, in the condition's words, then the chip the advisor tapped, in the chip's own label —
+// the one on this card (LIVE_CHOICES) — then where the reason goes.
+const CAMERA_SAYS = 'Camera confirmed the screen "Lines, spots or dead pixels" — "OK" needs a reason, given under "Why it\'s better" on the desk.';
+const CAMERA_SAYS_BODY = 'Camera confirmed the body "Back glass cracked" — "Dents" needs a reason, given under "Why it\'s better" on the desk.';
+/** The chip a refusal quotes: the second quoted value. */
+const quotedTap = (why: string) => why.match(/ — "([^"]+)" needs a reason/)?.[1];
+
+test("SUP-5: the camera's sentence quotes the chip the advisor tapped, by the label on the card", () => {
+  const label = (row: "screen" | "body", value: string) => LIVE_CHOICES[row].find((c) => c.value === value)?.label;
+  assert.equal(quotedTap(CAMERA_SAYS), label("screen", "ok"));
+  assert.equal(quotedTap(CAMERA_SAYS_BODY), label("body", "dents"));
+});
+
+test("SUP-5: the camera overrules a tap — its sentence, word for word, under the row; the row stays untapped", async () => {
+  const S: typeof import("./staffClient") = await import("./staffClient" + ".ts");
+  globalThis.fetch = (async () => new Response(JSON.stringify({ error: CAMERA_SAYS }), { status: 409, headers: { "content-type": "application/json" } })) as typeof fetch;
+  let signedOut = false;
+  const why = await S.staffClient("https://swapup.example.in", "tok", () => (signedOut = true))
+    .post("/api/cases/c1/action", C.certifyBody("screen", "ok", "ts_1"))
+    .then(() => null, (e: unknown) => S.errText(e));
+  assert.equal(why, CAMERA_SAYS, "the server's sentence, not a generic failure");
+  assert.equal(signedOut, false);
+
+  // The card: Screen asked for, nothing tapped yet.
+  const v = C.readCertify({ certify: { needed: ["screen", "body", "liquid"], colours: "showing" } })!;
+  const before = C.rowFace(v, "screen", C.NO_TAPS);
+  assert.deepEqual(before, { chosen: "", stamp: null, notChecked: true, error: null });
+  // Tapped: the chip shows as chosen while the answer is on its way.
+  const sent = C.tapSent(C.NO_TAPS, "screen", "ok", 1_000);
+  assert.equal(C.rowFace(v, "screen", sent).chosen, "ok");
+  // Refused: the sentence under the row, the chip let go — the row is as it was, untapped.
+  const refused = C.tapAnswered(sent, "screen", why);
+  assert.deepEqual(C.rowFace(v, "screen", refused), { chosen: "", stamp: null, notChecked: true, error: CAMERA_SAYS });
+  assert.deepEqual(C.pendingRows(v), ["screen", "body", "liquid"], "nothing was recorded");
+  // The server's view comes back unchanged: the sentence stays; the other rows are untouched.
+  assert.equal(C.tapsSettled(refused, v, 2_000), refused);
+  assert.deepEqual(C.rowFace(v, "body", refused), { chosen: "", stamp: null, notChecked: true, error: null });
+  // The advisor taps what the camera saw: the old sentence goes.
+  const again = C.tapSent(refused, "screen", "lines", 3_000);
+  assert.equal(C.rowFace(v, "screen", again).error, null);
+  assert.equal(C.rowFace(v, "screen", again).chosen, "lines");
+});
+
+test("the card's taps: recorded → the server's view takes over; held too long → let go; an earlier stamp stays", () => {
+  const v = C.readCertify({ certify: { needed: ["screen", "body"], rows: { body: { value: "like_new", label: "Like new", by: "Asha K.", at: AT } } } })!;
+  const sent = C.tapSent(C.NO_TAPS, "screen", "ok", 1_000);
+  assert.equal(C.tapAnswered(sent, "screen", null), sent, "recorded: nothing to change here");
+  const recorded = { ...v, rows: { ...v.rows, screen: { value: "ok", label: "OK", by: "Asha K.", at: AT, withColours: true } } };
+  assert.deepEqual(C.tapsSettled(sent, recorded, 1_500), C.NO_TAPS, "the server's view has it");
+  assert.equal(C.rowFace(recorded, "screen", C.NO_TAPS).stamp, `✓ Asha K. · ${local(AT)}`);
+  assert.equal(C.tapsSettled(sent, v, 1_000 + C.TAPPED_MS), sent, "not yet");
+  assert.deepEqual(C.tapsSettled(sent, v, 1_001 + C.TAPPED_MS), C.NO_TAPS, "held too long");
+  // A refused re-tap of a certified row: the stamp it had is back, with the sentence.
+  const face = C.rowFace(v, "body", C.tapAnswered(C.tapSent(C.NO_TAPS, "body", "dents", 1), "body", CAMERA_SAYS_BODY));
+  assert.deepEqual(face, { chosen: "like_new", stamp: `✓ Asha K. · ${local(AT)}`, notChecked: false, error: CAMERA_SAYS_BODY });
 });

@@ -81,6 +81,7 @@ test("the result screen's next read (§F4): colours, waiting, an open answer, a 
   // The advisor may still change the new phone or the storage: every 5 s.
   assert.equal(R.donePollMs({ ...applied(), answer: F.F1 }), R.ANSWER_POLL_MS);
   assert.equal(R.donePollMs({ ...applied(), answer: F.F2 }), R.ANSWER_POLL_MS, "not priced yet: soon will be");
+  assert.equal(R.donePollMs({ ...applied(), answer: F.F2_NO_PRICE }), R.ANSWER_POLL_MS, "can't be priced yet: still open, the advisor may change it");
   assert.equal(R.ANSWER_POLL_MS, 5_000);
   // Traded in (locked, awaiting pickup): the figures are frozen, but the store can still cancel
   // before pickup — read again slowly, so the cancel reaches the screen.
@@ -177,6 +178,12 @@ test("resultHead: the four states of the result screen (§F2)", () => {
   assert.deepEqual(R.resultHead(true, undefined), { headline: "The store has your results", lead: "Nothing more to do here.", show: "tick" });
   assert.deepEqual(R.resultHead(true, null), { headline: "The store has your results", lead: "Nothing more to do here.", show: "tick" });
   assert.deepEqual(R.resultHead(true, A.readAnswer(F.F2)), { headline: "The store has your results", lead: "The advisor is working out your price.", show: "tick" });
+  // SUP-32: a phone nothing can price — the server's sentence, printed as sent (no code of its own here).
+  assert.deepEqual(R.resultHead(true, A.readAnswer(F.F2_NO_PRICE)), {
+    headline: "The store has your results",
+    lead: "This phone can't be priced for trade-in here yet — the advisor will explain.",
+    show: "tick",
+  });
   assert.deepEqual(R.resultHead(true, A.readAnswer(F.F1)), { headline: "An upgrade is worth considering", lead: null, show: "answer" });
   assert.deepEqual(R.resultHead(true, A.readAnswer(F.F3)), { headline: "Traded in", lead: null, show: "answer" });
   // Before Apply nothing is priced on the phone, whatever a status carries.
@@ -190,6 +197,7 @@ test("clearDataGuide: the clear-your-phone card only once traded in (R6); as bef
   assert.equal(R.clearDataGuide(true, A.readAnswer(F.F3)), "card", "traded in");
   assert.equal(R.clearDataGuide(true, A.readAnswer(F.F1)), "wait", "still at the counter: don't reset it yet");
   assert.equal(R.clearDataGuide(true, A.readAnswer(F.F2)), "wait");
+  assert.equal(R.clearDataGuide(true, A.readAnswer(F.F2_NO_PRICE)), "wait", "still at the counter");
   for (const a of [F.F9, F.WALKED_AWAY, F.CANCELLED]) assert.equal(R.clearDataGuide(true, A.readAnswer(a)), null, "they keep the phone");
 });
 

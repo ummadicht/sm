@@ -88,11 +88,14 @@ Store with one tap per row, by name, while the customer's phone shows the colour
 **SwapUp Check — 3 steps: Scan → Test → Done.** "Is this your phone?" only when the store's model
 match isn't exact (a regional version — one tap; an unknown phone picks it from the list), the storage
 only when the phone couldn't measure it, the battery-health screenshot only when the store has no
-other reading of it (an attached Phonecheck report) — and it can be skipped. No IMEI, no name or
+other reading of it (an attached Phonecheck report) — and it can be skipped (skipped, or with no
+reader, no % is recorded and the case says "not checked"; SwapUp Store has no battery check, so the
+phone only says the advisor may ask to see Settings › Battery). No IMEI, no name or
 mobile, no condition questions. Results are saved on the phone first and sent second. **Done** is one
 screen for the app and the browser (`src/check/ResultScreen.tsx`): once the store has the results it
 shows the answer the server writes (`GET /api/device/status` → `answer`) — or "The advisor is
-working out your price." until it is priced — re-read every 5 s until it is final, then every 15 s
+working out your price." until it is priced ("This phone can't be priced for trade-in here yet — the
+advisor will explain." when nothing can price it) — re-read every 5 s until it is final, then every 15 s
 while it says "Traded in" (a cancel before pickup still reaches the screen).
 
 ## Prices
@@ -124,7 +127,8 @@ never made up. The apps print the server's figures and words and add only these:
 - **The price moves only with the condition** (owner, 2026-10-19): the answer's quiet row has
   **Change condition**, which opens the desk's "What's wrong with it?" (`#step-faults`); the desk
   re-prices, and Back re-reads the case. An expired or unpriced quote is re-priced once, quietly, each
-  time the answer opens.
+  time the answer opens; while it stays expired or unpriced, the quiet row's one **Re-quote** asks
+  again (the same re-price, never a typed price).
 - **Test programme** (the server's `org.demo`): one short banner, "Test programme — no real money" —
   under the answer's lines too, on the customer's phone and the tablet.
 

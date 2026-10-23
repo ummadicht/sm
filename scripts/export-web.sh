@@ -31,6 +31,9 @@ CLEAR=--clear
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 VERSION=$(node -p 'require("./app.json").expo.version')
+# The versionCode the APKs are built with (app.config.js, as build-apk.sh reads it): the browser
+# build sends it too, on every API call (X-SwapUp-App, src/shared/api.ts).
+VERSION_CODE=$(node -e "const c=require('./app.config.js'); console.log((typeof c==='function'?c({config:{}}):c).android.versionCode)")
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DIRTY=$([ -n "$(git status --porcelain 2>/dev/null)" ] && echo true || echo false)
 
@@ -51,6 +54,7 @@ build() {
     APP_VARIANT="$VARIANT" \
     EXPO_PUBLIC_APP_VARIANT="$VARIANT" \
     EXPO_PUBLIC_APP_VERSION="$VERSION" \
+    EXPO_PUBLIC_APP_VERSION_CODE="$VERSION_CODE" \
     SWAPUP_WEB_BASE="$BASE" \
     npx expo export --platform web --output-dir "$OUT" $CLEAR
 

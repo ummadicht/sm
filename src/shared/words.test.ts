@@ -94,7 +94,7 @@ test("the answer's lines and waiting sentences (the server's, as the fixtures ho
   for (const a of [F.F1, F.F3, F.F4, F.F5, F.F6, F.F8, F.F9, F.WALKED_AWAY] as { lines: { text: string; note: string | null }[] }[]) {
     for (const l of a.lines) out.push(l.text, ...(l.note ? [l.note] : []));
   }
-  out.push(F.F2.text, F.F2_ESTIMATE.text, F.CANCELLED.text);
+  out.push(F.F2.text, F.F2_ESTIMATE.text, F.F2_NO_PRICE.text, F.CANCELLED.text);
   assert.ok(out.length > 30);
   short(out);
 });
@@ -118,6 +118,28 @@ test("the Check app's privacy line is one short sentence, the same on the native
     assert.match(src, /\{PRIVACY_LINE\}/, `${f} uses the one constant`);
     assert.doesNotMatch(src, /No photos, contacts, messages/, `${f}: the long paragraph is gone`);
   }
+});
+
+test("battery health nobody read (SUP-42): one short honest sentence each — and no screen promises a battery check the Store app doesn't have", async () => {
+  const W: typeof import("../check/copy") = await import("../check/copy" + ".ts");
+  const said = [W.BATTERY_READER_OFF, W.BATTERY_ODD_ANSWER];
+  short(said);
+  for (const t of said) assert.match(t, /the advisor may ask to see Settings › Battery\.$/, t);
+  const { readFileSync, readdirSync } = await import("node:fs");
+  const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+  assert.match(read("../check/BatteryScreen.tsx"), /\{BATTERY_READER_OFF\}/);
+  assert.match(read("../check/BatteryScreen.tsx"), /setNote\(BATTERY_ODD_ANSWER\)/);
+  // The browser gauge can follow a battery step that just read the health (or a Phonecheck reading on
+  // the case): its "not exposed" row says what a browser can't do, and no sentence says more.
+  assert.equal("BATTERY_IN_BROWSER" in W, false, "no browser battery sentence");
+  const gauge = read("../diagnostics/tests/BatteryTest.web.tsx");
+  assert.match(gauge, /<Row label="Health \(max capacity\)" value="not exposed" tone="skip" \/>/);
+  assert.doesNotMatch(gauge, /advisor|<P\b|check\/copy/, "the gauge says nothing under its rows");
+  const src = new URL("..", import.meta.url);
+  const files = (readdirSync(src, { recursive: true }) as string[]).filter((f) => /\.tsx?$/.test(f));
+  assert.ok(files.length > 50);
+  const promises = files.filter((f) => /advisor checks (the )?battery/i.test(readFileSync(new URL(f, src), "utf8")));
+  assert.deepEqual(promises, []);
 });
 
 test("sign-up and the blocked-tab screens: one short sentence per banner", async () => {

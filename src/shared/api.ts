@@ -21,6 +21,33 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Which app and build is calling, sent on EVERY call: `X-SwapUp-App: store/0.9.3+15` — the app
+ * (store | check), its version and its Android versionCode, as the build's own config says
+ * (./config works it out once, at start-up; the browser build carries the same values, inlined
+ * at export). The apps are sideloaded with no over-the-air updates, so this is how the server
+ * spots an old build: it refuses it with HTTP 426 and one sentence ("Update SwapUp Store from
+ * /downloads."), which the screens show like any refusal — the server's words, as sent.
+ */
+export const APP_HEADER = "x-swapup-app";
+
+/**
+ * "store/0.9.3+15", or null when the build doesn't know its version or versionCode (then no
+ * header is sent — the server reads that as an unversioned build; a value is never made up).
+ */
+export function appIdOf(app: string, version: string | null | undefined, versionCode: unknown): string | null {
+  const code = typeof versionCode === "number" ? versionCode : typeof versionCode === "string" && /^\d+$/.test(versionCode) ? Number(versionCode) : NaN;
+  if (app !== "store" && app !== "check") return null;
+  if (typeof version !== "string" || !/^\d+(\.\d+)*$/.test(version) || !Number.isInteger(code) || code <= 0) return null;
+  return `${app}/${version}+${code}`;
+}
+
+let appId: string | null = null;
+/** Set once by ./config as the app starts (App.tsx loads it before anything calls the server). */
+export function identifyApp(id: string | null): void {
+  appId = id;
+}
+
 /** Per call: a longer wait for a call the server itself waits on (reading an IMEI off a photo). */
 export type CallOptions = { timeoutMs?: number };
 
@@ -46,6 +73,7 @@ export function createClient(server: string, auth: Auth, timeoutMs = 15_000) {
           accept: "application/json",
           ...(body !== undefined ? { "content-type": "application/json" } : {}),
           ...(auth ? { authorization: `${SCHEME[auth.kind]} ${auth.token}` } : {}),
+          ...(appId ? { [APP_HEADER]: appId } : {}),
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });
