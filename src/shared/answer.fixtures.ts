@@ -31,6 +31,13 @@ export const F1 = {
 /** F2 — customer, not ready (no price yet, or an expired quote). */
 export const F2 = { ready: false, final: false, text: "The advisor is working out your price.", test: false };
 
+/**
+ * SUP-32 — customer, not ready, and nothing can price the phone (it isn't on the rate card, or no card
+ * is active): one honest sentence instead of "working out your price" for the whole visit. The case
+ * is still open (final: false); the Check app prints the server's text as it prints F2's.
+ */
+export const F2_NO_PRICE = { ready: false, final: false, text: "This phone can't be priced for trade-in here yet — the advisor will explain.", test: false };
+
 /** R1 — customer, not ready: the trade-in is SwapUp's PriceIQ estimate, not the rate card's price. */
 export const F2_ESTIMATE = { ready: false, final: false, text: "The advisor is confirming your price.", test: false };
 
@@ -139,6 +146,7 @@ export const CANCELLED = { ready: false, final: true, text: "This trade-in was c
 export const LINE_KEYS_BY_STATUS: { status: string; answer: unknown; keys: string[] }[] = [
   { status: "quoted (ready)", answer: F1, keys: ["grade", "market", "we_pay", "bonus", "repair"] },
   { status: "quoted (not ready)", answer: F2, keys: [] },
+  { status: "quoted (can't be priced)", answer: F2_NO_PRICE, keys: [] },
   { status: "repair_chosen", answer: F9, keys: ["grade", "repair"] },
   { status: "locked (traded)", answer: F3, keys: ["grade", "market", "we_pay", "bonus"] },
   { status: "walked_away", answer: WALKED_AWAY, keys: ["grade", "market", "we_pay", "bonus", "repair"] },

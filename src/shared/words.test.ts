@@ -94,7 +94,7 @@ test("the answer's lines and waiting sentences (the server's, as the fixtures ho
   for (const a of [F.F1, F.F3, F.F4, F.F5, F.F6, F.F8, F.F9, F.WALKED_AWAY] as { lines: { text: string; note: string | null }[] }[]) {
     for (const l of a.lines) out.push(l.text, ...(l.note ? [l.note] : []));
   }
-  out.push(F.F2.text, F.F2_ESTIMATE.text, F.CANCELLED.text);
+  out.push(F.F2.text, F.F2_ESTIMATE.text, F.F2_NO_PRICE.text, F.CANCELLED.text);
   assert.ok(out.length > 30);
   short(out);
 });

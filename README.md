@@ -94,7 +94,8 @@ phone only says the advisor may ask to see Settings › Battery). No IMEI, no na
 mobile, no condition questions. Results are saved on the phone first and sent second. **Done** is one
 screen for the app and the browser (`src/check/ResultScreen.tsx`): once the store has the results it
 shows the answer the server writes (`GET /api/device/status` → `answer`) — or "The advisor is
-working out your price." until it is priced — re-read every 5 s until it is final, then every 15 s
+working out your price." until it is priced ("This phone can't be priced for trade-in here yet — the
+advisor will explain." when nothing can price it) — re-read every 5 s until it is final, then every 15 s
 while it says "Traded in" (a cancel before pickup still reaches the screen).
 
 ## Prices

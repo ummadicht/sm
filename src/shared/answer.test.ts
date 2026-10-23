@@ -24,6 +24,16 @@ test("F2: not priced yet — the one waiting sentence, no figures", () => {
   assert.deepEqual(A.readAnswer(F.F2_ESTIMATE), { ready: false, final: false, text: "The advisor is confirming your price.", test: false });
 });
 
+test("F2_NO_PRICE (SUP-32): nothing can price the phone — the server's one honest sentence, read as sent, still open", () => {
+  assert.deepEqual(A.readAnswer(F.F2_NO_PRICE), {
+    ready: false,
+    final: false,
+    text: "This phone can't be priced for trade-in here yet — the advisor will explain.",
+    test: false,
+  });
+  assert.doesNotMatch(F.F2_NO_PRICE.text, /working out/);
+});
+
 test("F3/F10: traded in — final, the paid wording, no repair line", () => {
   const v = view(F.F3);
   assert.equal(v.final, true);
