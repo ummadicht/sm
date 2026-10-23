@@ -14,7 +14,8 @@
 //     canEdit?: boolean,                                  // false once the case is past the counter
 //   }
 //   POST /api/cases/<caseId>/action { action: "certify", row, value, testSessionId } → the CaseView,
-//   whose `certification` holds the rows as stored.
+//   whose `certification` holds the rows as stored; "All fine" is the one call
+//   { action: "certify", allFine: true, testSessionId }.
 // A server that sends no `certify` gets no card (an older one): nothing is invented.
 //
 // No runtime imports — node --test runs it (./certify.test.ts).
@@ -221,13 +222,19 @@ export const ALL_FINE = "All fine — screen OK, body like new";
 
 /**
  * What ALL_FINE taps, in order: Screen OK, Body Like new, and the liquid indicator "Can't see" —
- * honest, it wasn't looked at (a liquid row already tapped keeps its tap: it was looked at). The
- * same taps, stamped with the advisor's name, as tapping each row. Only on a full check by eye (the
- * screen and the body both asked for), only where the server lists those choices, and only rows
- * that would change; an empty list = no button.
+ * honest, it wasn't looked at. The server's own rule (swapup lib/server/cases.ts allFineTaps): only
+ * the rows nobody has tapped yet — a row already tapped was looked at and keeps its tap — and the
+ * liquid indicator only when the card asks for it. The button shows when the desk's does
+ * (docs/MOBILE-API.md §8b "while the card is waiting for a tap"; swapup lib/domain/autoApply.ts
+ * certifyWaiting, ../flow.ts certifyStillOpen): the camera left the screen or the body, a row asked
+ * for is still untapped, and the card can still be tapped — so also on a card that asks only the
+ * screen or only the body. And only where the server lists those choices; an empty list = no
+ * button. The server, not this list, decides the values: on a row the store camera confirmed worse
+ * it records the camera's own chip (allFineBody).
  */
 export function allFineTaps(v: CertifyView): { row: CertifyRow; value: string }[] {
-  if (!v.canEdit || !v.needed.includes("screen") || !v.needed.includes("body")) return [];
+  const undecided = v.needed.includes("screen") || v.needed.includes("body");
+  if (!v.canEdit || !undecided || !v.needed.some((r) => !v.rows[r])) return [];
   const want: [CertifyRow, string][] = [
     ["screen", "ok"],
     ["body", "like_new"],
@@ -235,9 +242,9 @@ export function allFineTaps(v: CertifyView): { row: CertifyRow; value: string }[
   ];
   const taps: { row: CertifyRow; value: string }[] = [];
   for (const [row, value] of want) {
-    if (row === "liquid" && (v.rows.liquid || !v.needed.includes("liquid"))) continue;
+    if (row === "liquid" && !v.needed.includes("liquid")) continue;
     if (!v.choices[row].some((c) => c.value === value)) return [];
-    if (v.rows[row]?.value !== value) taps.push({ row, value });
+    if (!v.rows[row]) taps.push({ row, value });
   }
   return taps;
 }
@@ -305,4 +312,23 @@ export function rowFace(v: CertifyView, row: CertifyRow, s: CardTaps): { chosen:
 /** The POST body for one tap. */
 export function certifyBody(row: CertifyRow, value: string, testSessionId: string | null): Record<string, unknown> {
   return { action: "certify", row, value, ...(testSessionId ? { testSessionId } : {}) };
+}
+
+/**
+ * The POST body for ALL_FINE: ONE call, as the desk sends it (docs/MOBILE-API.md "One tap") — never
+ * its three taps one by one. The server taps the rows nobody has tapped yet in one transaction, and
+ * on a row the store camera confirmed worse records the camera's own chip instead of refusing — a
+ * single "OK" / "Like new" tap there is refused (SUP-5).
+ */
+export function allFineBody(testSessionId: string | null): Record<string, unknown> {
+  return { action: "certify", allFine: true, ...(testSessionId ? { testSessionId } : {}) };
+}
+
+/** ALL_FINE sent: the rows it taps lose their last refusal — the server answers for them now. */
+export function allFineSent(s: CardTaps, v: CertifyView): CardTaps {
+  const rows = allFineTaps(v).map((t) => t.row);
+  if (!rows.some((r) => s.err[r])) return s;
+  const err = { ...s.err };
+  for (const r of rows) delete err[r];
+  return { ...s, err };
 }

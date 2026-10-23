@@ -123,10 +123,26 @@ test("imeiResultLine: the model and the GSMA word; not checked is never said as 
 test("imeiStop: GSMA blacklisted, or an early KYM answer that isn't clear, stops the trade-in", () => {
   assert.equal(I.imeiStop({ imeiLookup: lookup(), kymEarly: null }), null);
   assert.equal(I.imeiStop({ imeiLookup: lookup({ blacklist: "unknown" }), kymEarly: null }), null);
-  assert.equal(I.imeiStop({ imeiLookup: null, kymEarly: { status: "clear", reference: null } }), null);
   assert.equal(I.imeiStop({ imeiLookup: lookup({ blacklist: "blacklisted" }), kymEarly: null }), "This phone is reported lost or stolen (GSMA). It can't be traded in.");
-  for (const status of ["blacklisted", "duplicate", "in_use"] as const) {
-    assert.equal(I.imeiStop({ imeiLookup: lookup(), kymEarly: { status, reference: null } }), "This phone is reported lost or stolen. It can't be traded in.", status);
+});
+
+test("imeiStop: an early KYM answer says the register's own words, as the server's kymEarlyStop (SUP-17, SUP-99)", () => {
+  const kym = (status: import("./lock").Kym) => I.imeiStop({ imeiLookup: lookup(), kymEarly: { status, reference: null } });
+  assert.equal(kym("clear"), null);
+  assert.equal(I.imeiStop({ imeiLookup: null, kymEarly: { status: "clear", reference: null } }), null);
+  assert.equal(kym("blacklisted"), 'IMEI register says "Black-listed (reported lost/stolen)" — check it before testing.');
+  assert.equal(kym("duplicate"), 'IMEI register says "Duplicate IMEI" — check it before testing.');
+  assert.equal(kym("in_use"), 'IMEI register says "Already in use" — check it before testing.');
+  // Never "lost or stolen" for a duplicate or in-use IMEI.
+  assert.ok(!/lost or stolen/.test(kym("duplicate")! + kym("in_use")!));
+  // A status the app doesn't know prints as sent (the server's rule).
+  assert.equal(I.kymEarlyStop("stolen_abroad"), 'IMEI register says "stolen_abroad" — check it before testing.');
+  assert.equal(I.kymEarlyStop("toString"), 'IMEI register says "toString" — check it before testing.');
+});
+
+test("imeiStop: GSMA's blacklisted wins over any early KYM answer", () => {
+  for (const status of ["clear", "blacklisted", "duplicate", "in_use"] as const) {
+    assert.equal(I.imeiStop({ imeiLookup: lookup({ blacklist: "blacklisted" }), kymEarly: { status, reference: null } }), I.STOP_GSMA, status);
   }
 });
 

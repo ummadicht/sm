@@ -55,42 +55,41 @@ export const F3 = {
 };
 export const F10 = F3;
 
-/** F4 — customer, a covered repair and nothing else wrong (a clean body, a cracked screen under warranty). */
+/** F4 — customer, a covered repair, nothing else wrong (lines on the display, under warranty). */
 export const F4 = {
   ready: true,
   final: false,
   headline: "Repair it — it's covered",
-  grade: { letter: "A", word: "Superb", note: "screen cracked" },
-  market: { amount: 25000, letter: "A", word: "Superb" },
-  wePay: 26000,
-  bonus: { amount: 6199 },
-  newPhone: { label: S26 },
+  grade: { letter: "A", word: "Superb", note: "screen lines or spots" },
+  market: { amount: 30000, letter: "A", word: "Superb" },
+  wePay: 31200,
+  bonus: null,
+  newPhone: null,
   repair: { amount: 0, covered: true, nothingToRepair: false },
   lines: [
-    { key: "grade", text: "Current grade A", note: "screen cracked", amount: null },
-    { key: "market", text: "Market price for grade A ₹25,000", note: null, amount: 25000 },
-    { key: "we_pay", text: "We pay you ₹26,000", note: null, amount: 26000 },
-    { key: "bonus", text: "+ ₹6,199 bonus if you exchange with a new device", note: S26, amount: 6199 },
+    { key: "grade", text: "Current grade A", note: "screen lines or spots", amount: null },
+    { key: "market", text: "Market price for grade A ₹30,000", note: null, amount: 30000 },
+    { key: "we_pay", text: "We pay you ₹31,200", note: null, amount: 31200 },
     { key: "repair", text: "or repair it free — covered by warranty", note: null, amount: 0 },
   ],
   test: false,
 };
 
-/** F5 — customer, nothing to repair and no bonus campaign: grade, market and we-pay lines only. */
+/** F5 — customer, nothing to repair, no campaign. */
 export const F5 = {
   ready: true,
   final: false,
   headline: "Nothing to repair — a straight trade-in",
   grade: { letter: "A", word: "Superb", note: null },
-  market: { amount: 30000, letter: "A", word: "Superb" },
-  wePay: 31200,
+  market: { amount: 25000, letter: "A", word: "Superb" },
+  wePay: 26000,
   bonus: null,
-  newPhone: { label: S26 },
+  newPhone: { label: "Galaxy S26 Ultra 256GB" },
   repair: { amount: null, covered: false, nothingToRepair: true },
   lines: [
     { key: "grade", text: "Current grade A (Superb)", note: null, amount: null },
-    { key: "market", text: "Market price for grade A ₹30,000", note: null, amount: 30000 },
-    { key: "we_pay", text: "We pay you ₹31,200", note: null, amount: 31200 },
+    { key: "market", text: "Market price for grade A ₹25,000", note: null, amount: 25000 },
+    { key: "we_pay", text: "We pay you ₹26,000", note: null, amount: 26000 },
   ],
   test: false,
 };
@@ -99,7 +98,7 @@ export const F5 = {
 export const F6 = {
   ...F1,
   text: null,
-  market: { ...F1.market, source: "partner_manual" },
+  market: { ...F1.market, source: "partner_ratecard" },
   premium: { amount: 1000, bp: 400, rule: "2026-10-18.1" },
   bonus: { amount: 6199, bp: 400 },
   newPhone: { label: S26, price: 154999 },

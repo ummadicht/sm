@@ -49,7 +49,9 @@ test("F4: a covered repair — free, amount 0, the covered headline", () => {
   assert.ok(v.ready);
   assert.equal(v.headline, "Repair it — it's covered");
   assert.deepEqual(A.lineOf(v.lines, "repair"), { key: "repair", text: "or repair it free — covered by warranty", note: null, amount: 0 });
-  assert.deepEqual(A.lineOf(v.lines, "grade"), { key: "grade", text: "Current grade A", note: "screen cracked", amount: null });
+  assert.deepEqual(A.lineOf(v.lines, "grade"), { key: "grade", text: "Current grade A", note: "screen lines or spots", amount: null });
+  // No campaign on this case: no bonus line.
+  assert.deepEqual(keys(v), ["grade", "market", "we_pay", "repair"]);
 });
 
 test("F5: nothing to repair, no campaign — grade, market and we-pay only", () => {
@@ -66,7 +68,8 @@ test("F6: the staff answer — the same lines; the staff notes read; nothing sta
   assert.deepEqual(A.readStaffNotes(F.F6), { market: null, we_pay: "Includes ₹1,000 SwapUp premium (4%).", bonus: "Upgrade bonus · 4%" });
   // The view holds the lines only: no source, premium, bp, phone price or staff notes.
   assert.deepEqual(Object.keys(view(F.F6)).sort(), ["final", "headline", "lines", "ready", "test"]);
-  assert.doesNotMatch(JSON.stringify(view(F.F6)), /premium|154999|partner_manual|staffNotes|"bp"/);
+  assert.doesNotMatch(JSON.stringify(view(F.F6)), /premium|154999|"source"|partner_ratecard|staffNotes|"bp"/);
+  assert.equal(F.F6.market.source, "partner_ratecard", "the server's F6: the rate card's price (lib/domain/answer.test.ts)");
   // F6's swap, the same numbers: we pay = market + premium; total = we pay + bonus; the customer pays the rest.
   assert.equal(F.F6_SWAP.wePay, F.F6_SWAP.tradeIn + F.F6_SWAP.premium.amount);
   assert.equal(F.F6_SWAP.total, F.F6_SWAP.wePay + 6199);

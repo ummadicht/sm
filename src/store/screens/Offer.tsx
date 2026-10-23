@@ -76,7 +76,7 @@ import {
   REPRICE,
 } from "../offer";
 import { type RefurbDecision, readRefurbDecision } from "../refurbEconomics";
-import { type CertifyView, answerCertify, readCertify } from "../certify";
+import { type CertifyView, allFineBody, answerCertify, readCertify } from "../certify";
 import { answerCertifyMode, checkedByLine } from "../flow";
 import { CheckThePhone } from "./CertifyCard";
 import { type StaffClient, absolute, errText } from "../staffClient";
@@ -543,6 +543,7 @@ export function OfferScreen({
           <CheckThePhone
             view={certify}
             onTap={(row, value) => act("certify", { row, value, ...(certify.testSessionId ? { testSessionId: certify.testSessionId } : {}) })}
+            onAllFine={() => act("certify", allFineBody(certify.testSessionId))}
           />
         ) : null}
 

@@ -42,7 +42,8 @@ Store with one tap per row, by name, while the customer's phone shows the colour
    *"Galaxy S23 Ultra · not blacklisted (GSMA)"* ("Blacklist not checked" when GSMA didn't
    answer — never as clean), any warning, and **Text KYM to 14422** with the KYM chips, so the
    government check runs while the phone tests (its answer is recorded as `kymEarly`; Take the
-   trade-in starts from it and still needs it "clear"). A test the customer started from the
+   trade-in starts from it and still needs it "clear"; one that isn't stops the trade-in in the
+   register's own words, *IMEI register says "Duplicate IMEI" — check it before testing.*). A test the customer started from the
    counter QR has no New trade-in: the same card tops its Session screen ("Scan IMEI" on its Home
    row).
 2. **Connect the customer's phone.** The **Wi‑Fi QR** (the store's router, saved once by the
@@ -62,9 +63,11 @@ Store with one tap per row, by name, while the customer's phone shows the colour
    · Cracked) once the phone's tests are done and it loops the test colours by itself — its chips
    wait while the phone is still testing (`GET /api/device/status` says `colours`;
    `src/check/ResultColours.tsx`). Each tap goes on the case with the advisor's name and time
-   (`POST /api/cases/<id>/action {action: "certify"}`). On a full check by eye one button tops the
-   card — **"All fine — screen OK, body like new"** — which makes those taps (and Liquid "Can't see":
-   not looked at) in one go. On the answer the tapped card stays one tap
+   (`POST /api/cases/<id>/action {action: "certify"}`). While a row on the card is still untapped
+   one button tops it, as on the desk — **"All fine — screen OK, body like new"** — one call
+   (`{action: "certify", allFine: true}`, as the desk's) that makes those taps (and Liquid "Can't see": not looked at) on the rows nobody
+   has tapped yet; on a row the camera confirmed worse the server records the camera's own chip. On
+   the answer the tapped card stays one tap
    away — "Checked by Asha · change" — until the trade-in is taken. An older
    SwapUp Check (tests first) gets the same single pass after its tests.
 4. **The answer — by itself.** No "Apply to case": once the phone's tests and the camera grade are

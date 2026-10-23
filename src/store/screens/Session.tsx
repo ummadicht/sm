@@ -32,7 +32,7 @@ import { ConnectHead, TestQrCard, WifiCard, WifiInfo } from "./SessionParts";
 import { CameraStepCard, ScanStepCard } from "./CameraParts";
 import { readGrading } from "../grading";
 import { readPhonePhase, scanFirstNow, scanStage, sessionLayout } from "../phoneLed";
-import { type CertifyRow, certifyBody, readCertify } from "../certify";
+import { type CertifyRow, allFineBody, certifyBody, readCertify } from "../certify";
 import { type AutoApply, activeStep, answerStepText, cameraOver, certifyInCamera, holdScreen, readAutoApply, sessionNow } from "../flow";
 import { CheckThePhone } from "./CertifyCard";
 import { CaseImeiCard } from "./ImeiCard";
@@ -197,19 +197,22 @@ export function SessionScreen({
   }
 
   /**
-   * One tap on "Check the phone": POST /api/cases/<id>/action {action: "certify"}. It answers
-   * with the case; the session (its `certify`, and the answer once the last row is in) is read again at once.
+   * "Check the phone": POST /api/cases/<id>/action {action: "certify"} — one tap, or "All fine" in one
+   * call. It answers with the case; the session (its `certify`, and the answer once the last row is
+   * in) is read again at once.
    */
-  async function certifyTap(row: CertifyRow, value: string): Promise<string | null> {
+  async function certifySend(body: Record<string, unknown>): Promise<string | null> {
     if (!v) return "This test isn't loaded yet.";
     try {
-      await api.post<unknown>(`/api/cases/${encodeURIComponent(v.caseId)}/action`, certifyBody(row, value, v.id));
+      await api.post<unknown>(`/api/cases/${encodeURIComponent(v.caseId)}/action`, body);
       setPollKey((k) => k + 1);
       return null;
     } catch (e) {
       return errText(e);
     }
   }
+  const certifyTap = (row: CertifyRow, value: string) => certifySend(certifyBody(row, value, v?.id ?? null));
+  const certifyAllFine = () => certifySend(allFineBody(v?.id ?? null));
 
   /** POST …/camera-override and …/release-scan answer with the session (or just its grading); the 2 s poll catches up either way. */
   function takeSession(r: unknown) {
@@ -390,7 +393,7 @@ export function SessionScreen({
 
   // "Check the phone", inside step 3, only when the camera couldn't decide.
   const check =
-    certifyShown && certify ? <CheckThePhone view={certify} inline holdScreen={holdScreen(certify, v.status)} onTap={certifyTap} /> : null;
+    certifyShown && certify ? <CheckThePhone view={certify} inline holdScreen={holdScreen(certify, v.status)} onTap={certifyTap} onAllFine={certifyAllFine} /> : null;
   const cameraStep = phoneLed ? (
     <ScanStepCard v={v} g={grading} api={api} wide={wide} phase={phase} stage={stage} onSession={takeSession} certify={check} now={active === "camera"} />
   ) : (
