@@ -64,8 +64,10 @@ Store with one tap per row, by name, while the customer's phone shows the colour
    wait while the phone is still testing (`GET /api/device/status` says `colours`;
    `src/check/ResultColours.tsx`). Each tap goes on the case with the advisor's name and time
    (`POST /api/cases/<id>/action {action: "certify"}`). On a full check by eye one button tops the
-   card — **"All fine — screen OK, body like new"** — which makes those taps (and Liquid "Can't see":
-   not looked at) in one go. On the answer the tapped card stays one tap
+   card — **"All fine — screen OK, body like new"** — one call (`{action: "certify", allFine: true}`,
+   as the desk's) that makes those taps (and Liquid "Can't see": not looked at) on the rows nobody
+   has tapped yet; on a row the camera confirmed worse the server records the camera's own chip. On
+   the answer the tapped card stays one tap
    away — "Checked by Asha · change" — until the trade-in is taken. An older
    SwapUp Check (tests first) gets the same single pass after its tests.
 4. **The answer — by itself.** No "Apply to case": once the phone's tests and the camera grade are

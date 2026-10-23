@@ -13,9 +13,10 @@
 // only when the camera couldn't decide; the answer opens by itself after the last tap. The
 // answer (./Offer.tsx) shows it only when a row is still open there (the results went on first).
 // On a full check by eye one button tops it (owner, 2026-10-19: "Skip and get on advisor app
-// fast"): ALL_FINE taps Screen OK, Body Like new and Liquid "Can't see" (not looked at), one after
-// the other, exactly as the three taps would — so the answer opens straight after. The chips stay
-// for anything else.
+// fast"): ALL_FINE is ONE call, {action: "certify", allFine: true}, as the desk's — the server taps
+// Screen OK, Body Like new and Liquid "Can't see" (not looked at) on the rows nobody has tapped yet,
+// and on a row the camera confirmed worse the camera's own chip, never refused for it — so the
+// answer opens straight after. The chips stay for anything else.
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import {
@@ -25,10 +26,10 @@ import {
   ALL_FINE,
   NO_TAPS,
   ROW_TITLE,
+  allFineSent,
   allFineTaps,
   certifyLead,
   coloursLine,
-  letGo,
   pendingRows,
   rowFace,
   shownRows,
@@ -45,6 +46,7 @@ export function CheckThePhone({
   inline = false,
   holdScreen = false,
   onTap,
+  onAllFine,
   children,
 }: {
   view: CertifyView;
@@ -56,6 +58,8 @@ export function CheckThePhone({
   inline?: boolean;
   /** Send one tap. Resolves to the server's reason when it refused (its sentence as sent — ../staffClient errText), else null. */
   onTap: (row: CertifyRow, value: string) => Promise<string | null>;
+  /** Send ALL_FINE — one call (../certify.ts allFineBody). Resolves to the server's reason when it refused, else null. */
+  onAllFine: () => Promise<string | null>;
   /** What goes under the rows (Apply, on the Session screen). */
   children?: React.ReactNode;
 }) {
@@ -92,23 +96,17 @@ export function CheckThePhone({
     setTaps((s) => tapAnswered(s, row, why));
   }
 
-  /** ALL_FINE: its taps in order, stopping at the first the server refuses (its reason under the button). */
+  /** ALL_FINE: one call; the server's view brings the rows it tapped. Refused: its reason under the button. */
   const fine = allFineTaps(view);
   async function allFine() {
     if (busy || allBusy) return;
     setAllErr(null);
+    setTaps((s) => allFineSent(s, view));
     setAllBusy(true);
-    for (const t of fine) {
-      setTaps((s) => tapSent(s, t.row, t.value, Date.now()));
-      const why = await onTap(t.row, t.value);
-      if (!alive.current) return;
-      if (why) {
-        setAllErr(why);
-        setTaps((s) => letGo(s, t.row));
-        break;
-      }
-    }
+    const why = await onAllFine();
+    if (!alive.current) return;
     setAllBusy(false);
+    setAllErr(why);
   }
 
   const colours = coloursLine(view);

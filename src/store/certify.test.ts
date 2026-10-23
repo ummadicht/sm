@@ -120,18 +120,17 @@ test("allFineTaps: one tap for a full check by eye — Screen OK, Body Like new,
     { row: "body", value: "like_new" },
     { row: "liquid", value: "cant_see" },
   ]);
-  // Each is the ordinary tap, by name, through the one door.
-  assert.deepEqual(C.allFineTaps(full).map((t) => C.certifyBody(t.row, t.value, full.testSessionId)), [
-    { action: "certify", row: "screen", value: "ok", testSessionId: "ts_9" },
-    { action: "certify", row: "body", value: "like_new", testSessionId: "ts_9" },
-    { action: "certify", row: "liquid", value: "cant_see", testSessionId: "ts_9" },
-  ]);
-  // A liquid indicator already tapped was looked at: kept. A row already so: not tapped again.
+  // Sent as ONE call, as the desk's (docs/MOBILE-API.md "One tap") — never its taps one by one.
+  assert.deepEqual(C.allFineBody(full.testSessionId), { action: "certify", allFine: true, testSessionId: "ts_9" });
+  assert.deepEqual(C.allFineBody(null), { action: "certify", allFine: true });
+  // A row already tapped was looked at and keeps its tap (the server's allFineTaps): only the rest.
   const looked = C.readCertify({ certify: { needed: ["screen", "body", "liquid"], rows: { liquid: { value: "clean", by: "Asha", at: AT }, body: { value: "like_new", by: "Asha", at: AT } } } })!;
   assert.deepEqual(C.allFineTaps(looked), [{ row: "screen", value: "ok" }]);
-  // A body tapped otherwise is what the button changes: it says "body like new".
   const scuffed = C.readCertify({ certify: { needed: ["screen", "body", "liquid"], rows: { body: { value: "scuffs", by: "Asha", at: AT } } } })!;
-  assert.deepEqual(C.allFineTaps(scuffed).map((t) => t.row), ["screen", "body", "liquid"]);
+  assert.deepEqual(C.allFineTaps(scuffed).map((t) => t.row), ["screen", "liquid"], "the body keeps its Scuffs");
+  // The liquid indicator only when the card asks for it.
+  const dry = C.readCertify({ certify: { needed: ["screen", "body"] } })!;
+  assert.deepEqual(C.allFineTaps(dry).map((t) => t.row), ["screen", "body"]);
 });
 
 test("allFineTaps: no button unless it is a full check by eye the advisor can still tap, with those choices", () => {
@@ -142,6 +141,9 @@ test("allFineTaps: no button unless it is a full check by eye the advisor can st
   assert.deepEqual(C.allFineTaps(card({ choices: { body: ["scuffs", "dents"] } })), [], "the server's list has no 'like new'");
   const done = card({ rows: { screen: { value: "ok" }, body: { value: "like_new" }, liquid: { value: "cant_see" } } });
   assert.deepEqual(C.allFineTaps(done), [], "nothing would change");
+  // Every row tapped, whatever with: the server would tap nothing, so no button that does nothing.
+  const tapped = card({ rows: { screen: { value: "scratches" }, body: { value: "dents" }, liquid: { value: "tripped" } } });
+  assert.deepEqual(C.allFineTaps(tapped), []);
 });
 
 test("certifyBody: the one-door case action, with the session when known", () => {
@@ -246,6 +248,49 @@ test("SUP-5: the camera overrules a tap — its sentence, word for word, under t
   const again = C.tapSent(refused, "screen", "lines", 3_000);
   assert.equal(C.rowFace(v, "screen", again).error, null);
   assert.equal(C.rowFace(v, "screen", again).chosen, "lines");
+});
+
+test("All fine is ONE call: on a row the camera confirmed worse the server records the camera's chip — no refusal", async () => {
+  const S: typeof import("./staffClient") = await import("./staffClient" + ".ts");
+  // The server, as it answers on a session whose camera confirmed lines on the screen: a single "OK"
+  // tap is refused with the camera's sentence; {allFine: true} taps every untapped row, the screen
+  // with the camera's own chip.
+  const sent: unknown[] = [];
+  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    const b = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+    sent.push(b);
+    if (b.allFine === true) {
+      const by = { by: "Asha K.", at: AT, withColours: true };
+      const rows = { screen: { value: "lines", label: "Lines or spots", ...by }, body: { value: "like_new", label: "Like new", ...by }, liquid: { value: "cant_see", label: "Can't see", ...by } };
+      return new Response(JSON.stringify({ id: "c1", certify: { needed: ["screen", "body", "liquid"], rows, colours: "off", testSessionId: "ts_1" }, certification: rows }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response(JSON.stringify({ error: CAMERA_SAYS }), { status: 409, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  const api = S.staffClient("https://swapup.example.in", "tok", () => {});
+  const send = (body: Record<string, unknown>) => api.post<unknown>("/api/cases/c1/action", body).then((r) => ({ r, why: null }), (e: unknown) => ({ r: null, why: S.errText(e) }));
+
+  const v = C.readCertify({ certify: { needed: ["screen", "body", "liquid"], colours: "showing", testSessionId: "ts_1" } })!;
+  // A single tap keeps its refusal: the camera's sentence under the row.
+  const one = await send(C.certifyBody("screen", "ok", v.testSessionId));
+  assert.equal(one.why, CAMERA_SAYS);
+  const refused = C.tapAnswered(C.tapSent(C.NO_TAPS, "screen", "ok", 1_000), "screen", one.why);
+  assert.equal(C.rowFace(v, "screen", refused).error, CAMERA_SAYS);
+
+  // All fine: one request, the allFine body — not three taps.
+  sent.length = 0;
+  const cleared = C.allFineSent(refused, v);
+  assert.equal(C.rowFace(v, "screen", cleared).error, null, "the server answers for the screen now");
+  const all = await send(C.allFineBody(v.testSessionId));
+  assert.equal(all.why, null, "never refused for what the camera confirmed");
+  assert.deepEqual(sent, [{ action: "certify", allFine: true, testSessionId: "ts_1" }]);
+  // The server's view brings the rows: the screen says what the camera saw, nothing left to tap.
+  const after = C.readCertify(all.r)!;
+  assert.deepEqual(C.pendingRows(after), []);
+  assert.equal(C.rowFace(after, "screen", cleared).chosen, "lines");
+  assert.match(C.rowFace(after, "screen", cleared).stamp ?? "", /^✓ Asha K\./);
+  assert.deepEqual(C.allFineTaps(after), [], "no button once every row is tapped");
+  // Nothing to clear: the same object.
+  assert.equal(C.allFineSent(C.NO_TAPS, v), C.NO_TAPS);
 });
 
 test("the card's taps: recorded → the server's view takes over; held too long → let go; an earlier stamp stays", () => {
