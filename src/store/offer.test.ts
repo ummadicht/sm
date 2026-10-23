@@ -4,6 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { register } from "node:module";
+import { readFileSync } from "node:fs";
 
 // offer.ts imports ../shared/answer without an extension (Metro's way); this adds ".ts" for plain node.
 register(
@@ -514,6 +515,27 @@ test("wantsReprice: a decision made under other rules is re-priced once (R8: bef
   assert.equal(O.wantsReprice(true, false, offer(), null), false, "no decision yet: nothing to re-decide");
   assert.equal(O.wantsReprice(true, false, offer()), false);
   assert.equal(O.wantsReprice(false, false, offer(), "2026-10-15.2"), false, "a closed case is never re-priced");
+});
+
+test("wantsRequote: ONE Re-quote in the quiet row — an open case whose quote has expired or isn't priced, nothing else", () => {
+  assert.equal(O.wantsRequote(true, true, "priced"), true, "expired");
+  assert.equal(O.wantsRequote(true, true, null), true, "expired, whatever the quote says");
+  assert.equal(O.wantsRequote(true, false, "unpriced"), true, "nothing priced it (a rate card may have gone live since)");
+  assert.equal(O.wantsRequote(true, false, "error"), true);
+  assert.equal(O.wantsRequote(true, false, "priced"), false, "priced and valid: no Re-quote");
+  assert.equal(O.wantsRequote(true, false, null), false, "no quote yet (no model, storage or condition): nothing to re-quote");
+  for (const [exp, st] of [[true, "priced"], [false, "unpriced"], [true, null]] as const) assert.equal(O.wantsRequote(false, exp, st), false, "a closed case never");
+  // Every case the link shows on is one the quiet re-price wanted too — the link is that same re-price, asked again.
+  for (const [exp, st] of [[true, "priced"], [false, "unpriced"], [false, "error"], [true, null]] as const) {
+    if (O.wantsRequote(true, exp, st)) assert.equal(O.wantsReprice(true, exp, offer(), null, st), true, `${exp} ${st}`);
+  }
+  assert.deepEqual(O.REPRICE, { action: "reprice", requote: false });
+  // The screen posts REPRICE from both places, and draws one Re-quote.
+  const src = readFileSync(new URL("./screens/Offer.tsx", import.meta.url), "utf8");
+  assert.equal(src.match(/api\.post<unknown>\(`\$\{path\}\/action`, REPRICE\)/g)?.length, 2);
+  assert.doesNotMatch(src, /action: "reprice"/, "no second, different re-price");
+  assert.equal(src.match(/title="Re-quote"/g)?.length, 1);
+  assert.match(src, /wantsRequote\(OPEN\.has\(head\.status\), extra\.quoteExpired, extra\.quoteStatus\) \? <QuietLink title="Re-quote"/);
 });
 
 // ── the answer's lines (offer.answer; answer spec §A, fixtures in ../shared/answer.fixtures.ts) ─────

@@ -405,6 +405,19 @@ export function wantsReprice(open: boolean, quoteExpired: boolean, o: Offer | nu
 }
 
 /**
+ * The answer screen's one "Re-quote" link (SUP-38; the desk's tile Re-quote): on an open case whose
+ * trade-in quote has expired or isn't priced. The quiet re-price fires once per open; when that one
+ * try fails (Wi‑Fi) or a rate card goes live while the screen is up, this asks again — the same
+ * re-price. A case with no quote yet (no model, storage or condition) has nothing to re-quote.
+ */
+export function wantsRequote(open: boolean, quoteExpired: boolean, quoteStatus: string | null): boolean {
+  return open && (quoteExpired || (quoteStatus !== null && quoteStatus !== "priced"));
+}
+
+/** The one re-price both ask for — the quiet one on open, and the Re-quote link: POST /api/cases/<id>/action. */
+export const REPRICE = { action: "reprice", requote: false } as const;
+
+/**
  * Where a storage ask with no chip sends the advisor. The server offers none when the phone measured
  * a size the model's list doesn't have (a 1TB Ultra on file as 256/512GB): nothing prices that size,
  * so there is nowhere to go — null, no button; the server's text says so. A size is never guessed.
