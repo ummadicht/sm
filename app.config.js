@@ -80,7 +80,7 @@ module.exports = () => {
     name: v.name,
     slug: v.slug,
     scheme: v.scheme,
-    version: "0.9.2",
+    version: "0.9.3",
     orientation: VARIANT === "store" ? "default" : "portrait",
     userInterfaceStyle: v.userInterfaceStyle,
     backgroundColor: v.backgroundColor,
@@ -89,7 +89,7 @@ module.exports = () => {
     android: {
       package: v.package,
       // Bump with every APK published to /downloads so it installs over the previous one.
-      versionCode: 14,
+      versionCode: 15,
       adaptiveIcon: { backgroundColor: "#FFFFFF", foregroundImage: `./assets/${VARIANT}-icon-foreground.png` },
       permissions: v.permissions,
       blockedPermissions: v.blockedPermissions,
