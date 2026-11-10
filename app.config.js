@@ -89,7 +89,7 @@ module.exports = () => {
     android: {
       package: v.package,
       // Bump with every APK published to /downloads so it installs over the previous one.
-      versionCode: 15,
+      versionCode: 16,
       adaptiveIcon: { backgroundColor: "#FFFFFF", foregroundImage: `./assets/${VARIANT}-icon-foreground.png` },
       permissions: v.permissions,
       blockedPermissions: v.blockedPermissions,

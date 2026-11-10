@@ -265,8 +265,7 @@ untested; the store sees "In the browser, no app" and a note on the summary.
   automatic run"); biometrics is always a skip (exercising it needs the customer).
 - **Not yet tried on a real phone.** The sensor, audio-loopback and camera-luminance thresholds are
   untuned on hardware; many phones won't route media to the earpiece, so `voice` will often be a
-  skip (tone not heard, or as loud as the loudspeaker so the earpiece route is not confirmed). The full-screen patterns hide the status bar, but the
-  Android navigation bar still covers the bottom edge.
+  skip (tone not heard, or as loud as the loudspeaker so the earpiece route is not confirmed).
 - If camera grading **fails** before the phone pairs, the phone goes on to its tests at once; a
   later **Retry** on the store app gives a fresh GradeIQ session, and the phone's result screen
   follows that camera page's colours when it asks for them. A camera page opened while the phone
