@@ -368,3 +368,42 @@ test("the card's taps: recorded → the server's view takes over; held too long 
   const face = C.rowFace(v, "body", C.tapAnswered(C.tapSent(C.NO_TAPS, "body", "dents", 1), "body", CAMERA_SAYS_BODY));
   assert.deepEqual(face, { chosen: "like_new", stamp: `✓ Asha K. · ${local(AT)}`, notChecked: false, error: CAMERA_SAYS_BODY });
 });
+
+test("SUP-260: notes.screen from a partial sweep is read, and a severe mark leaves Screen out of All fine", () => {
+  const severeNote =
+    'Screen not fully camera-checked — it saw "Vertical green line across the panel" (severe, 97%, on white); black, green not captured. Look at it.';
+  const mildNote = "Screen not fully camera-checked — look at it.";
+  assert.equal(C.severeScreenMark(severeNote), true);
+  assert.equal(C.severeScreenMark(mildNote), false);
+  assert.equal(C.severeScreenMark(null), false);
+
+  const withSevere = C.readCertify({
+    certify: {
+      needed: ["screen", "body", "liquid"],
+      rows: {},
+      colours: "showing",
+      notes: { screen: severeNote },
+    },
+  })!;
+  assert.equal(withSevere.notes?.screen, severeNote);
+  assert.deepEqual(C.allFineTaps(withSevere), [
+    { row: "body", value: "like_new" },
+    { row: "liquid", value: "cant_see" },
+  ]);
+
+  const withMild = C.readCertify({
+    certify: {
+      needed: ["screen", "body", "liquid"],
+      rows: {},
+      colours: "showing",
+      notes: { screen: mildNote },
+    },
+  })!;
+  assert.equal(withMild.notes?.screen, mildNote);
+  assert.deepEqual(C.allFineTaps(withMild), [
+    { row: "screen", value: "ok" },
+    { row: "body", value: "like_new" },
+    { row: "liquid", value: "cant_see" },
+  ]);
+});
+

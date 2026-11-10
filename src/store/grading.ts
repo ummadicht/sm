@@ -65,6 +65,15 @@ export type CameraComponent = {
 
 export type DisplayVerdict = "pass" | "fail" | "unknown";
 
+export type CameraPartialMark = {
+  label: string;
+  severity: string | null;
+  confidence: number | null;
+  pattern: string | null;
+  missing: string[];
+  severe: boolean;
+};
+
 export type CameraDisplayCheck = {
   verdict: DisplayVerdict;
   confidence: number | null;
@@ -72,6 +81,8 @@ export type CameraDisplayCheck = {
   note: string | null;
   missing: string[];
   findings: CameraFinding[];
+  partialMark?: CameraPartialMark | null;
+  aiOff?: boolean;
 };
 
 export type CameraResult = {
@@ -495,8 +506,35 @@ export function readGrading(raw: unknown): CameraGrading {
   const d = result?.display ?? null;
   const lcdFlag = pick(g, "lcdNotChecked", "lcdUnchecked");
   const lcd = obj(pick(snap, "lcd") ?? pick(g, "lcd"));
-  if (result && !result.display && lcd && (str(lcd.verdict) === "pass" || str(lcd.verdict) === "fail")) {
-    result.display = { verdict: str(lcd.verdict) as DisplayVerdict, confidence: null, reason: null, note: null, missing: [], findings: [] };
+  const pmRaw = obj(lcd?.partialMark);
+  const partialMark: CameraPartialMark | null =
+    pmRaw && str(pmRaw.label)
+      ? {
+          label: str(pmRaw.label)!,
+          severity: str(pmRaw.severity),
+          confidence: frac(pmRaw.confidence),
+          pattern: str(pmRaw.pattern),
+          missing: strs(pmRaw.missing),
+          severe: pmRaw.severe === true,
+        }
+      : null;
+  const aiOff = lcd?.aiOff === true;
+  if (result && lcd) {
+    if (!result.display && (str(lcd.verdict) === "pass" || str(lcd.verdict) === "fail" || partialMark || aiOff)) {
+      result.display = {
+        verdict: str(lcd.verdict) === "pass" || str(lcd.verdict) === "fail" ? (str(lcd.verdict) as DisplayVerdict) : "unknown",
+        confidence: null,
+        reason: str(lcd.reason),
+        note: null,
+        missing: partialMark?.missing ?? [],
+        findings: [],
+        partialMark,
+        aiOff,
+      };
+    } else if (result.display) {
+      result.display.partialMark = partialMark;
+      result.display.aiOff = aiOff;
+    }
   }
   const lcdNotChecked = ((): string | null => {
     const own = str(lcdFlag);

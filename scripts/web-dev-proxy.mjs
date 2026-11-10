@@ -13,14 +13,16 @@
 //
 // Env: PORT (4620), UPSTREAM (http://localhost:4500), DIST (<repo>/dist-web), QUIET=1.
 import http from "node:http";
+import https from "node:https";
 import net from "node:net";
+import tls from "node:tls";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const PORT = Number(process.env.PORT || 4620);
-const UPSTREAM = new URL(process.env.UPSTREAM || "http://localhost:4500");
+const PORT = Number(process.env.PORT || 3000);
+const UPSTREAM = new URL(process.env.UPSTREAM || process.env.SWAPUP_SERVER || "https://swapup.104-197-168-25.sslip.io");
 const DIST = path.resolve(process.env.DIST || path.join(ROOT, "dist-web"));
 const QUIET = process.env.QUIET === "1";
 const APPS = ["store", "check"];
@@ -119,14 +121,16 @@ function serveApp(req, res, app, rest, t0) {
 
 /** Everything that isn't a web app goes to the SwapUp server untouched. */
 function proxy(req, res, t0) {
+  const isHttps = UPSTREAM.protocol === "https:";
   const headers = { ...req.headers };
-  // Keep Host = this proxy (like Caddy's reverse_proxy does), and say so in the
-  // forwarded headers, so links and cookies the server makes are for this origin.
+  headers.host = UPSTREAM.host;
   headers["x-forwarded-host"] = req.headers.host || `localhost:${PORT}`;
-  headers["x-forwarded-proto"] = "http";
+  headers["x-forwarded-proto"] = isHttps ? "https" : "http";
   headers["x-forwarded-for"] = [req.headers["x-forwarded-for"], req.socket.remoteAddress].filter(Boolean).join(", ");
-  const up = http.request(
-    { protocol: UPSTREAM.protocol, hostname: UPSTREAM.hostname, port: UPSTREAM.port || 80, method: req.method, path: req.url, headers },
+  const client = isHttps ? https : http;
+  const defaultPort = isHttps ? 443 : 80;
+  const up = client.request(
+    { protocol: UPSTREAM.protocol, hostname: UPSTREAM.hostname, port: UPSTREAM.port || defaultPort, method: req.method, path: req.url, headers },
     (ur) => {
       const out = { ...ur.headers };
       // An absolute redirect to the upstream origin → keep the browser on this origin.
@@ -152,6 +156,11 @@ const server = http.createServer((req, res) => {
   const q = url.indexOf("?");
   const pathname = q < 0 ? url : url.slice(0, q);
   const search = q < 0 ? "" : url.slice(q);
+  if (pathname === "/") {
+    res.writeHead(302, { location: `/app/store/${search}`, "cache-control": "no-store" });
+    res.end();
+    return log(req, 302, t0, "(root → /app/store/)");
+  }
   for (const app of APPS) {
     const base = `/app/${app}`;
     if (pathname === base) {
@@ -166,19 +175,24 @@ const server = http.createServer((req, res) => {
 
 // WebSockets (the dev server's hot reload) — pipe the raw sockets through.
 server.on("upgrade", (req, socket, head) => {
-  const up = net.connect(Number(UPSTREAM.port || 80), UPSTREAM.hostname, () => {
+  const isHttps = UPSTREAM.protocol === "https:";
+  const port = Number(UPSTREAM.port || (isHttps ? 443 : 80));
+  const onConnect = () => {
     const lines = [`${req.method} ${req.url} HTTP/${req.httpVersion}`];
     for (let i = 0; i < req.rawHeaders.length; i += 2) lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`);
     up.write(lines.join("\r\n") + "\r\n\r\n");
     if (head && head.length) up.write(head);
     socket.pipe(up).pipe(socket);
-  });
+  };
+  const up = isHttps
+    ? tls.connect({ host: UPSTREAM.hostname, port, servername: UPSTREAM.hostname }, onConnect)
+    : net.connect(port, UPSTREAM.hostname, onConnect);
   up.on("error", () => socket.destroy());
   socket.on("error", () => up.destroy());
 });
 
-server.listen(PORT, () => {
-  console.log(`SwapUp web apps on http://localhost:${PORT}`);
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`SwapUp web apps on http://0.0.0.0:${PORT}`);
   for (const app of APPS) {
     const built = fs.existsSync(path.join(DIST, app, "index.html"));
     console.log(`  /app/${app}/  ← ${path.join(DIST, app)}${built ? "" : "  (NOT BUILT — bash scripts/export-web.sh " + app + ")"}`);

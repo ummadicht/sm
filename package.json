@@ -47,7 +47,10 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "start": "expo start",
+    "dev": "([ -f dist-web/store/index.html ] && [ -f dist-web/check/index.html ] || bash scripts/export-web.sh all --fast) && node scripts/web-dev-proxy.mjs",
+    "build": "bash scripts/export-web.sh all --fast",
+    "start": "node scripts/web-dev-proxy.mjs",
+    "lint": "tsc --noEmit",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",

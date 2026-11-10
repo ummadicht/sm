@@ -93,6 +93,30 @@ export function IdentifyScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine, brand, attempt]);
 
+  // Poll status while on IdentifyScreen so if the advisor scans/saves the IMEI on the case
+  // after this phone joined (counter code, or "scan at hand-over"), `state.session.identity`
+  // updates and advances past the picker by itself (SUP-258).
+  useEffect(() => {
+    let alive = true;
+    let t: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      await engine.pollStatus();
+      if (alive) t = setTimeout(tick, 3000);
+    };
+    t = setTimeout(tick, 3000);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [engine]);
+
+  // If the server matched a model family from the IMEI before the customer declined or picked a brand, show the confirm card.
+  useEffect(() => {
+    if (ask && !declined && stage === "brand" && !brand) {
+      setStage("confirm");
+    }
+  }, [ask, declined, stage, brand]);
+
   const go = (next: Stage) => {
     setStage(next);
     setQuery(""); // a stale search would hide the list you just came back to

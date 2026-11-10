@@ -1,0 +1,9 @@
+{
+  "name": "SwapUp Mobile (Store & Check)",
+  "description": "SwapUp Store counter app and SwapUp Check phone diagnostics app built with Expo and React Native Web.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
