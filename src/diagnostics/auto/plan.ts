@@ -10,8 +10,10 @@
 
 /** The order the automatic steps run in. Flash comes before the cameras: the
  * runner tells the customer to leave the phone on the counter, so the rear lens
- * faces the counter — a dark scene the torch visibly lights. The cameras then ask
- * for the phone to be held up. */
+ * faces the counter — a dark scene the torch visibly lights (and if a camera
+ * bump keeps the lens against the surface with no change, flash asks to lift
+ * the phone a hand's width above the counter and tries once more). The cameras
+ * then ask for the phone to be held up. */
 export const AUTO_ORDER = ["battery", "sensors", "motion", "connectivity", "vibration", "speaker", "mic", "voice", "flash", "camera", "faceid", "bluetooth", "nfc"] as const;
 export const ACTION_ORDER = ["touch", "charging"] as const;
 export const NOT_IN_AUTO_RUN = ["multitouch", "buttons"] as const;

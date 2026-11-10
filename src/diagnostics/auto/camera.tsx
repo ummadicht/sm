@@ -10,7 +10,20 @@ import * as FS from "expo-file-system/legacy";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import * as jpeg from "jpeg-js";
 import { T } from "../../shared/theme";
-import { type FrameStats, type SideResult, type Verdict, base64ToBytes, cameraNeedsRetry, cameraVerdict, flashVerdict, frameKind, luminanceStats } from "./analysis";
+import {
+  FLASH_LIFT_LINE,
+  FLASH_TORCH_DELAY_MS,
+  type FrameStats,
+  type SideResult,
+  type Verdict,
+  base64ToBytes,
+  cameraNeedsRetry,
+  cameraVerdict,
+  flashNeedsRetry,
+  flashVerdict,
+  frameKind,
+  luminanceStats,
+} from "./analysis";
 import { hasFeature, sleep, within } from "./steps";
 
 type Facing = "back" | "front";
@@ -120,9 +133,9 @@ async function shoot(rig: CameraRig, facing: Facing): Promise<SideResult> {
 }
 
 /**
- * Rear then front. If either frame was too dark / even (lying on the counter,
- * a finger over the lens), ask for the phone to be held up and retry that side once.
- */
+  * Rear then front. If either frame was too dark / even (lying on the counter,
+  * a finger over the lens), ask for the phone to be held up and retry that side once.
+  */
 export async function cameraStep(rig: CameraRig, say: (line: string | null) => void): Promise<Verdict> {
   if (!(await cameraGranted())) return { outcome: "skip", detail: { method: "capture → 32 px → luminance", reason: "camera permission refused" } };
   try {
@@ -145,34 +158,64 @@ export async function cameraStep(rig: CameraRig, say: (line: string | null) => v
   }
 }
 
-/** Rear frame with the torch off, then on. Best while the phone lies screen-up (the lens faces the counter). */
-export async function flashStep(rig: CameraRig): Promise<Verdict> {
+type FlashTry =
+  | { status: "ok"; off: FrameStats; on: FrameStats }
+  | { status: "done"; verdict: Verdict };
+
+async function shootFlash(rig: CameraRig, attempt: 1 | 2): Promise<FlashTry> {
+  const r = await rig.open("back");
+  if (r === "timeout") return { status: "done", verdict: flashVerdict(null, null, "the rear camera did not get ready in time", attempt) };
+  if (r !== "ready") return { status: "done", verdict: flashVerdict(null, null, `the rear camera could not start: ${r.error}`, attempt) };
+  await sleep(SETTLE_MS);
+  let off: FrameStats;
+  try {
+    off = await rig.frame();
+  } catch (e) {
+    return {
+      status: "done",
+      verdict: flashVerdict(null, null, `no frame with the torch off: ${String((e as Error)?.message ?? e).slice(0, 120)}`, attempt),
+    };
+  }
+  rig.setTorch(true);
+  try {
+    await sleep(FLASH_TORCH_DELAY_MS);
+    let on: FrameStats;
+    try {
+      on = await rig.frame();
+    } catch (e) {
+      return { status: "done", verdict: flashVerdict(off, null, String((e as Error)?.message ?? e).slice(0, 160), attempt) };
+    }
+    return { status: "ok", off, on };
+  } finally {
+    rig.setTorch(false);
+  }
+}
+
+/**
+ * Rear frame with the torch off, then on. First try while the phone lies screen-up on the
+ * counter; if a camera bump keeps the lens against the surface with no measurable change,
+ * ask to lift the phone a hand's width above the counter and retry once.
+ */
+export async function flashStep(rig: CameraRig, say: (line: string | null) => void = () => {}): Promise<Verdict> {
   const method = "rear frame, torch off vs on";
   if ((await hasFeature("android.hardware.camera.flash")) === false) {
     return { outcome: "unsupported", detail: { method, reason: "this phone has no camera flash" } };
   }
   if (!(await cameraGranted())) return { outcome: "skip", detail: { method, reason: "camera permission refused" } };
   try {
-    const r = await rig.open("back");
-    if (r === "timeout") return { outcome: "skip", detail: { method, reason: "the rear camera did not get ready in time" } };
-    if (r !== "ready") return flashVerdict(null, null, `the rear camera could not start: ${r.error}`);
-    await sleep(SETTLE_MS);
-    let off: FrameStats;
-    try {
-      off = await rig.frame();
-    } catch (e) {
-      return { outcome: "skip", detail: { method, reason: `no frame with the torch off: ${String((e as Error)?.message ?? e).slice(0, 120)}` } };
+    const first = await shootFlash(rig, 1);
+    if (first.status === "done") return first.verdict;
+    if (!flashNeedsRetry(first.off, first.on)) {
+      return flashVerdict(first.off, first.on, null, 1);
     }
-    rig.setTorch(true);
-    await sleep(1200);
-    let on: FrameStats;
-    try {
-      on = await rig.frame();
-    } catch (e) {
-      return flashVerdict(null, null, String((e as Error)?.message ?? e).slice(0, 160));
-    }
-    return flashVerdict(off, on, null);
+    say(FLASH_LIFT_LINE);
+    rig.close();
+    await sleep(4000);
+    const second = await shootFlash(rig, 2);
+    if (second.status === "done") return second.verdict;
+    return flashVerdict(second.off, second.on, null, 2);
   } finally {
+    say(null);
     rig.setTorch(false);
     rig.close();
   }

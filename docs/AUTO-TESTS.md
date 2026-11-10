@@ -84,7 +84,7 @@ advisor certifies the screen, body and liquid indicator by name.
 | speaker + mic | expo-audio recorder with metering + a 3-burst tone pattern through the loudspeaker at full player volume; correlate metering with the on/off pattern | speaker: correlation ≥ 0.6 · mic: metering varies ≥ 6 dB | mic: recorder starts but metering flat at the floor | permission refused; speaker not heard (maybe low media volume) |
 | voice (earpiece) | same pattern routed to the earpiece (Android `shouldRouteThroughEarpiece`) | correlation ≥ 0.5 | — | not heard |
 | camera | CameraView rear then front, `takePictureAsync` (low quality) → expo-image-manipulator 32 px → jpeg-js decode → mean luminance + std-dev; `detail.side` on failure | frame std-dev ≥ 6 for both | a camera fails to open / errors | frame too dark/uniform (lens covered) — retried once |
-| flash | rear frame torch off vs torch on | mean luminance +15% | torch call errors | scene already bright |
+| flash | rear frame torch off vs torch on (flat on the counter first; if no change, asks to lift the phone a hand's width above the counter and retries once) | mean luminance +15% and +8 levels on either try (`detail.attempts`, `detail.position`) | torch-on capture throws | no change after retry, scene already bright, or rear camera not ready / failed to start |
 | faceid (biometrics) | expo-local-authentication hasHardware / isEnrolled | — | — | always skip, `detail.hardware` / `enrolled` (exercising it needs the customer) |
 | bluetooth / nfc | expo-device `hasPlatformFeatureAsync("android.hardware.bluetooth" / "android.hardware.nfc")` | hardware present | — | absent → `unsupported` |
 | touch | ACTION: existing TouchTest grid (auto verdict) | grid cleared | timeout with dead region | — |
@@ -131,8 +131,11 @@ Checked end to end against the dev server (:4500) and local GradeIQ (:3700) with
 on a physical phone**, so every threshold below is untuned on hardware.
 
 - **Order:** flash runs **before** the cameras (`plan.ts` `AUTO_ORDER`): while the phone lies screen-up
-  the rear lens faces the counter, so the torch makes a visible difference. The camera step then asks
-  the customer to hold the phone up if a frame is too dark.
+  the rear lens faces the counter, so the torch makes a visible difference. On a phone with a camera
+  bump where the first try shows no measurable change, the screen says *"Lift the phone a hand's width
+  above the counter."*, waits 4 s, and tries torch off → on once more (`detail.attempts` 1 or 2,
+  `detail.position` `"flat"` or `"lifted"`, `detail.torchDelayMs`). The camera step then asks the
+  customer to hold the phone up if a frame is too dark.
 - **Pairing exits** (`pairing.ts`): `handoffDone`; 30 s after a NEW `cosmeticDone`; `state` disabled/failed →
   at once; `released: true` (the advisor's "Continue without camera") → `pairing.outcome: "skipped"`,
   reason "the advisor went on without the camera"; 15 s of refused polls (≥ 3) → "camera grading
@@ -156,8 +159,9 @@ on a physical phone**, so every threshold below is untuned on hardware.
 - **Speaker / earpiece** need a ≥ 3 dB on/off level gap as well as the correlation; the earpiece
   passes only when ≥ 3 dB quieter than the loudspeaker run, else skip (route not confirmed).
 - **Motion** passes on a phone built without a gyroscope (`gyroscope: false`); **no magnetometer** is a
-  skip; **no flash hardware** is `unsupported`; flash fails only if a photo with the torch on throws
-  (expo-camera reports no torch errors).
+  skip; **no flash hardware** is `unsupported`; flash fails **only** if the capture with the torch on
+  throws (the only torch error `expo-camera` gives) — if the rear camera cannot start or get ready, or
+  the torch-off capture fails, flash records `skip` (camera faults belong to `camera`).
 - **Camera:** not ready within 10 s → skip; an error → fail with `detail.side` (front/rear/both).
 - **Touch** is its own 6×10 grid (`touch.ts`, `Actions.tsx`): fail only after 15 s of the finger
   repeatedly landing next to squares that won't clear (≤ 25 % left); 45 s idle or 150 s total → skip.

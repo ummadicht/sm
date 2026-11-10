@@ -2,7 +2,9 @@
 // Runs the automatic steps in order (./plan AUTO_ORDER), hands every verdict to
 // onResult (the Check engine's outbox: disk first, then the store), and never
 // asks the customer anything. The only line it may show is a physical action
-// ("Hold the phone up") when a camera saw nothing.
+// when the flash sees no change on the counter ("Lift the phone a hand's width
+// above the counter.") or a camera saw nothing ("Hold it up so both cameras see
+// the room").
 // Native only. Look: the kit's headline and sentence, a thin blue bar, and the
 // list on a white card (theme P).
 import React, { useEffect, useRef, useState } from "react";
@@ -32,8 +34,9 @@ type Props = {
   status?: React.ReactNode;
 };
 
-/** A step that hangs must not hang the check; its tests become "not tested". */
-const STEP_TIMEOUT_MS: Partial<Record<AutoStepId, number>> = { camera: 60_000, flash: 30_000, loopback: 25_000, voice: 25_000, connectivity: 25_000 };
+/** A step that hangs must not hang the check; its tests become "not tested".
+ * `flash` gets 45 s so both the flat try, the 4 s lift pause, and the lifted retry finish inside the cap. */
+const STEP_TIMEOUT_MS: Partial<Record<AutoStepId, number>> = { camera: 60_000, flash: 45_000, loopback: 25_000, voice: 25_000, connectivity: 25_000 };
 
 const timedOut = (step: AutoStepId): Verdict => ({ outcome: "skip", detail: { method: "timeout", reason: `the ${step} check did not finish in time` } });
 
@@ -92,7 +95,7 @@ export function AutoRunner({ all, todo, names, existing, onResult, onDone, statu
               break;
             }
             case "voice": record("voice", await cap(voiceStep(recorder, micWorks, speakerOnDb), timedOut(step))); break;
-            case "flash": record("flash", await cap(flashStep(rigProxy), timedOut(step))); break;
+            case "flash": record("flash", await cap(flashStep(rigProxy, (l) => alive && setLine(l)), timedOut(step))); break;
             case "camera": record("camera", await cap(cameraStep(rigProxy, (l) => alive && setLine(l)), timedOut(step))); break;
             case "faceid": record("faceid", await cap(faceidStep(), timedOut(step))); break;
             case "bluetooth":
