@@ -36,7 +36,7 @@ export function TouchTest(p: TestProps) {
   return (
     <TestShell {...p} instructions="Drag your finger over the whole screen until every square is cleared." detail={{ cells: COLS * ROWS, cleared: COLS * ROWS - remaining }} bleed>
       <View style={{ flex: 1 }}>
-        <View style={s.hint}><Text style={s.hintText}>{remaining === 0 ? "All clear ✓" : `${remaining} ${remaining === 1 ? "square" : "squares"} left`}</Text></View>
+        <View pointerEvents="none" style={s.hint}><Text style={s.hintText}>{remaining === 0 ? "All clear ✓" : `${remaining} ${remaining === 1 ? "square" : "squares"} left`}</Text></View>
         <View
           style={s.grid}
           onLayout={(e) => setSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
@@ -44,7 +44,7 @@ export function TouchTest(p: TestProps) {
           onTouchMove={mark}
         >
           {cleared.map((c, i) => (
-            <View key={i} style={[s.cell, { width: `${100 / COLS}%`, height: `${100 / ROWS}%`, backgroundColor: c ? "transparent" : T.accent }]} />
+            <View key={i} pointerEvents="none" style={[s.cell, { width: `${100 / COLS}%`, height: `${100 / ROWS}%`, backgroundColor: c ? "transparent" : T.accent }]} />
           ))}
         </View>
       </View>
@@ -54,7 +54,7 @@ export function TouchTest(p: TestProps) {
 
 const s = StyleSheet.create({
   grid: { flex: 1, flexDirection: "row", flexWrap: "wrap", backgroundColor: T.bg },
-  cell: { borderWidth: 1, borderColor: T.bg },
-  hint: { position: "absolute", top: 8, alignSelf: "center", zIndex: 2, backgroundColor: "#000a", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
+  cell: { borderWidth: 1, borderColor: T.bg, pointerEvents: "none" },
+  hint: { pointerEvents: "none", position: "absolute", top: 8, alignSelf: "center", zIndex: 2, backgroundColor: "#000a", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
   hintText: { color: "#fff", fontWeight: "700" },
 });

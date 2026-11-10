@@ -13,6 +13,8 @@ export function SensorsTest(p: TestProps) {
   const [light, setLight] = useState<{ avail: boolean | null; lux: number | null; min: number; max: number }>({ avail: null, lux: null, min: Infinity, max: -Infinity });
   const [baro, setBaro] = useState<{ avail: boolean | null; hPa: number | null }>({ avail: null, hPa: null });
   const [gyro, setGyro] = useState<boolean | null>(null);
+  const unwrapped = useRef<number | null>(null);
+  const prev = useRef<number | null>(null);
   const minH = useRef(Infinity), maxH = useRef(-Infinity);
 
   useEffect(() => {
@@ -24,7 +26,17 @@ export function SensorsTest(p: TestProps) {
       Magnetometer.setUpdateInterval(150);
       subs.push(Magnetometer.addListener(({ x, y }) => {
         let h = Math.atan2(y, x) * (180 / Math.PI); if (h < 0) h += 360;
-        minH.current = Math.min(minH.current, h); maxH.current = Math.max(maxH.current, h);
+        // Unwrap across north so a 359° ↔ 1° jitter counts as 2°, not 358°.
+        if (prev.current == null || unwrapped.current == null) unwrapped.current = h;
+        else {
+          let d = h - prev.current;
+          if (d > 180) d -= 360;
+          if (d < -180) d += 360;
+          unwrapped.current += d;
+        }
+        prev.current = h;
+        minH.current = Math.min(minH.current, unwrapped.current);
+        maxH.current = Math.max(maxH.current, unwrapped.current);
         setMag((m) => ({ ...m, heading: Math.round(h), span: Math.round(maxH.current - minH.current) }));
       }));
     }).catch(() => setMag((m) => ({ ...m, avail: false })));

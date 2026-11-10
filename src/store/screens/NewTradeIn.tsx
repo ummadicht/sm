@@ -9,7 +9,7 @@
 // /api/test-sessions {caseId}. Skipped: today's one call. What the server found shows on the
 // Session screen's IMEI card, with the government check (KYM) to send while the phone tests.
 import React, { useEffect, useRef, useState } from "react";
-import { KeyboardAvoidingView, ScrollView, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from "react-native";
 import { ApiError } from "../../shared/api";
 import { StaffClient, errText } from "../staffClient";
 import type { SessionLinks } from "../types";
@@ -145,7 +145,7 @@ export function NewTradeIn({
   return (
     <View style={{ flex: 1 }}>
       <TopBar title="New customer trade-in" left={{ label: "‹ Home", onPress: onCancel }} />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "web" ? undefined : "padding"}>
         <ScrollView contentContainerStyle={{ padding: pad, alignItems: "center" }} keyboardShouldPersistTaps="handled">
           <View style={{ width: "100%", maxWidth: 560, gap: 16 }}>
             {/* 1 · the IMEI, first */}

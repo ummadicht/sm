@@ -16,6 +16,7 @@ export function MotionTest(p: TestProps) {
   const [samples, setSamples] = useState(0);
   const vel = useRef({ x: 0, y: 0 });
   const posRef = useRef({ x: 0, y: 0 });
+  const targetRef = useRef({ x: 0.5, y: 0.25 });
   const inSince = useRef<number | null>(null);
   const done = useRef(false);
   const maxTilt = useRef(0);
@@ -28,7 +29,9 @@ export function MotionTest(p: TestProps) {
   useEffect(() => {
     if (!area.w) return;
     posRef.current = { x: area.w / 2 - BALL / 2, y: area.h / 2 - BALL / 2 };
-    setTarget({ x: 0.2 + Math.random() * 0.6, y: 0.15 + Math.random() * 0.7 });
+    const nextTarget = { x: 0.2 + Math.random() * 0.6, y: 0.15 + Math.random() * 0.7 };
+    targetRef.current = nextTarget;
+    setTarget(nextTarget);
     Accelerometer.setUpdateInterval(40);
     const sub = Accelerometer.addListener(({ x, y }) => {
       setSamples((n) => n + 1);
@@ -40,7 +43,7 @@ export function MotionTest(p: TestProps) {
       const ny = Math.max(0, Math.min(area.h - BALL, posRef.current.y + vel.current.y));
       posRef.current = { x: nx, y: ny };
       setPos(posRef.current);
-      const tx = target.x * area.w, ty = target.y * area.h;
+      const tx = targetRef.current.x * area.w, ty = targetRef.current.y * area.h;
       const cx = nx + BALL / 2, cy = ny + BALL / 2;
       const inside = Math.hypot(cx - tx, cy - ty) < TARGET / 2 - BALL / 4;
       if (inside) {
@@ -53,7 +56,7 @@ export function MotionTest(p: TestProps) {
     });
     return () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [area.w, area.h, target.x, target.y]);
+  }, [area.w, area.h]);
 
   const auto = avail.accel === false ? "fail" : null;
   return (

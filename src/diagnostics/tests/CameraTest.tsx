@@ -20,8 +20,10 @@ export function CameraTest(p: TestProps) {
     setBusy(true);
     try {
       const pic = await cam.current.takePictureAsync({ quality: 0.3, skipProcessing: true });
-      setShots((s) => ({ ...s, [facing]: pic.uri }));
-      if (facing === "back") { setReady(false); setFacing("front"); }
+      if (pic?.uri) {
+        setShots((s) => ({ ...s, [facing]: pic.uri }));
+        if (facing === "back") { setReady(false); setFacing("front"); }
+      }
     } catch { /* fall through; tester can fail it */ }
     setBusy(false);
   };
