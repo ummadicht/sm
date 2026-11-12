@@ -25,7 +25,6 @@ const K: typeof import("../store/lock") = await import("../store/lock" + ".ts");
 const O: typeof import("../store/offer") = await import("../store/offer" + ".ts");
 const N: typeof import("../store/pin") = await import("../store/pin" + ".ts");
 const R: typeof import("../store/refurbEconomics") = await import("../store/refurbEconomics" + ".ts");
-const A: typeof import("../diagnostics/auto/analysis") = await import("../diagnostics/auto/analysis" + ".ts");
 
 const words = (s: string) => s.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
 /** A sentence end followed by another sentence ("Done. Next…") — "e.g." and "*#06#." don't count. */
@@ -106,8 +105,8 @@ test("the refurb decision's own words: the title, the five labels, the box", () 
   assert.ok(words(R.OWN_COST) <= 3, R.OWN_COST);
 });
 
-test("PIN, tablet-name, and flash camera-bump retry messages", () => {
-  short([N.pinProblem("1234")!, N.newPinProblem("4826", "4862")!, N.deviceNameProblem("x")!, A.FLASH_LIFT_LINE]);
+test("PIN and tablet-name messages", () => {
+  short([N.pinProblem("1234")!, N.newPinProblem("4826", "4862")!, N.deviceNameProblem("x")!]);
 });
 
 test("the Check app's privacy line is one short sentence, the same on the native and the browser screens", async () => {

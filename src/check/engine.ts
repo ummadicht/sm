@@ -316,30 +316,6 @@ export class CheckEngine {
   }
 
   /**
-   * If GET /api/device/status carries a newer `identity` (e.g. the advisor saved the IMEI on the
-   * case after the phone joined, SUP-258), update `session.identity` on disk and notify listeners.
-   */
-  private async syncIdentity(rawIdentity: unknown): Promise<void> {
-    if (rawIdentity === undefined) return;
-    const next = parseIdentity(rawIdentity);
-    const cur = this.snap.state;
-    if (!next || !cur) return;
-    const prev = cur.session.identity ?? null;
-    if (
-      prev &&
-      prev.match === next.match &&
-      prev.label === next.label &&
-      prev.variant === next.variant &&
-      prev.modelId === next.modelId &&
-      prev.reason === next.reason &&
-      prev.variants.join("|") === next.variants.join("|")
-    ) {
-      return;
-    }
-    await this.update((s) => ({ ...s, session: { ...s.session, identity: next } }));
-  }
-
-  /**
    * On app start / resume. The ticket we have is checked FIRST and kept while it
    * works — re-joining rotates it, and a resume is often just the photo picker
    * returning mid-upload (the battery screenshot). Only a refused ticket re-joins.
@@ -351,7 +327,6 @@ export class CheckEngine {
     if (st.ticket) {
       try {
         const s = await this.client(st).get<RemoteStatus>("/api/device/status");
-        await this.syncIdentity(s?.identity);
         if (s?.status === "applied") {
           this.patch({ remote: s });
           await this.update((x) => ({ ...x, ended: APPLIED_MESSAGE }));
@@ -651,7 +626,6 @@ export class CheckEngine {
     if (!st || st.ended) return null;
     try {
       const r = await this.withTicket((c) => c.get<RemoteStatus>("/api/device/status"));
-      await this.syncIdentity(r?.identity);
       this.patch({ remote: r });
       if (r.status === "cancelled" || r.status === "expired") {
         const msg = r.status === "cancelled" ? "The store closed this check." : "This check has timed out at the store.";

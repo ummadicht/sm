@@ -405,64 +405,14 @@ export function cameraNeedsRetry(rear: SideResult, front: SideResult): boolean {
 export const FLASH_MIN_GAIN = 1.15;
 export const FLASH_MIN_DELTA = 8;
 export const FLASH_BRIGHT_SCENE_MEAN = 170;
-/** Delay between switching the torch on and capturing the frame (before auto-exposure evens it out). */
-export const FLASH_TORCH_DELAY_MS = 600;
-export const FLASH_LIFT_LINE = "Lift the phone a hand's width above the counter.";
 
-export type FlashPosition = "flat" | "lifted";
-
-function flashChanged(off: FrameStats, on: FrameStats): boolean {
-  return on.mean >= off.mean * FLASH_MIN_GAIN && on.mean - off.mean >= FLASH_MIN_DELTA;
-}
-
-/**
- * Only re-try (once, with the phone lifted slightly off its camera bump) when both frames
- * were captured in a non-bright scene and showed no measurable change — never after an error
- * or in a scene that was already bright.
- */
-export function flashNeedsRetry(off: FrameStats | null, on: FrameStats | null, error: string | null = null): boolean {
-  if (error || !off || !on) return false;
-  if (off.mean >= FLASH_BRIGHT_SCENE_MEAN) return false;
-  return !flashChanged(off, on);
-}
-
-/**
- * Rear frame with the torch off vs on.
- * - `error` when the torch-on capture threw → `fail`
- * - `error` when the rear camera failed to start / get ready / capture with torch off → `skip`
- * - measured change on try 1 (`"flat"`) or try 2 (`"lifted"`) → `pass`
- * - bright scene, missing frames, or no change after retry → `skip`
- */
-export function flashVerdict(
-  off: FrameStats | null,
-  on: FrameStats | null,
-  error: string | null,
-  attempts: 1 | 2 = 1,
-  torchDelayMs: number = FLASH_TORCH_DELAY_MS
-): Verdict {
+/** Rear frame with the torch off vs on. */
+export function flashVerdict(off: FrameStats | null, on: FrameStats | null, error: string | null): Verdict {
   const method = "rear frame, torch off vs on";
-  const position: FlashPosition = attempts === 2 ? "lifted" : "flat";
-  const base: Detail = { method, attempts, position, torchDelayMs };
-  if (error) {
-    if (/^(the rear camera (could not start|did not get ready)|no frame with the torch off)/i.test(error)) {
-      return { outcome: "skip", detail: { ...base, reason: error.slice(0, 300) } };
-    }
-    return { outcome: "fail", detail: { ...base, reason: `the torch could not be switched on: ${error}`.slice(0, 300) } };
-  }
-  if (!off || !on) return { outcome: "skip", detail: { ...base, reason: "no frames to compare" } };
-  const d: Detail = {
-    ...base,
-    offMean: off.mean,
-    onMean: on.mean,
-    gain: off.mean > 0 ? round(on.mean / off.mean, 2) : null,
-  };
+  if (error) return { outcome: "fail", detail: { method, reason: `the torch could not be switched on: ${error}`.slice(0, 300) } };
+  if (!off || !on) return { outcome: "skip", detail: { method, reason: "no frames to compare" } };
+  const d: Detail = { method, offMean: off.mean, onMean: on.mean, gain: off.mean > 0 ? round(on.mean / off.mean, 2) : null };
   if (off.mean >= FLASH_BRIGHT_SCENE_MEAN) return { outcome: "skip", detail: { ...d, reason: "the scene was already bright" } };
-  if (flashChanged(off, on)) return { outcome: "pass", detail: d };
-  return {
-    outcome: "skip",
-    detail: {
-      ...d,
-      reason: "no measurable change with the torch on (lens against a surface, or the camera evened it out)",
-    },
-  };
+  if (on.mean >= off.mean * FLASH_MIN_GAIN && on.mean - off.mean >= FLASH_MIN_DELTA) return { outcome: "pass", detail: d };
+  return { outcome: "skip", detail: { ...d, reason: "no measurable change with the torch on (lens against a surface, or the camera evened it out)" } };
 }

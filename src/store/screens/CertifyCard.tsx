@@ -32,7 +32,6 @@ import {
   coloursLine,
   pendingRows,
   rowFace,
-  severeScreenMark,
   shownRows,
   tapAnswered,
   tapSent,
@@ -147,11 +146,6 @@ export function CheckThePhone({
             ) : (
               <Body>{entry ? entry.label : "Not checked"}</Body>
             )}
-            {row === "screen" && view.notes?.screen ? (
-              <Text style={{ color: severeScreenMark(view.notes.screen) ? L.bad : L.warn, fontSize: 15, lineHeight: 21, fontWeight: "600" }}>
-                {view.notes.screen}
-              </Text>
-            ) : null}
             {row === "screen" && colours && view.canEdit ? <Text style={{ color: toneColor(colours.tone), fontSize: 15, lineHeight: 21, fontWeight: "600" }}>{colours.text}</Text> : null}
             {error ? <Text style={{ color: L.bad, fontSize: 15, lineHeight: 21 }}>{error}</Text> : null}
           </View>

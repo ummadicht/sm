@@ -19,9 +19,8 @@
 // (./files.web.ts) and the device facts come from the browser (./deviceInfo.web.ts).
 import "../shared/platform"; // browser shims (Alert, BackHandler) — a no-op on native
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ActivityIndicator, AppState, BackHandler, Linking, Platform, Text, View } from "react-native";
+import { ActivityIndicator, AppState, BackHandler, Linking, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import * as NavigationBar from "expo-navigation-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { P } from "../shared/theme";
@@ -39,43 +38,15 @@ import { useResultColours } from "./ResultColours";
 import { BatteryScreen } from "./BatteryScreen";
 import { Railed } from "./StepRail";
 import { donePollMs } from "./report";
-import { isAppActive, navBarHidden } from "./navBar";
 
 const EDGES = ["top", "left", "right", "bottom"] as const;
 /** A check that ended applied offers no re-run. */
 const NO_REDO = { ids: [], names: [] };
 
 export function CheckApp() {
-  // Full-screen pattern for the store's camera or the advisor's colours fills the whole
-  // display (no safe-area padding, no status bar, and on native Android no navigation bar).
+  // Native pairing only: a screen pattern for the store's camera fills the whole
+  // display (no safe-area padding, no status bar). Never set in the browser.
   const [bleed, setBleed] = useState(false);
-  const [appActive, setAppActive] = useState(() => isAppActive(AppState.currentState ?? "active"));
-
-  useEffect(() => {
-    if (IS_WEB) return;
-    const sub = AppState.addEventListener("change", (next) => {
-      setAppActive(isAppActive(next));
-    });
-    return () => sub.remove();
-  }, []);
-
-  const hideNavBar = navBarHidden({ bleed, appActive, web: IS_WEB, os: Platform.OS });
-
-  useEffect(() => {
-    if (IS_WEB || Platform.OS !== "android") return;
-    void NavigationBar.setVisibilityAsync(hideNavBar ? "hidden" : "visible").catch(() => {});
-    if (!hideNavBar) return;
-    const sub = NavigationBar.addVisibilityListener(({ visibility }) => {
-      if (visibility === "visible") {
-        void NavigationBar.setVisibilityAsync("hidden").catch(() => {});
-      }
-    });
-    return () => {
-      sub.remove();
-      void NavigationBar.setVisibilityAsync("visible").catch(() => {});
-    };
-  }, [hideNavBar]);
-
   return (
     <SafeAreaProvider>
       {/* Light theme: dark status-bar icons on the grey tint. */}

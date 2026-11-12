@@ -30,11 +30,9 @@
 // rounded card is the hero. The patterns are functional, not styled: they stay
 // exactly as GradeIQ's /v2 draws them.
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Linking, Platform, StyleSheet, Text, Vibration, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, Linking, Platform, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as Brightness from "expo-brightness";
-import * as Haptics from "expo-haptics";
-import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { P } from "../shared/theme";
 import { IS_WEB } from "../shared/config";
@@ -64,83 +62,6 @@ import type { CheckEngine } from "./engine";
 import { onIphone } from "./onIphone";
 import type { CheckState, PairingRec } from "./core";
 
-const LOCK_TONE = require("../../assets/tones/beep1.wav");
-
-/**
- * Short, pleasant haptic and two-note chime when the store's camera locks onto
- * this screen's QR code and connects. Best-effort: never blocks or throws.
- */
-function triggerQrLockFeedback(): void {
-  if (IS_WEB) {
-    try {
-      if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
-        navigator.vibrate([30, 40, 50]);
-      }
-    } catch {
-      /* vibration blocked or unsupported */
-    }
-    try {
-      const g = globalThis as unknown as {
-        AudioContext?: typeof AudioContext;
-        webkitAudioContext?: typeof AudioContext;
-      };
-      const Ctx = g.AudioContext ?? g.webkitAudioContext;
-      if (!Ctx) return;
-      const ctx = new Ctx();
-      const t0 = ctx.currentTime;
-      const playNote = (freq: number, start: number, dur: number, peak: number) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(freq, start);
-        gain.gain.setValueAtTime(0.0001, start);
-        gain.gain.linearRampToValueAtTime(peak, start + 0.012);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(start);
-        osc.stop(start + dur + 0.01);
-      };
-      // Ascending D5 → A5 fifth chime (~170 ms total)
-      playNote(587.33, t0, 0.075, 0.14);
-      playNote(880.0, t0 + 0.065, 0.11, 0.16);
-      setTimeout(() => {
-        void ctx.close().catch(() => {});
-      }, 300);
-    } catch {
-      /* Web Audio blocked by autoplay policy */
-    }
-    return;
-  }
-
-  void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {
-    try {
-      Vibration.vibrate(40);
-    } catch {
-      /* no vibration hardware */
-    }
-  });
-
-  void (async () => {
-    try {
-      await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });
-      const player = createAudioPlayer(LOCK_TONE);
-      player.volume = 0.5;
-      player.play();
-      setTimeout(() => {
-        try {
-          player.pause();
-          player.release();
-        } catch {
-          /* already released */
-        }
-      }, 700);
-    } catch {
-      /* audio unavailable */
-    }
-  })();
-}
-
 type Props = {
   engine: CheckEngine;
   state: CheckState;
@@ -166,7 +87,6 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
   const [askSettings, setAskSettings] = useState(false);
   const [settingsNote, setSettingsNote] = useState<string | null>(null);
   const tracker = useRef<Tracker>(newTracker(Date.now()));
-  const lockFeedbackFired = useRef(false);
   const drawingRef = useRef("idle");
   const lastEcho = useRef<{ shown: string; at: number } | null>(null);
   const left = useRef(false);
@@ -219,7 +139,6 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
 
   useEffect(() => {
     tracker.current = newTracker(Date.now());
-    lockFeedbackFired.current = false;
     setReady(true);
   }, []);
 
@@ -286,13 +205,8 @@ export function PairingScreen({ engine, state, onDone, onBleed }: Props) {
           if (t.unavailable) return leave({ outcome: "unavailable", reason: "the store's system sent an answer this app doesn't understand" });
         } else {
           setTrouble(null);
-          const wasConnected = tracker.current.connectedAt != null;
           const t = trackPoll(tracker.current, p, now);
           tracker.current = t.tracker;
-          if (!wasConnected && t.tracker.connectedAt != null && !lockFeedbackFired.current) {
-            lockFeedbackFired.current = true;
-            triggerQrLockFeedback();
-          }
           setPoll(p);
           if (t.leave === "disabled") return leave({ outcome: "unavailable", reason: "camera grading is switched off for this store" });
           if (t.leave === "failed") return leave({ outcome: "unavailable", reason: "camera grading could not start for this check" });

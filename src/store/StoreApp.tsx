@@ -15,13 +15,11 @@
 // (a 401 on the device token) sends it to sign-in.
 import "../shared/platform"; // browser shims (Alert, BackHandler) — a no-op on native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, BackHandler, Linking, Text, View } from "react-native";
-import * as Network from "expo-network";
+import { ActivityIndicator, AppState, BackHandler, Linking, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import { ApiError, type CallOptions, createClient } from "../shared/api";
+import { ApiError, createClient } from "../shared/api";
 import { DEFAULT_SERVER, IS_WEB } from "../shared/config";
-import { read as readKey, write as writeKey } from "./keystore";
 import { idleLocks, isIdle } from "./pin";
 import { Home } from "./screens/Home";
 import { LockScreen } from "./screens/Lock";
@@ -32,7 +30,7 @@ import { Settings } from "./screens/Settings";
 import { SignIn, staffProblem } from "./screens/SignIn";
 import { TabletLock } from "./screens/TabletLock";
 import { WebScreen } from "./screens/Web";
-import { type StaffClient, staffClient, errText, tooOld } from "./staffClient";
+import { staffClient, errText, tooOld } from "./staffClient";
 import {
   clearDevice,
   clearToken,
@@ -60,59 +58,6 @@ type Phase =
   /** Store tablet: "Who's serving?" */
   | { kind: "tablet"; notice?: string }
   | { kind: "in"; auth: Auth };
-
-/** A trade-in status update queued locally while the tablet was offline. */
-export type QueuedTradeInUpdate = {
-  id: string;
-  method: "POST" | "PATCH";
-  path: string;
-  body: unknown;
-  queuedAt: string;
-};
-
-const K_QUEUE = "swapup.store.offlineQueue";
-const QUEUEABLE_PATH = /^\/api\/(cases\/[^/]+(\/action)?|test-sessions\/[^/]+\/(apply|cancel|release-scan|camera-override|retry-gradeiq))$/;
-
-async function loadQueue(): Promise<QueuedTradeInUpdate[]> {
-  const raw = await readKey(K_QUEUE);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (item): item is QueuedTradeInUpdate =>
-        !!item &&
-        typeof item === "object" &&
-        typeof item.id === "string" &&
-        (item.method === "POST" || item.method === "PATCH") &&
-        typeof item.path === "string" &&
-        typeof item.queuedAt === "string",
-    );
-  } catch {
-    return [];
-  }
-}
-
-async function saveQueue(items: QueuedTradeInUpdate[]): Promise<void> {
-  await writeKey(K_QUEUE, JSON.stringify(items));
-}
-
-/** Apply an optimistic status or field update onto a cached CaseView while offline. */
-function optimisticCaseView(cached: Record<string, unknown>, body: unknown): Record<string, unknown> {
-  if (!body || typeof body !== "object" || Array.isArray(body)) return cached;
-  const b = body as Record<string, unknown>;
-  const next: Record<string, unknown> = { ...cached };
-  if (typeof b.action === "string") {
-    if (b.action === "walk_away") next.status = "walked_away";
-    else if (b.action === "cancel") next.status = "cancelled";
-    else if (b.action === "lock") next.status = "locked";
-    else if (b.action === "send_to_repair") next.status = "sent_to_repair";
-  } else {
-    if (typeof b.status === "string") next.status = b.status;
-    if (typeof b.variant === "string") next.variant = b.variant;
-  }
-  return next;
-}
 
 const ENDED = "Signed out after 12 hours. Sign in again.";
 const TABLET_ENDED = "Signed out. Tap your name.";
@@ -146,41 +91,6 @@ export function StoreApp() {
         </SafeAreaView>
       </SafeAreaView>
     </SafeAreaProvider>
-  );
-}
-
-/** Subtle top strip shown when the tablet is offline or syncing queued trade-in updates. */
-function OfflineBar({ offline, queuedCount, syncing }: { offline: boolean; queuedCount: number; syncing: boolean }) {
-  if (!offline && queuedCount === 0 && !syncing) return null;
-
-  const isSyncingOnline = !offline && (syncing || queuedCount > 0);
-  const bg = isSyncingOnline ? L.fixBg : L.warnBg;
-  const border = isSyncingOnline ? "#B8D4FE" : "#F3D3A1";
-  const dot = isSyncingOnline ? L.fix : L.warn;
-  const ink = isSyncingOnline ? L.fix : "#8A4B00";
-  const suffix = queuedCount > 0 ? ` · ${queuedCount} ${queuedCount === 1 ? "update" : "updates"} queued` : "";
-  const label = isSyncingOnline
-    ? `Syncing ${queuedCount || 1} queued ${queuedCount === 1 ? "update" : "updates"}…`
-    : `Offline — check the store Wi‑Fi.${suffix}`;
-
-  return (
-    <View
-      accessibilityRole="alert"
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 8,
-        paddingVertical: 8,
-        paddingHorizontal: 16,
-        backgroundColor: bg,
-        borderBottomWidth: 1,
-        borderBottomColor: border,
-      }}
-    >
-      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} />
-      <Text style={{ color: ink, fontSize: 14, lineHeight: 20, fontWeight: "700" }}>{label}</Text>
-    </View>
   );
 }
 
@@ -400,176 +310,8 @@ function Root() {
 
   const auth = phase.kind === "in" ? phase.auth : null;
 
-  // ── network connectivity & local offline action queue for trade-in status updates
-  const [offline, setOffline] = useState(false);
-  const offlineRef = useRef(false);
-  const [queue, setQueue] = useState<QueuedTradeInUpdate[]>([]);
-  const queueRef = useRef<QueuedTradeInUpdate[]>([]);
-  const [syncing, setSyncing] = useState(false);
-  const flushingRef = useRef(false);
-  const caseCache = useRef(new Map<string, Record<string, unknown>>());
-
-  const updateQueue = useCallback((updater: (prev: QueuedTradeInUpdate[]) => QueuedTradeInUpdate[]) => {
-    const next = updater(queueRef.current);
-    queueRef.current = next;
-    setQueue(next);
-    void saveQueue(next);
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    loadQueue()
-      .then((saved) => {
-        if (!alive || !saved.length) return;
-        queueRef.current = saved;
-        setQueue(saved);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const enqueueUpdate = useCallback(
-    (method: "POST" | "PATCH", path: string, body: unknown) => {
-      const serialized = JSON.stringify(body ?? null);
-      updateQueue((prev) => {
-        const last = prev[prev.length - 1];
-        if (last && last.method === method && last.path === path && JSON.stringify(last.body ?? null) === serialized) {
-          return prev;
-        }
-        return [
-          ...prev,
-          {
-            id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            method,
-            path,
-            body: body ?? null,
-            queuedAt: new Date().toISOString(),
-          },
-        ];
-      });
-    },
-    [updateQueue],
-  );
-
-  const flushQueue = useCallback(async () => {
-    if (flushingRef.current || offlineRef.current || !auth || queueRef.current.length === 0) return;
-    flushingRef.current = true;
-    setSyncing(true);
-    const rawClient = staffClient(auth.server, auth.token, onUnauthorized);
-    try {
-      while (!offlineRef.current && queueRef.current.length > 0) {
-        const item = queueRef.current[0];
-        try {
-          const res =
-            item.method === "POST"
-              ? await rawClient.post<unknown>(item.path, item.body)
-              : await rawClient.patch<unknown>(item.path, item.body);
-          if (res && typeof res === "object" && !Array.isArray(res)) {
-            const casePath = item.path.replace(/\/action$/, "");
-            if (casePath.startsWith("/api/cases/")) {
-              caseCache.current.set(casePath, res as Record<string, unknown>);
-            }
-          }
-          updateQueue((prev) => prev.filter((x) => x.id !== item.id));
-        } catch (e) {
-          // Network still unreachable or server temporarily busy: keep in queue and wait for next reconnect/tick.
-          if (e instanceof ApiError && (e.status === 0 || e.status >= 500 || e.status === 429)) {
-            break;
-          }
-          if (e instanceof ApiError && e.status === 401) {
-            break;
-          }
-          // Permanent 4xx refusal: drop from queue so it doesn't block subsequent updates.
-          updateQueue((prev) => prev.filter((x) => x.id !== item.id));
-        }
-      }
-    } finally {
-      flushingRef.current = false;
-      setSyncing(false);
-    }
-  }, [auth, onUnauthorized, updateQueue]);
-
-  useEffect(() => {
-    let alive = true;
-    const applyNet = (state: Network.NetworkState | null) => {
-      if (!alive || !state) return;
-      const isOff = state.isConnected === false || state.isInternetReachable === false;
-      offlineRef.current = isOff;
-      setOffline(isOff);
-      if (!isOff) void flushQueue();
-    };
-
-    Network.getNetworkStateAsync().then(applyNet).catch(() => {});
-    const netSub = Network.addNetworkStateListener(applyNet);
-    const appSub = AppState.addEventListener("change", (st) => {
-      if (st === "active") {
-        Network.getNetworkStateAsync().then(applyNet).catch(() => {});
-      }
-    });
-
-    return () => {
-      alive = false;
-      netSub.remove();
-      appSub.remove();
-    };
-  }, [flushQueue]);
-
-  // Also trigger a flush when auth becomes ready or new items enter the queue while online.
-  useEffect(() => {
-    if (!offline && auth && queue.length > 0) {
-      void flushQueue();
-    }
-  }, [offline, auth, queue.length, flushQueue]);
-
   // One client per sign-in (screens' effects depend on it, so it must stay stable).
-  // Wraps POST/PATCH on trade-in status paths so offline writes are queued and synced when Wi-Fi returns.
-  const api = useMemo<StaffClient | null>(() => {
-    if (!auth) return null;
-    const baseClient = staffClient(auth.server, auth.token, onUnauthorized);
-    const sendOrQueue = async <T,>(method: "POST" | "PATCH", path: string, body: unknown, opts?: CallOptions): Promise<T> => {
-      const canQueue = QUEUEABLE_PATH.test(path);
-      try {
-        const res =
-          method === "POST" ? await baseClient.post<T>(path, body, opts) : await baseClient.patch<T>(path, body, opts);
-        if (res && typeof res === "object" && !Array.isArray(res)) {
-          const casePath = path.replace(/\/action$/, "");
-          if (casePath.startsWith("/api/cases/")) {
-            caseCache.current.set(casePath, res as Record<string, unknown>);
-          }
-        }
-        return res;
-      } catch (e) {
-        if (canQueue && (offlineRef.current || (e instanceof ApiError && e.status === 0))) {
-          enqueueUpdate(method, path, body);
-          const casePath = path.replace(/\/action$/, "");
-          const cached = caseCache.current.get(casePath);
-          if (cached) {
-            const optimistic = optimisticCaseView(cached, body);
-            caseCache.current.set(casePath, optimistic);
-            return optimistic as unknown as T;
-          }
-          if (path.endsWith("/action") || path.includes("/test-sessions/")) {
-            return { ok: true, queued: true } as unknown as T;
-          }
-        }
-        throw e;
-      }
-    };
-    return {
-      base: baseClient.base,
-      get: async <T,>(path: string): Promise<T> => {
-        const res = await baseClient.get<T>(path);
-        if (path.startsWith("/api/cases/") && res && typeof res === "object" && !Array.isArray(res)) {
-          caseCache.current.set(path, res as Record<string, unknown>);
-        }
-        return res;
-      },
-      post: <T,>(path: string, body?: unknown, opts?: CallOptions) => sendOrQueue<T>("POST", path, body, opts),
-      patch: <T,>(path: string, body: unknown, opts?: CallOptions) => sendOrQueue<T>("PATCH", path, body, opts),
-    };
-  }, [auth, onUnauthorized, enqueueUpdate]);
+  const api = useMemo(() => (auth ? staffClient(auth.server, auth.token, onUnauthorized) : null), [auth, onUnauthorized]);
 
   async function signedIn(base: string, res: TokenResponse) {
     const t = tabletRef.current;
@@ -817,7 +559,6 @@ function Root() {
 
   return (
     <View style={{ flex: 1 }} onStartShouldSetResponderCapture={onTouchCapture}>
-      <OfflineBar offline={offline} queuedCount={queue.length} syncing={syncing} />
       {render()}
     </View>
   );

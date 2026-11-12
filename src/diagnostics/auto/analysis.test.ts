@@ -198,56 +198,13 @@ test("camera verdict: both scenes pass; errors fail with side; dark skips; retry
   assert.equal(A.cameraNeedsRetry(err, dark), false);
 });
 
-test("flash verdict: +15% and a real delta passes; camera-bump retry rule; bright scene / no change / camera start failure skip; torch error fails", () => {
+test("flash verdict: +15% and a real delta passes; bright scene / no change skip; torch error fails", () => {
   const st = (mean: number) => ({ mean, std: 5, w: 32, h: 24 });
-  // Change on try 1 (flat) → pass, no retry needed
-  const p1 = A.flashVerdict(st(12), st(95), null, 1);
-  assert.equal(p1.outcome, "pass");
-  assert.equal(p1.detail.attempts, 1);
-  assert.equal(p1.detail.position, "flat");
-  assert.equal(p1.detail.torchDelayMs, A.FLASH_TORCH_DELAY_MS);
-  assert.equal(A.flashNeedsRetry(st(12), st(95)), false);
-
-  // No change on try 1 (camera bump against counter) → flashNeedsRetry true
-  assert.equal(A.flashNeedsRetry(st(4), st(6)), true); // +50% but only 2 levels: noise
-  assert.equal(A.flashNeedsRetry(st(100), st(104)), true);
-  assert.equal(A.flashVerdict(st(4), st(6), null).outcome, "skip");
+  assert.equal(A.flashVerdict(st(12), st(95), null).outcome, "pass");
+  assert.equal(A.flashVerdict(st(4), st(6), null).outcome, "skip"); // +50% but only 2 levels: noise
+  assert.equal(A.flashVerdict(st(200), st(240), null).detail.reason, "the scene was already bright");
   assert.equal(A.flashVerdict(st(100), st(104), null).outcome, "skip");
-
-  // Change on try 2 (lifted) → pass with attempts=2, position="lifted"
-  const p2 = A.flashVerdict(st(18), st(72), null, 2);
-  assert.equal(p2.outcome, "pass");
-  assert.equal(p2.detail.attempts, 2);
-  assert.equal(p2.detail.position, "lifted");
-
-  // No change on try 2 (lifted) → skip with attempts=2, position="lifted"
-  const s2 = A.flashVerdict(st(18), st(20), null, 2);
-  assert.equal(s2.outcome, "skip");
-  assert.equal(s2.detail.attempts, 2);
-  assert.equal(s2.detail.position, "lifted");
-  assert.match(String(s2.detail.reason), /no measurable change/);
-
-  // Bright scene → skip with no retry
-  const bright = A.flashVerdict(st(200), st(240), null, 1);
-  assert.equal(bright.outcome, "skip");
-  assert.equal(bright.detail.reason, "the scene was already bright");
-  assert.equal(A.flashNeedsRetry(st(200), st(240)), false);
-
-  // An error or missing frame → no retry
-  assert.equal(A.flashNeedsRetry(null, null), false);
-  assert.equal(A.flashNeedsRetry(st(12), null, "torch unavailable"), false);
-
-  // Torch error (capture with torch on threw) → fail
-  const fail = A.flashVerdict(st(12), null, "torch unavailable", 1);
-  assert.equal(fail.outcome, "fail");
-  assert.match(String(fail.detail.reason), /the torch could not be switched on: torch unavailable/);
-
-  // Rear camera start / ready / off-frame failure → skip (not fail)
-  const camFail = A.flashVerdict(null, null, "the rear camera could not start: Camera in use", 1);
-  assert.equal(camFail.outcome, "skip");
-  assert.equal(camFail.detail.reason, "the rear camera could not start: Camera in use");
-  assert.equal(A.flashVerdict(null, null, "the rear camera did not get ready in time", 1).outcome, "skip");
-  assert.equal(A.flashVerdict(null, null, "no frame with the torch off: capture failed", 1).outcome, "skip");
+  assert.equal(A.flashVerdict(null, null, "torch unavailable").outcome, "fail");
 });
 
 const Tone: typeof import("./tone") = await import("./tone" + ".ts");

@@ -82,14 +82,7 @@ export type CertifyView = {
   testSessionId: string | null;
   /** The server lets staff certify now. Absent = yes (it sent the card); false = shown, not tappable. */
   canEdit: boolean;
-  /** Under-row notes from the server (e.g. `notes.screen` when the sweep was partial or skipped, SUP-260). */
-  notes?: { screen: string | null };
 };
-
-/** True when `notes.screen` warns of a severe mark from a partial display sweep (SUP-260). */
-export function severeScreenMark(note: string | null | undefined): boolean {
-  return typeof note === "string" && /\(severe[),]/.test(note);
-}
 
 type Obj = Record<string, unknown>;
 const obj = (x: unknown): Obj | null => (x && typeof x === "object" && !Array.isArray(x) ? (x as Obj) : null);
@@ -138,7 +131,6 @@ export function readCertify(raw: unknown): CertifyView | null {
   }
   const col = str(c.colours);
   const ch = obj(c.choices);
-  const notes = obj(c.notes);
   return {
     needed,
     rows,
@@ -146,7 +138,6 @@ export function readCertify(raw: unknown): CertifyView | null {
     choices: { screen: choices(ch?.screen, "screen"), body: choices(ch?.body, "body"), liquid: choices(ch?.liquid, "liquid") },
     testSessionId: str(c.testSessionId),
     canEdit: c.canEdit !== false,
-    notes: { screen: str(notes?.screen) },
   };
 }
 
@@ -233,9 +224,7 @@ export const ALL_FINE = "All fine — screen OK, body like new";
  * What ALL_FINE taps, in order: Screen OK, Body Like new, and the liquid indicator "Can't see" —
  * honest, it wasn't looked at. The server's own rule (swapup lib/server/cases.ts allFineTaps): only
  * the rows nobody has tapped yet — a row already tapped was looked at and keeps its tap — and the
- * liquid indicator only when the card asks for it. When `notes.screen` warns of a severe mark from a
- * partial sweep (`severeScreenMark`), `"All fine"` leaves the Screen row untapped so the advisor taps
- * it explicitly (SUP-260). The button shows when the desk's does (docs/MOBILE-API.md §8b "while the
+ * liquid indicator only when the card asks for it. The button shows when the desk's does (docs/MOBILE-API.md §8b "while the
  * card is waiting for a tap"; swapup lib/domain/autoApply.ts certifyWaiting, ../flow.ts
  * certifyStillOpen): the camera left the screen or the body, a row asked for is still untapped, and
  * the card can still be tapped — so also on a card that asks only the screen or only the body. And
@@ -256,7 +245,6 @@ export function allFineTaps(v: CertifyView): { row: CertifyRow; value: string }[
   void taps;
   for (const [row, value] of want) {
     if (row === "liquid" && !v.needed.includes("liquid")) continue;
-    if (row === "screen" && severeScreenMark(v.notes?.screen)) continue;
     if (!v.choices[row].some((c) => c.value === value)) return [];
     if (!v.rows[row]) out.push({ row, value });
   }

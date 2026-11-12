@@ -77,11 +77,6 @@ export type RemoteStatus = {
    * explicit true counts; an older server never sends it.
    */
   colours?: boolean;
-  /**
-   * What the server now makes of this phone's model (e.g. after the advisor saves an IMEI
-   * on the case while the phone is on IdentifyScreen, SUP-258).
-   */
-  identity?: unknown;
 };
 
 /** Everything the app keeps on disk for the current check (one session at a time). */
