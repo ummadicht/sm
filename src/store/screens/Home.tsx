@@ -9,6 +9,7 @@ import { readAutoApply } from "../flow";
 import { firstName } from "../pin";
 import { TEST_PROGRAMME, programmeBanner } from "../programme";
 import { Banner, Body, Brand, Btn, Card, Chip, Columns, Figure, H1, H2, Label, STATUS, Tone, ago, inr, toneColor, until, useLayout, L } from "../ui";
+import { LandingHotspotAndWebCards } from "./SessionParts";
 
 const CREDIT_STATE: Record<CreditState, { label: string; tone: Tone }> = {
   ok: { label: "Healthy", tone: "up" },
@@ -235,6 +236,14 @@ export function Home({
         {startCard}
         {creditCard}
       </Columns>
+
+      <LandingHotspotAndWebCards
+        api={api}
+        storeId={store.id}
+        canEditWifi={user.role === "store_manager"}
+        sessionCode={sessions?.[0]?.code ?? null}
+        wide={wide}
+      />
 
       <Card>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>

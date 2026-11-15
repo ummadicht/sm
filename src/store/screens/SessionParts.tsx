@@ -1,17 +1,60 @@
-// The pieces of the Session screen's step 2: the two customer-facing QR cards (Wi‑Fi, the test
-// code) under "Connect the customer's phone" (ConnectHead). The camera step is ./CameraParts;
-// the results themselves are on the answer and the grade report, not repeated here (owner,
-// 2026-10-17: "Reduce the flow").
-import React, { useState } from "react";
-import { Text, View } from "react-native";
+// The pieces of the Session screen's step 2 and the landing screens: the two customer-facing QR
+// cards (Wi‑Fi / mobile hotspot, and the test code + browser web link) under "Connect the
+// customer's phone" (ConnectHead). The camera step is ./CameraParts; the results themselves
+// are on the answer and the grade report, not repeated here (owner, 2026-10-17: "Reduce the flow").
+import React, { useCallback, useEffect, useState } from "react";
+import { Linking, Text, View } from "react-native";
+import * as Device from "expo-device";
+import * as NetInfo from "expo-network";
+import { DEFAULT_SERVER, IS_WEB } from "../../shared/config";
 import { QR } from "../QR";
+import {
+  DEFAULT_HOTSPOT,
+  HOTSPOT_HINT,
+  HOTSPOT_OFF_TEXT,
+  WEB_CHECK_HINT,
+  checkWebUrl,
+  currentDeviceHotspot,
+  wifiQr,
+} from "../hotspot";
 import { StaffClient, errText } from "../staffClient";
+import { SavedHotspot, loadHotspot, saveHotspot } from "../storage";
 import type { SessionStatus, WifiResponse, WifiSecurity } from "../types";
-import { Banner, Body, Btn, Card, Chip, Details, Field, H2, Label, Segmented, Toggle, until, L } from "../ui";
+import { Banner, Body, Btn, Card, Chip, Columns, Details, Field, H2, Label, Segmented, Toggle, until, L } from "../ui";
 
 export type WifiInfo = { ssid: string; qr: string; password?: string; security?: WifiSecurity; hidden?: boolean };
 
-// ── ① Join our Wi‑Fi ─────────────────────────────────────────────────────────
+function copyText(text: string, onCopied: () => void) {
+  if (IS_WEB && typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    void navigator.clipboard.writeText(text).then(onCopied).catch(() => {});
+  }
+}
+
+function openBrowserCheck(url: string) {
+  if (IS_WEB && typeof window !== "undefined") {
+    try {
+      const u = new URL(url, window.location.origin);
+      if (u.pathname.startsWith("/app/check")) {
+        window.location.assign(`${window.location.origin}${u.pathname}${u.search}`);
+        return;
+      }
+    } catch {
+      // fall through
+    }
+    window.location.assign(url);
+    return;
+  }
+  void Linking.openURL(url).catch(() => {});
+}
+
+async function detectCurrentDeviceHotspot(): Promise<WifiInfo> {
+  const ip = await NetInfo.getIpAddressAsync().catch(() => null);
+  const label = [Device.brand, Device.modelName].filter(Boolean).join("-") || Device.modelName || null;
+  const cfg = currentDeviceHotspot(label, ip);
+  return { ...cfg, qr: wifiQr(cfg) };
+}
+
+// ── ① Join our Wi‑Fi / Device Hotspot ─────────────────────────────────────────
 
 export function WifiCard({
   api,
@@ -38,70 +81,129 @@ export function WifiCard({
   /** What the customer goes to next without Wi‑Fi ("step 2", "the test code"). */
   next?: string;
 }) {
-  const [editing, setEditing] = useState(false);
-  const head = (
-    <View style={{ gap: 4 }}>
-      <Label>{label}</Label>
-      <H2>Join our Wi‑Fi</H2>
-    </View>
-  );
+  const [localHotspot, setLocalHotspot] = useState<WifiInfo | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  if (editing || (wifi === null && canEdit)) {
-    return (
-      <Card>
-        {head}
-        <WifiForm
-          api={api}
-          storeId={storeId}
-          current={wifi ?? null}
-          onCancel={wifi ? () => setEditing(false) : undefined}
-          onSaved={(w) => {
-            setEditing(false);
-            onSaved(w);
-          }}
-        />
-      </Card>
-    );
-  }
+  useEffect(() => {
+    let mounted = true;
+    void loadHotspot().then((h) => {
+      if (!mounted || !h) return;
+      setLocalHotspot({
+        ssid: h.ssid,
+        password: h.password,
+        security: h.security,
+        hidden: h.hidden,
+        qr: wifiQr(h),
+      });
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const activeWifi = wifi ?? localHotspot;
+
+  const generateCurrentHotspot = useCallback(async () => {
+    setBusy(true);
+    try {
+      const info = await detectCurrentDeviceHotspot();
+      await saveHotspot({
+        ssid: info.ssid,
+        password: info.password ?? DEFAULT_HOTSPOT.password,
+        security: info.security ?? "WPA",
+        hidden: !!info.hidden,
+      });
+      setLocalHotspot(info);
+      if (canEdit && storeId) {
+        try {
+          const r = await api.post<WifiResponse>(`/api/stores/${encodeURIComponent(storeId)}/wifi`, {
+            ssid: info.ssid,
+            password: info.password ?? "",
+            security: info.security ?? "WPA",
+            hidden: !!info.hidden,
+          });
+          if (r?.wifi && r.qr) {
+            onSaved({ ...r.wifi, qr: r.qr });
+            return;
+          }
+        } catch {
+          // keep local hotspot QR
+        }
+      }
+      onSaved(info);
+    } finally {
+      setBusy(false);
+    }
+  }, [api, canEdit, onSaved, storeId]);
+
+  const switchOffHotspot = useCallback(async () => {
+    setBusy(true);
+    try {
+      await saveHotspot(null);
+      setLocalHotspot(null);
+      if (canEdit && storeId && wifi) {
+        try {
+          await api.post<WifiResponse>(`/api/stores/${encodeURIComponent(storeId)}/wifi`, { ssid: "" });
+        } catch {
+          // ignore
+        }
+      }
+      onSaved(null);
+    } finally {
+      setBusy(false);
+    }
+  }, [api, canEdit, onSaved, storeId, wifi]);
 
   return (
-    <Card style={{ alignItems: "center" }}>
-      <View style={{ alignSelf: "stretch" }}>{head}</View>
-      {wifi === undefined ? (
-        wifiErr ? (
-          <View style={{ alignSelf: "stretch" }}>
-            <Banner tone="bad" title="Couldn't load the store Wi‑Fi" action={{ title: "Try again", onPress: onRetry }}>
-              {wifiErr}
-            </Banner>
-          </View>
-        ) : (
-          <View style={{ width: qrSize, height: qrSize, alignItems: "center", justifyContent: "center" }}>
-            <Body muted>Loading…</Body>
-          </View>
-        )
-      ) : wifi === null ? (
-        <View style={{ alignSelf: "stretch", gap: 8 }}>
-          <Banner tone="muted" title="No store Wi‑Fi saved">
-            A manager can add it.
+    <Card style={{ alignItems: "center", gap: 10 }}>
+      <View style={{ alignSelf: "stretch", gap: 4 }}>
+        <Label>{label}</Label>
+        <H2>Device hotspot</H2>
+      </View>
+
+      {wifi === undefined && !localHotspot && wifiErr ? (
+        <View style={{ alignSelf: "stretch" }}>
+          <Banner tone="bad" title="Couldn't load the store Wi‑Fi" action={{ title: "Try again", onPress: onRetry }}>
+            {wifiErr}
           </Banner>
-          <Body muted>{`Mobile data works — go to ${next}.`}</Body>
         </View>
-      ) : (
+      ) : null}
+
+      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", alignSelf: "stretch" }}>
+        <Btn
+          title="Generate hotspot QR"
+          onPress={() => void generateCurrentHotspot()}
+          busy={busy}
+          style={{ flexGrow: 1 }}
+        />
+        <Btn
+          title="Switch off hotspot"
+          kind="secondary"
+          onPress={() => void switchOffHotspot()}
+          disabled={busy || !activeWifi}
+          style={{ flexGrow: 1 }}
+        />
+      </View>
+
+      {activeWifi ? (
         <>
-          <Body style={{ textAlign: "center" }}>Scan with your camera, tap Join.</Body>
-          <QR value={wifi.qr} size={qrSize} />
+          <Body style={{ textAlign: "center" }}>{HOTSPOT_HINT}</Body>
+          <QR value={activeWifi.qr} size={qrSize} />
           <Text style={{ fontSize: 24, fontWeight: "800", color: L.ink, textAlign: "center" }} selectable>
-            {wifi.ssid}
+            {activeWifi.ssid}
           </Text>
-          {wifi.password && wifi.security !== "nopass" ? (
+          {activeWifi.password && activeWifi.security !== "nopass" ? (
             <Body muted style={{ textAlign: "center" }}>
-              Can't scan? Password: <Text style={{ color: L.ink, fontWeight: "800" }} selectable>{wifi.password}</Text>
+              Password: <Text style={{ color: L.ink, fontWeight: "800" }} selectable>{activeWifi.password}</Text>
             </Body>
           ) : null}
-          {wifi.hidden ? <Body muted style={{ textAlign: "center" }}>Hidden network.</Body> : null}
           <Body style={{ textAlign: "center", fontWeight: "700" }}>On mobile data? Skip this.</Body>
-          {canEdit ? <Btn title="Change Wi‑Fi" kind="ghost" onPress={() => setEditing(true)} /> : null}
         </>
+      ) : (
+        <View style={{ alignSelf: "stretch", gap: 6 }}>
+          <Body muted>{HOTSPOT_OFF_TEXT}</Body>
+          <Body muted>{`Mobile data works — go to ${next}.`}</Body>
+        </View>
       )}
     </Card>
   );
@@ -110,12 +212,14 @@ export function WifiCard({
 export function WifiForm({
   api,
   storeId,
+  canSaveStore = true,
   current,
   onSaved,
   onCancel,
 }: {
-  api: StaffClient;
-  storeId: string;
+  api?: StaffClient;
+  storeId?: string;
+  canSaveStore?: boolean;
   current: WifiInfo | null;
   onSaved: (w: WifiInfo | null) => void;
   onCancel?: () => void;
@@ -130,15 +234,30 @@ export function WifiForm({
   async function save(clear = false) {
     setError(null);
     if (!clear) {
-      if (!ssid.trim()) return setError("Enter the Wi‑Fi name.");
+      if (!ssid.trim()) return setError("Enter the hotspot or Wi‑Fi name.");
       if (security !== "nopass" && !password) return setError("Enter the password, or choose “None”.");
       if (security === "WPA" && password.length < 8) return setError("A WPA password has 8+ characters.");
     }
     setBusy(true);
     try {
-      const body = clear ? { ssid: "" } : { ssid: ssid.trim(), password: security === "nopass" ? "" : password, security, hidden };
-      const r = await api.post<WifiResponse>(`/api/stores/${encodeURIComponent(storeId)}/wifi`, body);
-      onSaved(r?.wifi && r.qr ? { ...r.wifi, qr: r.qr } : null);
+      const localCfg: SavedHotspot | null = clear
+        ? null
+        : { ssid: ssid.trim(), password: security === "nopass" ? "" : password, security, hidden };
+      await saveHotspot(localCfg);
+      const localInfo: WifiInfo | null = localCfg ? { ...localCfg, qr: wifiQr(localCfg) } : null;
+
+      if (api && storeId && canSaveStore) {
+        try {
+          const body = clear ? { ssid: "" } : { ssid: ssid.trim(), password: security === "nopass" ? "" : password, security, hidden };
+          const r = await api.post<WifiResponse>(`/api/stores/${encodeURIComponent(storeId)}/wifi`, body);
+          onSaved(r?.wifi && r.qr ? { ...r.wifi, qr: r.qr } : localInfo);
+          return;
+        } catch {
+          onSaved(localInfo);
+          return;
+        }
+      }
+      onSaved(localInfo);
     } catch (e) {
       setError(errText(e));
     } finally {
@@ -193,15 +312,22 @@ export function TestQrCard({
   qrSize: number;
   label?: string;
 }) {
+  const [qrMode, setQrMode] = useState<"join" | "web">("join");
+  const [copied, setCopied] = useState(false);
   const steps = ["Scan this code with your camera.", "Tap the link.", "Install SwapUp Check — or test in the browser.", "Type the code if asked."];
   const left = until(expiresAt);
+
+  const serverBase = joinUrl.replace(/\/j\/[^/?#]+.*$/i, "") || DEFAULT_SERVER;
+  const webUrl = checkWebUrl(serverBase, code);
+  const activeQrUrl = qrMode === "web" ? webUrl : joinUrl;
+
   return (
     <Card style={{ alignItems: "center" }}>
       <View style={{ alignSelf: "stretch", gap: 4 }}>
         <Label>{label}</Label>
         <H2>Test your phone</H2>
       </View>
-      <QR value={joinUrl} size={qrSize} />
+      <QR value={activeQrUrl} size={qrSize} />
       <Text
         style={{ fontSize: 56, fontWeight: "900", letterSpacing: 10, color: L.ink, fontVariant: ["tabular-nums"], textAlign: "center" }}
         selectable
@@ -212,8 +338,49 @@ export function TestQrCard({
         {code}
       </Text>
       <Text style={{ color: L.muted, fontSize: 14, textAlign: "center" }} selectable>
-        {joinUrl}
+        {activeQrUrl}
       </Text>
+
+      <View
+        style={{
+          alignSelf: "stretch",
+          backgroundColor: L.surface2,
+          borderRadius: 12,
+          padding: 12,
+          gap: 8,
+          borderWidth: 1,
+          borderColor: L.border,
+        }}
+      >
+        <Text style={{ fontSize: 15, fontWeight: "800", color: L.ink }}>Don't want to download the Check app?</Text>
+        <Body muted style={{ fontSize: 14, lineHeight: 20 }}>
+          {WEB_CHECK_HINT}
+        </Body>
+        <Text style={{ color: L.fix, fontSize: 15, fontWeight: "700" }} selectable>
+          {webUrl}
+        </Text>
+        <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+          <Btn title="Open web check" kind="secondary" onPress={() => openBrowserCheck(webUrl)} />
+          <Btn
+            title={qrMode === "web" ? "Show app QR" : "Show web QR"}
+            kind="ghost"
+            onPress={() => setQrMode((m) => (m === "web" ? "join" : "web"))}
+          />
+          {IS_WEB ? (
+            <Btn
+              title={copied ? "Copied" : "Copy link"}
+              kind="ghost"
+              onPress={() =>
+                copyText(webUrl, () => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                })
+              }
+            />
+          ) : null}
+        </View>
+      </View>
+
       <View style={{ alignSelf: "stretch", gap: 8, marginTop: 4 }}>
         {steps.map((t, i) => (
           <View key={i} style={{ flexDirection: "row", gap: 10 }}>
@@ -233,6 +400,222 @@ export function TestQrCard({
         </Text>
       ) : null}
     </Card>
+  );
+}
+
+// ── Landing Screen Cards: Current Device Hotspot (2 Buttons) + Browser Check Web Link ──
+
+export function LandingHotspotAndWebCards({
+  api,
+  storeId,
+  canEditWifi = false,
+  serverBase,
+  sessionCode,
+  wide,
+}: {
+  api?: StaffClient;
+  storeId?: string;
+  canEditWifi?: boolean;
+  serverBase?: string;
+  sessionCode?: string | null;
+  wide: boolean;
+}) {
+  const base = (api?.base || serverBase || DEFAULT_SERVER).replace(/\/+$/, "");
+  const [wifi, setWifi] = useState<WifiInfo | null>(null);
+  const [busyHotspot, setBusyHotspot] = useState(false);
+  const [counterCode, setCounterCode] = useState<string | null>(null);
+  const [copiedWeb, setCopiedWeb] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const saved = await loadHotspot();
+      if (alive && saved) {
+        setWifi({ ...saved, qr: wifiQr(saved) });
+      }
+      if (api && storeId) {
+        try {
+          const r = await api.get<WifiResponse>(`/api/stores/${encodeURIComponent(storeId)}/wifi`);
+          if (alive && r?.wifi && r.qr) {
+            setWifi({ ...r.wifi, qr: r.qr });
+          }
+        } catch {
+          // Keep local hotspot state
+        }
+        try {
+          const c = await api.get<{ code?: string; counterCode?: { code?: string } }>("/api/stores/counter-code");
+          const code = typeof c?.code === "string" ? c.code : typeof c?.counterCode?.code === "string" ? c.counterCode.code : null;
+          if (alive && code) setCounterCode(code);
+        } catch {
+          // Optional counter code
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [api, storeId]);
+
+  const handleGenerateHotspotQr = useCallback(async () => {
+    setBusyHotspot(true);
+    try {
+      const info = await detectCurrentDeviceHotspot();
+      await saveHotspot({
+        ssid: info.ssid,
+        password: info.password ?? DEFAULT_HOTSPOT.password,
+        security: info.security ?? "WPA",
+        hidden: !!info.hidden,
+      });
+      setWifi(info);
+      if (api && storeId && canEditWifi) {
+        try {
+          const r = await api.post<WifiResponse>(`/api/stores/${encodeURIComponent(storeId)}/wifi`, {
+            ssid: info.ssid,
+            password: info.password ?? "",
+            security: info.security ?? "WPA",
+            hidden: !!info.hidden,
+          });
+          if (r?.wifi && r.qr) {
+            setWifi({ ...r.wifi, qr: r.qr });
+          }
+        } catch {
+          // Keep local device hotspot QR
+        }
+      }
+    } finally {
+      setBusyHotspot(false);
+    }
+  }, [api, canEditWifi, storeId]);
+
+  const handleSwitchOffHotspot = useCallback(async () => {
+    setBusyHotspot(true);
+    try {
+      await saveHotspot(null);
+      setWifi(null);
+      if (api && storeId && canEditWifi) {
+        try {
+          await api.post<WifiResponse>(`/api/stores/${encodeURIComponent(storeId)}/wifi`, { ssid: "" });
+        } catch {
+          // ignore
+        }
+      }
+    } finally {
+      setBusyHotspot(false);
+    }
+  }, [api, canEditWifi, storeId]);
+
+  const activeCode = sessionCode || counterCode || null;
+  const webUrl = checkWebUrl(base, activeCode);
+  const localWebUrl =
+    IS_WEB && typeof window !== "undefined" ? checkWebUrl(window.location.origin, activeCode) : webUrl;
+
+  const hotspotCard = (
+    <Card style={{ alignItems: "center", gap: 12 }}>
+      <View style={{ alignSelf: "stretch", gap: 4 }}>
+        <Label>Device hotspot</Label>
+        <H2>Current device hotspot</H2>
+      </View>
+
+      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", alignSelf: "stretch" }}>
+        <Btn
+          title="Generate hotspot QR"
+          onPress={() => void handleGenerateHotspotQr()}
+          busy={busyHotspot}
+          style={{ flexGrow: 1 }}
+        />
+        <Btn
+          title="Switch off hotspot"
+          kind="secondary"
+          onPress={() => void handleSwitchOffHotspot()}
+          disabled={busyHotspot || !wifi}
+          style={{ flexGrow: 1 }}
+        />
+      </View>
+
+      {wifi ? (
+        <>
+          <Body muted style={{ alignSelf: "stretch" }}>
+            {HOTSPOT_HINT}
+          </Body>
+          <QR value={wifi.qr} size={180} />
+          <Text style={{ fontSize: 22, fontWeight: "800", color: L.ink, textAlign: "center" }} selectable>
+            {wifi.ssid}
+          </Text>
+          {wifi.password && wifi.security !== "nopass" ? (
+            <Body muted style={{ textAlign: "center" }}>
+              Password: <Text style={{ color: L.ink, fontWeight: "800" }} selectable>{wifi.password}</Text>
+            </Body>
+          ) : (
+            <Body muted style={{ textAlign: "center" }}>Open network (no password)</Body>
+          )}
+        </>
+      ) : (
+        <Body muted style={{ alignSelf: "stretch" }}>
+          {HOTSPOT_OFF_TEXT}
+        </Body>
+      )}
+    </Card>
+  );
+
+  const webLinkCard = (
+    <Card style={{ alignItems: "center", gap: 10 }}>
+      <View style={{ alignSelf: "stretch", gap: 4 }}>
+        <Label>Browser check · no download</Label>
+        <H2>Test without the app</H2>
+      </View>
+      <Body muted style={{ alignSelf: "stretch" }}>
+        {WEB_CHECK_HINT}
+      </Body>
+      <QR value={webUrl} size={180} />
+      {activeCode ? (
+        <Text
+          style={{ fontSize: 26, fontWeight: "900", letterSpacing: 5, color: L.ink, fontVariant: ["tabular-nums"], textAlign: "center" }}
+          selectable
+        >
+          {activeCode}
+        </Text>
+      ) : null}
+      <View
+        style={{
+          alignSelf: "stretch",
+          backgroundColor: L.surface2,
+          borderRadius: 10,
+          padding: 10,
+          borderWidth: 1,
+          borderColor: L.border,
+          gap: 4,
+        }}
+      >
+        <Text style={{ fontSize: 13, fontWeight: "700", color: L.muted, textTransform: "uppercase", letterSpacing: 0.6 }}>
+          Web link (no app download)
+        </Text>
+        <Text style={{ color: L.fix, fontSize: 15, fontWeight: "700" }} selectable>
+          {webUrl}
+        </Text>
+      </View>
+      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
+        <Btn title="Open web check" onPress={() => openBrowserCheck(localWebUrl)} />
+        {IS_WEB ? (
+          <Btn
+            title={copiedWeb ? "Copied" : "Copy web link"}
+            kind="secondary"
+            onPress={() =>
+              copyText(webUrl, () => {
+                setCopiedWeb(true);
+                setTimeout(() => setCopiedWeb(false), 2000);
+              })
+            }
+          />
+        ) : null}
+      </View>
+    </Card>
+  );
+
+  return (
+    <Columns wide={wide}>
+      {hotspotCard}
+      {webLinkCard}
+    </Columns>
   );
 }
 

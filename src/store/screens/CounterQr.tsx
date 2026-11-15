@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Alert, Text, View } from "react-native";
 import { ApiError } from "../../shared/api";
 import { QR } from "../QR";
+import { WEB_CHECK_HINT, checkWebUrl } from "../hotspot";
 import { readCounterCode } from "../phoneLed";
 import { PRINT_HINT, PRINT_LABEL, printCounterQr } from "../printPoster";
 import { StaffClient, absolute, errText } from "../staffClient";
@@ -115,6 +116,12 @@ export function CounterQrCard({ api, storeName, canManage }: { api: StaffClient;
           <Text style={{ color: L.muted, fontSize: 14, textAlign: "center" }} selectable>
             {code.joinUrl}
           </Text>
+          <View style={{ alignSelf: "stretch", backgroundColor: L.surface2, borderRadius: 10, padding: 10, gap: 4, borderWidth: 1, borderColor: L.border }}>
+            <Text style={{ fontSize: 14, fontWeight: "700", color: L.ink }}>{WEB_CHECK_HINT}</Text>
+            <Text style={{ color: L.fix, fontSize: 14, fontWeight: "700" }} selectable>
+              {checkWebUrl(api.base, code.code)}
+            </Text>
+          </View>
         </View>
       )}
       {code ? (

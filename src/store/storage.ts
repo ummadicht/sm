@@ -81,3 +81,39 @@ export function normaliseServer(input: string): string | null {
   if (!/^https?:\/\/[^\s/]+(\/[^\s]*)?$/i.test(s)) return null;
   return s;
 }
+
+const K_HOTSPOT = "swapup.store.hotspot";
+
+export type SavedHotspot = {
+  ssid: string;
+  password: string;
+  security: "WPA" | "WEP" | "nopass";
+  hidden: boolean;
+};
+
+export async function loadHotspot(): Promise<SavedHotspot | null> {
+  const raw = await read(K_HOTSPOT);
+  if (!raw) return null;
+  try {
+    const o = JSON.parse(raw) as Partial<SavedHotspot> | null;
+    if (!o || typeof o.ssid !== "string" || !o.ssid.trim()) return null;
+    const sec = o.security === "WEP" || o.security === "nopass" ? o.security : "WPA";
+    return {
+      ssid: o.ssid.trim(),
+      password: typeof o.password === "string" ? o.password : "",
+      security: sec,
+      hidden: !!o.hidden,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function saveHotspot(cfg: SavedHotspot | null): Promise<void> {
+  if (!cfg || !cfg.ssid.trim()) {
+    await remove(K_HOTSPOT);
+    return;
+  }
+  await write(K_HOTSPOT, JSON.stringify(cfg));
+}
+

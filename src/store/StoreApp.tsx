@@ -15,11 +15,13 @@
 // (a 401 on the device token) sends it to sign-in.
 import "../shared/platform"; // browser shims (Alert, BackHandler) — a no-op on native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, BackHandler, Linking, View } from "react-native";
+import { ActivityIndicator, AppState, BackHandler, Linking, Text, View } from "react-native";
+import * as NetInfo from "expo-network";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { ApiError, createClient } from "../shared/api";
 import { DEFAULT_SERVER, IS_WEB } from "../shared/config";
+import { OFFLINE_BANNER_TEXT, isOfflineState } from "./hotspot";
 import { idleLocks, isIdle } from "./pin";
 import { Home } from "./screens/Home";
 import { LockScreen } from "./screens/Lock";
@@ -87,10 +89,71 @@ export function StoreApp() {
       <StatusBar style="dark" />
       <SafeAreaView edges={["top"]} style={{ flex: 1, backgroundColor: L.bg }}>
         <SafeAreaView edges={["left", "right", "bottom"]} style={{ flex: 1, backgroundColor: L.bg }}>
+          <ConnectivityBanner />
           <Root />
         </SafeAreaView>
       </SafeAreaView>
     </SafeAreaProvider>
+  );
+}
+
+function ConnectivityBanner() {
+  const [netState, setNetState] = useState<NetInfo.NetworkState | null>(null);
+  const [browserOnline, setBrowserOnline] = useState<boolean | null>(
+    IS_WEB && typeof navigator !== "undefined" && typeof navigator.onLine === "boolean" ? navigator.onLine : null
+  );
+
+  useEffect(() => {
+    let alive = true;
+    NetInfo.getNetworkStateAsync()
+      .then((st) => {
+        if (alive) setNetState(st);
+      })
+      .catch(() => {});
+
+    const sub = NetInfo.addNetworkStateListener((st) => {
+      if (alive) setNetState(st);
+    });
+
+    const onOnline = () => setBrowserOnline(true);
+    const onOffline = () => setBrowserOnline(false);
+    if (IS_WEB && typeof window !== "undefined") {
+      window.addEventListener("online", onOnline);
+      window.addEventListener("offline", onOffline);
+    }
+
+    return () => {
+      alive = false;
+      sub.remove();
+      if (IS_WEB && typeof window !== "undefined") {
+        window.removeEventListener("online", onOnline);
+        window.removeEventListener("offline", onOffline);
+      }
+    };
+  }, []);
+
+  if (!isOfflineState(netState, browserOnline)) return null;
+
+  return (
+    <View
+      accessibilityRole="alert"
+      style={{
+        backgroundColor: L.warnBg,
+        borderBottomWidth: 1,
+        borderBottomColor: L.border,
+        paddingVertical: 6,
+        paddingHorizontal: 14,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+      }}
+    >
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: L.warn }} />
+      <Text style={{ fontSize: 13, fontWeight: "700", color: L.ink, textAlign: "center" }}>
+        {OFFLINE_BANNER_TEXT}
+      </Text>
+    </View>
   );
 }
 
