@@ -28,6 +28,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { Screen } from "../shared/kit";
 import { testById } from "../diagnostics/catalog";
 import { NOT_IN_RUN_REASON, nativeStep, partitionPlan, rerunnable, testsStarted } from "../diagnostics/auto/plan";
+import { resolveInteractiveAttempt } from "../diagnostics/auto/retry";
 import { AutoRunner } from "../diagnostics/auto/AutoRunner";
 import { ChargingAction, TouchAction } from "../diagnostics/auto/Actions";
 import { Pattern, PairingScreen } from "./PairingScreen";
@@ -73,6 +74,7 @@ export function NativeCheck({
   const [blockedPerms, setBlockedPerms] = useState<string[]>([]);
   const rerunStarting = useRef(false);
   const [rerunAction, setRerunAction] = useState(0);
+  const [actionAttempt, setActionAttempt] = useState(1);
   const record = useCallback((id: string, o: Outcome, d: Detail | null) => void engine.record(id, o, d), [engine]);
 
   // GetReady's privacy line stands in for the browser's welcome screen.
@@ -231,12 +233,18 @@ export function NativeCheck({
     const id = list[idx];
     if (!id) return <Screen scroll={false}>{null}</Screen>;
     const onResult = (o: Outcome, d: Detail) => {
-      record(id, o, d);
+      const res = resolveInteractiveAttempt(o, actionAttempt, d);
+      if (!res.done) {
+        setActionAttempt(res.nextAttempt);
+        return;
+      }
+      setActionAttempt(1);
+      record(id, res.finalOutcome, res.finalDetail);
       if (!rerun) return;
       if (idx + 1 >= list.length) setRerun(null);
       else setRerunAction(idx + 1);
     };
-    const key = `${id}-${rerun ? rerun.n : "main"}`;
+    const key = `${id}-${rerun ? rerun.n : "main"}-try-${actionAttempt}`;
     const n = { step: idx + 1, steps: list.length };
     return (
       <Railed at="test">

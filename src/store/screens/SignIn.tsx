@@ -6,7 +6,6 @@ import { normaliseServer } from "../storage";
 import { errText } from "../staffClient";
 import type { StaffUser, TokenResponse } from "../types";
 import { SignUp } from "./SignUp";
-import { LandingHotspotAndWebCards } from "./SessionParts";
 import { Banner, Body, Brand, Btn, Card, Field, H1, useLayout, L } from "../ui";
 
 /** Counter roles only — anything else is turned away with a sentence that says why. */
@@ -173,9 +172,6 @@ function SignInForm({
               ) : null}
             </Card>
           ) : null}
-        </View>
-        <View style={{ width: "100%", maxWidth: wide ? 920 : 480, marginTop: 18 }}>
-          <LandingHotspotAndWebCards serverBase={normaliseServer(server) ?? DEFAULT_SERVER} wide={wide} />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

@@ -32,6 +32,7 @@ import { testById, type FunctionalTest } from "../diagnostics/catalog";
 import { APPLIED_MESSAGE, type Snapshot } from "./engine";
 import { cleanCode, isValidCode, parseJoinTarget, type CheckState, type Outcome, type PlanItem } from "./core";
 import { SERVER_DECIDES } from "../diagnostics/auto/plan";
+import { MAX_TEST_ATTEMPTS, resolveInteractiveAttempt } from "../diagnostics/auto/retry";
 import { type CustomerReport } from "./report";
 import { PRIVACY_LINE } from "./copy";
 import * as Device from "expo-device";
@@ -311,6 +312,8 @@ export function supportedPlan(plan: PlanItem[]): { runnable: PlanItem[]; unsuppo
   return { runnable, unsupported };
 }
 
+const INTERACTIVE_ATTEMPT_TIMEOUT_MS = 25_000;
+
 export function RunnerScreen({
   snap,
   only,
@@ -332,10 +335,52 @@ export function RunnerScreen({
   const [rerunIndex, setRerunIndex] = useState(0);
   const current = only ? queue[rerunIndex] : queue.find((p) => !st0.results[p.id]);
   const index = current ? queue.indexOf(current) : queue.length;
+  const [attempt, setAttempt] = useState(1);
+  const [attemptNotice, setAttemptNotice] = useState<{ text: string; tone: "warn" | "fail" } | null>(null);
+  const currentId = current?.id ?? null;
+
+  useEffect(() => {
+    setAttempt(1);
+    setAttemptNotice(null);
+  }, [currentId, rerunIndex]);
 
   useEffect(() => {
     if (!current) onAllDone();
   }, [current, onAllDone]);
+
+  const handleTestAttemptResult = (
+    r: Outcome,
+    detail?: Record<string, string | number | boolean | null> | null
+  ) => {
+    if (!current) return;
+    const { durationSec, ...rest } = (detail ?? {}) as Record<string, string | number | boolean | null>;
+    void durationSec;
+    const res = resolveInteractiveAttempt(r, attempt, rest);
+    if (!res.done) {
+      setAttempt(res.nextAttempt);
+      if (res.message) setAttemptNotice({ text: res.message, tone: "warn" });
+      return;
+    }
+    if (res.message && res.finalOutcome === "fail") {
+      setAttemptNotice({ text: res.message, tone: "fail" });
+      setTimeout(() => {
+        onResult(current.id, res.finalOutcome, Object.keys(res.finalDetail).length ? res.finalDetail : null);
+        if (only) setRerunIndex((i) => i + 1);
+      }, 900);
+      return;
+    }
+    onResult(current.id, res.finalOutcome, Object.keys(res.finalDetail).length ? res.finalDetail : null);
+    if (only) setRerunIndex((i) => i + 1);
+  };
+
+  useEffect(() => {
+    if (!current) return;
+    const timer = setTimeout(() => {
+      handleTestAttemptResult("skip", { reason: "test did not complete in time" });
+    }, INTERACTIVE_ATTEMPT_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentId, attempt, rerunIndex]);
 
   if (!current) {
     return (
@@ -350,7 +395,7 @@ export function RunnerScreen({
     <View style={{ flex: 1, backgroundColor: P.bg }}>
       <View style={st.runnerTop}>
         <Text style={st.progress}>
-          Test {index + 1} of {queue.length}
+          Test {index + 1} of {queue.length} · Try {attempt} of {MAX_TEST_ATTEMPTS}
         </Text>
         <View style={{ flexShrink: 1 }}>
           <SyncBadge snap={snap} />
@@ -368,17 +413,19 @@ export function RunnerScreen({
           Pause
         </Text>
       </View>
+      {attemptNotice ? (
+        <View style={{ paddingHorizontal: 20, paddingBottom: 8 }}>
+          <Notice tone={attemptNotice.tone}>{attemptNotice.text}</Notice>
+        </View>
+      ) : null}
       <View style={{ flex: 1 }}>
         <Comp
-          key={`${current.id}-${only ? rerunIndex : "main"}`}
+          key={`${current.id}-${only ? rerunIndex : "main"}-try-${attempt}`}
           test={test}
           index={index}
           count={queue.length}
           onResult={(r, detail) => {
-            const { durationSec, ...rest } = (detail ?? {}) as Record<string, string | number | boolean | null>;
-            void durationSec;
-            onResult(current.id, r, Object.keys(rest).length ? rest : null);
-            if (only) setRerunIndex((i) => i + 1);
+            handleTestAttemptResult(r, (detail ?? null) as Record<string, string | number | boolean | null> | null);
           }}
         />
       </View>
