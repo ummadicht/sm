@@ -17,6 +17,11 @@ export function staffProblem(u: StaffUser): string | null {
   return null;
 }
 
+export const ADVANCED_SERVERS = [
+  "https://swapup-dev2.swapup.in",
+  "https://swapup-dev3.swapup.in/",
+] as const;
+
 export function SignIn({
   initialServer,
   notice,
@@ -55,8 +60,7 @@ function SignInForm({
 }) {
   const { wide, pad } = useLayout();
   const [server, setServer] = useState(initialServer);
-  // The browser build always talks to the server that served the page — no server picker there.
-  const [advanced, setAdvanced] = useState(!IS_WEB && initialServer !== DEFAULT_SERVER);
+  const [advanced, setAdvanced] = useState(initialServer !== DEFAULT_SERVER);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -149,13 +153,11 @@ function SignInForm({
             <Btn title="Register a new store" kind="ghost" onPress={() => onSignUp("register")} />
           </Card>
 
-          {IS_WEB ? null : (
-            <Pressable onPress={() => setAdvanced((v) => !v)} hitSlop={10} accessibilityRole="button">
-              <Text style={{ color: L.fix, fontSize: 16, fontWeight: "700" }}>{advanced ? "Hide advanced" : "Advanced"}</Text>
-            </Pressable>
-          )}
+          <Pressable onPress={() => setAdvanced((v) => !v)} hitSlop={10} accessibilityRole="button">
+            <Text style={{ color: L.fix, fontSize: 16, fontWeight: "700" }}>{advanced ? "Hide advanced" : "Advanced"}</Text>
+          </Pressable>
           {advanced ? (
-            <Card>
+            <Card style={{ gap: 12 }}>
               <Field
                 label="Server"
                 value={server}
@@ -167,9 +169,36 @@ function SignInForm({
                 hint={`Testing only. Normal: ${DEFAULT_SERVER}`}
                 editable={!busy}
               />
-              {server.trim() !== DEFAULT_SERVER ? (
-                <Btn title="Use the normal server" kind="ghost" onPress={() => setServer(DEFAULT_SERVER)} style={{ alignSelf: "flex-start" }} />
-              ) : null}
+              <View style={{ gap: 8 }}>
+                <Text style={{ fontSize: 14, fontWeight: "700", color: L.muted }}>Quick select server</Text>
+                {ADVANCED_SERVERS.map((srv) => {
+                  const active = (normaliseServer(server) ?? server.trim()) === (normaliseServer(srv) ?? srv);
+                  return (
+                    <Btn
+                      key={srv}
+                      title={srv}
+                      kind={active ? "primary" : "secondary"}
+                      onPress={() => {
+                        setServerError(null);
+                        setServer(srv);
+                      }}
+                      disabled={busy}
+                    />
+                  );
+                })}
+                {server.trim() !== DEFAULT_SERVER ? (
+                  <Btn
+                    title="Use the normal server"
+                    kind="ghost"
+                    onPress={() => {
+                      setServerError(null);
+                      setServer(DEFAULT_SERVER);
+                    }}
+                    disabled={busy}
+                    style={{ alignSelf: "flex-start" }}
+                  />
+                ) : null}
+              </View>
             </Card>
           ) : null}
         </View>

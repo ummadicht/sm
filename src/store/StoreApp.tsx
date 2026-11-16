@@ -307,9 +307,7 @@ function Root() {
   const restore = useCallback(async () => {
     setPhase({ kind: "booting" });
     const saved = await loadSaved();
-    // In the browser the server is always the page's own origin (same-origin: no
-    // CORS, and the desk hand-off cookie lands where the desk is).
-    const base = (IS_WEB ? null : saved.server) || DEFAULT_SERVER;
+    const base = saved.server || DEFAULT_SERVER;
     setServer(base);
     if (saved.deviceToken) {
       // A store tablet never keeps a person signed in across a restart.
