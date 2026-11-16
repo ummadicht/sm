@@ -120,30 +120,30 @@ function serveApp(req, res, app, rest, t0) {
 }
 
 /** Everything that isn't a web app goes to the SwapUp server untouched. */
-function proxy(req, res, t0) {
-  const isHttps = UPSTREAM.protocol === "https:";
+function proxy(req, res, t0, targetUpstream = UPSTREAM, targetPath = req.url) {
+  const isHttps = targetUpstream.protocol === "https:";
   const headers = { ...req.headers };
-  headers.host = UPSTREAM.host;
+  headers.host = targetUpstream.host;
   headers["x-forwarded-host"] = req.headers.host || `localhost:${PORT}`;
   headers["x-forwarded-proto"] = isHttps ? "https" : "http";
   headers["x-forwarded-for"] = [req.headers["x-forwarded-for"], req.socket.remoteAddress].filter(Boolean).join(", ");
   const client = isHttps ? https : http;
   const defaultPort = isHttps ? 443 : 80;
   const up = client.request(
-    { protocol: UPSTREAM.protocol, hostname: UPSTREAM.hostname, port: UPSTREAM.port || defaultPort, method: req.method, path: req.url, headers },
+    { protocol: targetUpstream.protocol, hostname: targetUpstream.hostname, port: targetUpstream.port || defaultPort, method: req.method, path: targetPath, headers },
     (ur) => {
       const out = { ...ur.headers };
       // An absolute redirect to the upstream origin → keep the browser on this origin.
-      if (typeof out.location === "string" && out.location.startsWith(UPSTREAM.origin)) {
-        out.location = out.location.slice(UPSTREAM.origin.length) || "/";
+      if (typeof out.location === "string" && out.location.startsWith(targetUpstream.origin)) {
+        out.location = out.location.slice(targetUpstream.origin.length) || "/";
       }
       res.writeHead(ur.statusCode || 502, out);
       ur.pipe(res);
-      ur.on("end", () => log(req, ur.statusCode, t0, "(proxied)"));
+      ur.on("end", () => log(req, ur.statusCode, t0, `(proxied → ${targetUpstream.host})`));
     }
   );
   up.on("error", (e) => {
-    if (!res.headersSent) send(res, 502, `Can't reach the SwapUp server at ${UPSTREAM.origin} (${e.code || e.message}). Is \`npm run dev\` running there?\n`);
+    if (!res.headersSent) send(res, 502, `Can't reach the SwapUp server at ${targetUpstream.origin} (${e.code || e.message}). Is \`npm run dev\` running there?\n`);
     else res.destroy();
     log(req, 502, t0, `(${e.code || e.message})`);
   });
@@ -160,6 +160,19 @@ const server = http.createServer((req, res) => {
     res.writeHead(302, { location: `/app/store/${search}`, "cache-control": "no-store" });
     res.end();
     return log(req, 302, t0, "(root → /app/store/)");
+  }
+  const upMatch = pathname.match(/^\/_upstream\/([^/]+)(\/.*)?$/);
+  if (upMatch) {
+    try {
+      const customOrigin = new URL(decodeURIComponent(upMatch[1]));
+      if (customOrigin.protocol === "http:" || customOrigin.protocol === "https:") {
+        const restPath = (upMatch[2] || "/") + search;
+        return proxy(req, res, t0, customOrigin, restPath);
+      }
+    } catch {
+      send(res, 400, "Bad upstream origin");
+      return log(req, 400, t0);
+    }
   }
   for (const app of APPS) {
     const base = `/app/${app}`;

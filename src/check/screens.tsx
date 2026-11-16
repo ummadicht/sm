@@ -35,20 +35,6 @@ import { SERVER_DECIDES } from "../diagnostics/auto/plan";
 import { MAX_TEST_ATTEMPTS, resolveInteractiveAttempt } from "../diagnostics/auto/retry";
 import { type CustomerReport } from "./report";
 import { PRIVACY_LINE } from "./copy";
-import * as Device from "expo-device";
-import * as NetInfo from "expo-network";
-import { DEFAULT_SERVER } from "../shared/config";
-import { QR } from "../store/QR";
-import {
-  HOTSPOT_HINT,
-  HOTSPOT_OFF_TEXT,
-  WEB_CHECK_HINT,
-  checkWebUrl,
-  currentDeviceHotspot,
-  wifiQr,
-  type HotspotConfig,
-} from "../store/hotspot";
-import { loadHotspot, saveHotspot } from "../store/storage";
 
 /* ─────────────────────────── shared bits ─────────────────────────── */
 
@@ -111,32 +97,10 @@ export function JoinScreen({
   const [scanning, setScanning] = useState(false);
   const [scanNote, setScanNote] = useState<string | null>(null);
   const [wifiHelp, setWifiHelp] = useState(false);
-  const [hotspot, setHotspot] = useState<HotspotConfig | null>(null);
   const [perm, requestPerm] = useCameraPermissions();
   const handled = useRef(false);
   const valid = isValidCode(code);
   const typed = code.length > 0;
-  const hotspotQr = useMemo(() => (hotspot ? wifiQr(hotspot) : null), [hotspot]);
-  const webLink = useMemo(() => checkWebUrl(DEFAULT_SERVER, valid ? code : null), [valid, code]);
-
-  useEffect(() => {
-    void loadHotspot().then((h) => {
-      if (h) setHotspot(h);
-    });
-  }, []);
-
-  async function generateHotspot() {
-    const ip = await NetInfo.getIpAddressAsync().catch(() => null);
-    const label = [Device.brand, Device.modelName].filter(Boolean).join("-") || Device.modelName || null;
-    const cfg = currentDeviceHotspot(label, ip);
-    setHotspot(cfg);
-    await saveHotspot(cfg);
-  }
-
-  async function switchOffHotspot() {
-    setHotspot(null);
-    await saveHotspot(null);
-  }
 
   async function startScan() {
     setScanNote(null);
@@ -224,32 +188,6 @@ export function JoinScreen({
       />
       {scanNote ? <Notice tone="warn" style={{ marginTop: 12 }}>{scanNote}</Notice> : null}
       {error ? <Notice tone="fail" style={{ marginTop: 12 }}>{error}</Notice> : null}
-      <View style={{ marginTop: 16, padding: 14, borderRadius: 14, backgroundColor: P.surface, borderWidth: 1, borderColor: P.line, gap: 10, alignItems: "center" }}>
-        <Label>Current device hotspot</Label>
-        <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
-          <PillButton title="Generate hotspot QR" size="sm" arrow={false} onPress={() => void generateHotspot()} />
-          <PillButton title="Switch off hotspot" kind="outline" size="sm" arrow={false} disabled={!hotspot} onPress={() => void switchOffHotspot()} />
-        </View>
-        {hotspot && hotspotQr ? (
-          <>
-            <Caption>{HOTSPOT_HINT}</Caption>
-            <QR value={hotspotQr} size={140} />
-            <Text style={{ fontSize: 16, fontWeight: "800", color: P.ink }} selectable>
-              {hotspot.ssid}
-              {hotspot.password ? ` · Password: ${hotspot.password}` : ""}
-            </Text>
-          </>
-        ) : (
-          <Caption>{HOTSPOT_OFF_TEXT}</Caption>
-        )}
-      </View>
-      <View style={{ marginTop: 12, padding: 14, borderRadius: 14, backgroundColor: P.surface, borderWidth: 1, borderColor: P.line, gap: 6 }}>
-        <Label>Web link (no app download)</Label>
-        <Caption>{WEB_CHECK_HINT}</Caption>
-        <Text style={{ fontSize: 14, fontWeight: "700", color: P.primary }} selectable>
-          {webLink}
-        </Text>
-      </View>
       <Sheet
         visible={wifiHelp}
         onClose={() => setWifiHelp(false)}
@@ -337,12 +275,25 @@ export function RunnerScreen({
   const index = current ? queue.indexOf(current) : queue.length;
   const [attempt, setAttempt] = useState(1);
   const [attemptNotice, setAttemptNotice] = useState<{ text: string; tone: "warn" | "fail" } | null>(null);
+  const submittingRef = useRef(false);
+  const failTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentId = current?.id ?? null;
 
   useEffect(() => {
     setAttempt(1);
     setAttemptNotice(null);
+    submittingRef.current = false;
+    if (failTimerRef.current) {
+      clearTimeout(failTimerRef.current);
+      failTimerRef.current = null;
+    }
   }, [currentId, rerunIndex]);
+
+  useEffect(() => {
+    return () => {
+      if (failTimerRef.current) clearTimeout(failTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!current) onAllDone();
@@ -352,7 +303,7 @@ export function RunnerScreen({
     r: Outcome,
     detail?: Record<string, string | number | boolean | null> | null
   ) => {
-    if (!current) return;
+    if (!current || submittingRef.current) return;
     const { durationSec, ...rest } = (detail ?? {}) as Record<string, string | number | boolean | null>;
     void durationSec;
     const res = resolveInteractiveAttempt(r, attempt, rest);
@@ -361,9 +312,11 @@ export function RunnerScreen({
       if (res.message) setAttemptNotice({ text: res.message, tone: "warn" });
       return;
     }
+    submittingRef.current = true;
     if (res.message && res.finalOutcome === "fail") {
       setAttemptNotice({ text: res.message, tone: "fail" });
-      setTimeout(() => {
+      failTimerRef.current = setTimeout(() => {
+        failTimerRef.current = null;
         onResult(current.id, res.finalOutcome, Object.keys(res.finalDetail).length ? res.finalDetail : null);
         if (only) setRerunIndex((i) => i + 1);
       }, 900);

@@ -61,11 +61,13 @@ const NO_STORE: { cache?: "no-store" } = typeof document !== "undefined" ? { cac
 
 export function createClient(server: string, auth: Auth, timeoutMs = 15_000) {
   const base = server.replace(/\/$/, "");
+  const winOrigin = typeof window !== "undefined" && window.location?.origin ? window.location.origin : null;
+  const fetchBase = winOrigin && base !== winOrigin ? `${winOrigin}/_upstream/${encodeURIComponent(base)}` : base;
   async function call<T>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown, opts?: CallOptions): Promise<T> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), opts?.timeoutMs ?? timeoutMs);
     try {
-      const res = await fetch(base + path, {
+      const res = await fetch(fetchBase + path, {
         method,
         signal: ctrl.signal,
         ...(method === "GET" ? NO_STORE : {}),

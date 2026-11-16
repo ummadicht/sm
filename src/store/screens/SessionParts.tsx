@@ -48,7 +48,7 @@ function openBrowserCheck(url: string) {
 }
 
 async function detectCurrentDeviceHotspot(): Promise<WifiInfo> {
-  const ip = await NetInfo.getIpAddressAsync().catch(() => null);
+  const ip = IS_WEB ? null : await NetInfo.getIpAddressAsync().catch(() => null);
   const label = [Device.brand, Device.modelName].filter(Boolean).join("-") || Device.modelName || null;
   const cfg = currentDeviceHotspot(label, ip);
   return { ...cfg, qr: wifiQr(cfg) };

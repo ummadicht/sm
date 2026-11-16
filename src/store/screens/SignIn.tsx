@@ -61,6 +61,7 @@ function SignInForm({
   const { wide, pad } = useLayout();
   const [server, setServer] = useState(initialServer);
   const [advanced, setAdvanced] = useState(initialServer !== DEFAULT_SERVER);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -169,34 +170,70 @@ function SignInForm({
                 hint={`Testing only. Normal: ${DEFAULT_SERVER}`}
                 editable={!busy}
               />
-              <View style={{ gap: 8 }}>
-                <Text style={{ fontSize: 14, fontWeight: "700", color: L.muted }}>Quick select server</Text>
-                {ADVANCED_SERVERS.map((srv) => {
-                  const active = (normaliseServer(server) ?? server.trim()) === (normaliseServer(srv) ?? srv);
-                  return (
-                    <Btn
-                      key={srv}
-                      title={srv}
-                      kind={active ? "primary" : "secondary"}
-                      onPress={() => {
-                        setServerError(null);
-                        setServer(srv);
-                      }}
-                      disabled={busy}
-                    />
-                  );
-                })}
-                {server.trim() !== DEFAULT_SERVER ? (
-                  <Btn
-                    title="Use the normal server"
-                    kind="ghost"
-                    onPress={() => {
-                      setServerError(null);
-                      setServer(DEFAULT_SERVER);
+              <View style={{ gap: 6 }}>
+                <Text style={{ fontSize: 16, fontWeight: "700", color: L.ink }}>Select server</Text>
+                <Pressable
+                  onPress={() => !busy && setDropdownOpen((o) => !o)}
+                  accessibilityRole="button"
+                  style={({ pressed }) => ({
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    borderWidth: 1,
+                    borderColor: dropdownOpen ? L.primary : L.fieldLine,
+                    borderRadius: 12,
+                    paddingHorizontal: 14,
+                    paddingVertical: 12,
+                    backgroundColor: pressed ? L.surface2 : L.surface,
+                  })}
+                >
+                  <Text style={{ fontSize: 16, color: L.ink, flex: 1 }} numberOfLines={1}>
+                    {server}
+                  </Text>
+                  <Text style={{ fontSize: 16, fontWeight: "700", color: L.muted, marginLeft: 8 }}>
+                    {dropdownOpen ? "▲" : "▼"}
+                  </Text>
+                </Pressable>
+                {dropdownOpen ? (
+                  <View
+                    style={{
+                      borderWidth: 1,
+                      borderColor: L.border,
+                      borderRadius: 12,
+                      backgroundColor: L.surface,
+                      overflow: "hidden",
                     }}
-                    disabled={busy}
-                    style={{ alignSelf: "flex-start" }}
-                  />
+                  >
+                    {[DEFAULT_SERVER, ...ADVANCED_SERVERS].map((srv, idx) => {
+                      const active = (normaliseServer(server) ?? server.trim()) === (normaliseServer(srv) ?? srv);
+                      return (
+                        <Pressable
+                          key={srv}
+                          onPress={() => {
+                            setServerError(null);
+                            setServer(srv);
+                            setDropdownOpen(false);
+                          }}
+                          accessibilityRole="button"
+                          style={({ pressed }) => ({
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            paddingHorizontal: 14,
+                            paddingVertical: 12,
+                            borderTopWidth: idx === 0 ? 0 : 1,
+                            borderTopColor: L.border,
+                            backgroundColor: active ? L.fixBg : pressed ? L.surface2 : L.surface,
+                          })}
+                        >
+                          <Text style={{ fontSize: 15, fontWeight: active ? "700" : "500", color: active ? L.fix : L.ink, flex: 1 }} numberOfLines={1}>
+                            {srv}
+                          </Text>
+                          {active ? <Text style={{ fontSize: 16, fontWeight: "800", color: L.fix, marginLeft: 8 }}>✓</Text> : null}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
                 ) : null}
               </View>
             </Card>
